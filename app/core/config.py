@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,6 +53,12 @@ class Settings(BaseSettings):
 
     timezone: str = "America/Bogota"
     log_level: str = "INFO"
+
+    @field_validator("periodo_inicio", mode="before")
+    @classmethod
+    def _fecha_vacia(cls, valor: object) -> object:
+        # En .env.example la variable viene vacía: eso es "sin configurar".
+        return None if valor == "" else valor
 
 
 settings = Settings()
