@@ -149,3 +149,16 @@ def test_identificar_programa() -> None:
         is PROGRAMAS["ciencias_computacion"]
     )
     assert identificar_programa("9999", None) is None
+
+
+def test_dudas_repetidas_se_omiten() -> None:
+    e = extraccion_ejemplo(
+        documento=None,
+        dudas=[
+            "El documento de identidad no aparece",
+            "Los créditos podrían ser horas",
+        ],
+    )
+    mensajes = _mensajes(e)
+    assert sum("documento" in m.lower() for m in mensajes) == 1
+    assert any("horas" in m for m in mensajes)

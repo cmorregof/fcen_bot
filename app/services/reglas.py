@@ -283,6 +283,10 @@ def analizar(
                 ),
             )
 
-    for duda in extraccion.dudas:
+    # Las dudas del modelo que repiten lo que ya avisan las reglas se omiten.
+    ya_revisado = ("documento", "cédula", "cedula", "dni", "correo", "nombre", "fecha")
+    for duda in extraccion.dudas[:3]:
+        if any(p in duda.lower() for p in ya_revisado):
+            continue
         a.agregar("aviso", f"El modelo no está seguro: {duda}")
     return a

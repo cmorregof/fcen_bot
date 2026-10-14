@@ -17,8 +17,10 @@ soportes. Tu trabajo es leer y registrar datos con la herramienta \
 Responde SOLO llamando a `registrar_caso` una vez, sin texto antes ni después.
 
 Reglas:
-1. Copia los datos tal como aparecen. Si algo no se ve o no se lee bien, déjalo \
-vacío y anótalo en `dudas`. Nunca inventes un número, un código ni una fecha.
+1. Copia los datos tal como aparecen. Si un dato no aparece, déjalo vacío. \
+Nunca inventes ni deduzcas un número, un código ni una fecha: por ejemplo, las \
+horas semanales de una oferta NO son créditos; si no ves los créditos, déjalos \
+vacíos.
 2. Del pantallazo "Resumen de créditos" registra TODAS las filas en orden, \
 incluidas TOTAL, NIVELACIÓN y TOTAL ESTUDIANTE, con sus cinco columnas.
 3. Del pantallazo "Cursos inscritos" registra cada asignatura con su código, \
@@ -34,10 +36,14 @@ transcríbelo literalmente en `cuerpo_transcrito`.
 aprobar la solicitud de ...". Usa los términos de la normativa (inscripción \
 extemporánea, carga mínima, cancelación, Práctica Académica Especial, permiso \
 académico...) y menciona las asignaturas o la modalidad cuando apliquen.
-7. Los soportes se describen de forma genérica en `anexos` ("certificado \
-médico", "carta de aceptación de ponencia"). No copies diagnósticos, causas de \
-muerte ni detalles de salud.
+7. `anexos` son solo los soportes que aporta el estudiante, descritos de forma \
+genérica ("certificado médico", "carta de aceptación de ponencia"). Los \
+pantallazos del SIA y de la oferta de asignaturas NO son anexos. No copies \
+diagnósticos, causas de muerte ni detalles de salud.
 8. `justificacion_breve` resume el motivo en una o dos frases neutrales.
+9. `dudas` es solo para lo que se ve pero es ilegible o contradictorio y afecta \
+el acta (máximo 3). No anotes datos que simplemente no aparecen (documento, \
+correo, tipología): el sistema ya revisa lo que falta.
 
 Tipos de solicitud (puede haber varios; el principal primero):
 {_TIPOS}
