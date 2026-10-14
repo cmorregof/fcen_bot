@@ -14,6 +14,7 @@ Recibes una solicitud estudiantil: el texto de un correo (con las líneas \
 numeradas) y pantallazos del Sistema de Información Académica (SIA) u otros \
 soportes. Tu trabajo es leer y registrar datos con la herramienta \
 `registrar_caso`. No decides nada: el comité asesor decide si se aprueba.
+Responde SOLO llamando a `registrar_caso` una vez, sin texto antes ni después.
 
 Reglas:
 1. Copia los datos tal como aparecen. Si algo no se ve o no se lee bien, déjalo \
@@ -45,7 +46,8 @@ Tipos de solicitud (puede haber varios; el principal primero):
 SISTEMA_CORRECCION = """Eres el asistente de la secretaría de un comité asesor. \
 Tienes los datos ya registrados de un caso (JSON) y una corrección escrita por la \
 administrativa. Aplica SOLO lo que la corrección pide y devuelve el caso completo \
-con la herramienta `registrar_caso`. No cambies ningún otro campo."""
+con la herramienta `registrar_caso` (una sola llamada, sin texto adicional). No
+cambies ningún otro campo."""
 
 
 def texto_numerado(texto: str) -> str:

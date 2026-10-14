@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
@@ -132,7 +133,10 @@ class ClaudeEstructurador:
                 max_tokens=max_tokens,
                 system=sistema,
                 tools=[herramienta],
-                tool_choice={"type": "tool", "name": nombre_herramienta},
+                # Los modelos recientes no aceptan forzar una herramienta
+                # ("tool"/"any"). Con "auto" + la instrucción del sistema el
+                # modelo la usa; si responde con texto, se lee el JSON de ahí.
+                tool_choice={"type": "auto"},
                 messages=[{"role": "user", "content": contenido}],
             )
         except Exception as exc:  # red, cuota, clave inválida
@@ -147,21 +151,42 @@ class ClaudeEstructurador:
             return Resultado(
                 None, uso_in, uso_out, error="La respuesta del modelo quedó incompleta."
             )
+        entrada: Any = None
         for bloque in resp.content:
             if getattr(bloque, "type", None) == "tool_use":
                 entrada = getattr(bloque, "input", None)
-                try:
-                    objeto = modelo_salida.model_validate(entrada)
-                except ValidationError as exc:
-                    logger.warning("Salida del modelo no válida: %s", exc)
-                    return Resultado(
-                        None,
-                        uso_in,
-                        uso_out,
-                        error="El modelo devolvió datos no válidos.",
-                    )
-                return Resultado(objeto, uso_in, uso_out)
-        return Resultado(None, uso_in, uso_out, error="El modelo no registró el caso.")
+                break
+        if entrada is None:
+            texto = "".join(
+                str(getattr(b, "text", ""))
+                for b in resp.content
+                if getattr(b, "type", None) == "text"
+            )
+            entrada = json_del_texto(texto)
+        if entrada is None:
+            return Resultado(
+                None, uso_in, uso_out, error="El modelo no registró el caso."
+            )
+        try:
+            objeto = modelo_salida.model_validate(entrada)
+        except ValidationError as exc:
+            logger.warning("Salida del modelo no válida: %s", exc)
+            return Resultado(
+                None, uso_in, uso_out, error="El modelo devolvió datos no válidos."
+            )
+        return Resultado(objeto, uso_in, uso_out)
+
+
+def json_del_texto(texto: str) -> Any:
+    """El primer objeto JSON del texto (con o sin bloque ```json)."""
+    inicio = texto.find("{")
+    fin = texto.rfind("}")
+    if inicio == -1 or fin <= inicio:
+        return None
+    try:
+        return json.loads(texto[inicio : fin + 1])
+    except json.JSONDecodeError:
+        return None
 
 
 def validar(resultado: Resultado, tipo: type[_M]) -> _M | None:

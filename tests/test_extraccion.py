@@ -84,3 +84,56 @@ def test_errores_de_configuracion_se_explican() -> None:
 
     assert "workspace" in explicar_error(RuntimeError("not scoped to a workspace"))
     assert "créditos" in explicar_error(RuntimeError("Your credit balance is too low"))
+
+
+async def _respuesta(contenido: list[object], stop: str = "end_turn") -> object:
+    from types import SimpleNamespace
+
+    from app.integrations.claude import ClaudeEstructurador
+
+    est = ClaudeEstructurador("x", 1)
+    llamadas: list[dict[str, object]] = []
+
+    async def crear(**kw: object) -> SimpleNamespace:
+        llamadas.append(kw)
+        return SimpleNamespace(
+            stop_reason=stop,
+            usage=SimpleNamespace(input_tokens=10, output_tokens=20),
+            content=contenido,
+        )
+
+    est._client.messages.create = crear  # type: ignore[method-assign]
+    r = await est.extraer(
+        sistema="s",
+        texto="t",
+        imagenes=[],
+        modelo_salida=ExtraccionCaso,
+        nombre_herramienta="registrar_caso",
+        modelo="m",
+        max_tokens=10,
+    )
+    assert llamadas[0]["tool_choice"] == {"type": "auto"}
+    return r
+
+
+async def test_lee_la_herramienta() -> None:
+    from types import SimpleNamespace
+
+    bloque = SimpleNamespace(type="tool_use", input={"documento": "1000000001"})
+    r = await _respuesta([SimpleNamespace(type="thinking"), bloque])
+    assert r.objeto is not None and r.objeto.documento == "1000000001"  # type: ignore[attr-defined]
+
+
+async def test_si_responde_con_texto_lee_el_json() -> None:
+    from types import SimpleNamespace
+
+    texto = 'Aquí está:\n```json\n{"documento": "1000000002"}\n```'
+    r = await _respuesta([SimpleNamespace(type="text", text=texto)])
+    assert r.objeto is not None and r.objeto.documento == "1000000002"  # type: ignore[attr-defined]
+
+
+async def test_sin_herramienta_ni_json_es_error() -> None:
+    from types import SimpleNamespace
+
+    r = await _respuesta([SimpleNamespace(type="text", text="No puedo.")])
+    assert r.objeto is None  # type: ignore[attr-defined]

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     anthropic_workspace_id: str = ""
     extraction_model: str = "claude-sonnet-5-5"
     correction_model: str = "claude-sonnet-5-5"
-    extraction_max_tokens: int = 4000
+    extraction_max_tokens: int = 8000
     extraction_timeout_seconds: float = 90.0
     # Lado mayor de las imágenes antes de enviarlas al modelo (controla tokens).
     max_image_side: int = 1568
