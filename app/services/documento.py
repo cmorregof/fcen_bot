@@ -1,9 +1,11 @@
 """Borrador del oficio al Consejo de Facultad, en .docx, con la plantilla única.
 
-Todo el texto se arma con reglas a partir de los datos ya registrados; aquí no
-se llama al modelo. La estructura de cada caso sigue la de las actas de
-Ingeniería Física: identificación y cita del correo, ANÁLISIS, pantallazos,
-RECOMENDACIÓN, tabla de asignaturas y la norma textual.
+El formato es el del oficio del Comité Asesor de Ciencias de la Computación:
+los estilos «FCEN …» de la plantilla copian sus párrafos (Ancízar Sans 11 pt,
+interlineado 1,15, sangría francesa en cada caso, la cita del correo dentro del
+mismo párrafo). Al caso se le agregan el ANÁLISIS y la norma textual que usa
+Ingeniería Física. Todo el texto sale de los datos ya registrados; aquí no se
+llama al modelo.
 """
 
 from __future__ import annotations
@@ -17,11 +19,10 @@ from pathlib import Path
 
 from docx import Document
 from docx.document import Document as DocumentoDocx
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX, WD_TAB_ALIGNMENT
-from docx.shared import Cm, Emu, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
+from docx.shared import Cm, Pt, RGBColor
 from docx.text.paragraph import Paragraph
-from lxml import etree
+from docx.text.run import Run
 from PIL import Image as PILImage
 
 from app.core.programas import Programa
@@ -134,59 +135,41 @@ class DatosOficio:
 # Utilidades de formato
 # ---------------------------------------------------------------------------
 
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
-def _parrafo(
-    doc: DocumentoDocx,
-    texto: str = "",
-    *,
-    negrita: bool = False,
-    cursiva: bool = False,
-    tam: float = 10,
-    alinear: WD_ALIGN_PARAGRAPH | None = WD_ALIGN_PARAGRAPH.JUSTIFY,
-    sangria_cm: float = 0,
-    despues: float = 6,
-    subrayado: bool = False,
-) -> Paragraph:
-    p = doc.add_paragraph()
-    if alinear is not None:
-        p.alignment = alinear
-    fmt = p.paragraph_format
-    fmt.space_after = Pt(despues)
-    fmt.space_before = Pt(0)
-    if sangria_cm:
-        fmt.left_indent = Cm(sangria_cm)
+
+def _p(doc: DocumentoDocx, estilo: str, texto: str = "", **formato: bool) -> Paragraph:
+    p = doc.add_paragraph(style=estilo)
     if texto:
-        r = p.add_run(limpiar(texto))
-        r.bold = negrita
-        r.italic = cursiva
-        r.underline = subrayado
-        r.font.size = Pt(tam)
+        _r(p, texto, **formato)
     return p
 
 
-def _run(
+def _r(
     p: Paragraph,
     texto: str,
     *,
     negrita: bool = False,
     cursiva: bool = False,
-    tam: float = 10,
-) -> None:
+    subrayado: bool = False,
+) -> Run:
     r = p.add_run(limpiar(texto))
-    r.bold = negrita
-    r.italic = cursiva
-    r.font.size = Pt(tam)
+    if negrita:
+        r.bold = True
+    if cursiva:
+        r.italic = True
+    if subrayado:
+        r.underline = True
+    return r
 
 
-def _vineta(doc: DocumentoDocx, texto: str) -> None:
-    p = _parrafo(doc, despues=2, sangria_cm=1.0)
-    p.paragraph_format.first_line_indent = Cm(-0.5)
-    _run(p, "•  " + texto)
+def _vacio(doc: DocumentoDocx, estilo: str = "FCEN Destinatario", n: int = 1) -> None:
+    for _ in range(n):
+        doc.add_paragraph(style=estilo)
 
 
 def _reemplazar_marcadores(doc: DocumentoDocx, valores: dict[str, str]) -> None:
     """Reemplaza {{MARCADOR}} en encabezados y pies (incluidos cuadros de texto)."""
-    w_t = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
     vistos: set[int] = set()
     for seccion in doc.sections:
         for parte in (
@@ -199,21 +182,17 @@ def _reemplazar_marcadores(doc: DocumentoDocx, valores: dict[str, str]) -> None:
             if id(elemento) in vistos:
                 continue
             vistos.add(id(elemento))
-            for t in elemento.iter(w_t):
+            for t in elemento.iter(f"{_W}t"):
                 if t.text and "{{" in t.text:
                     for clave, valor in valores.items():
                         t.text = t.text.replace("{{" + clave + "}}", valor)
 
 
-def _sombrear(celda: object, color: str) -> None:
-    tc_pr = celda._tc.get_or_add_tcPr()  # type: ignore[attr-defined]
-    shd = etree.SubElement(
-        tc_pr, "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}shd"
-    )
-    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-    shd.set(f"{w}val", "clear")
-    shd.set(f"{w}color", "auto")
-    shd.set(f"{w}fill", color)
+def _ancho_imagen(ruta: Path) -> Cm:
+    """Tamaño del pantallazo como en pantalla (96 ppp), sin pasar de 15 cm."""
+    with PILImage.open(ruta) as im:
+        ancho_px = im.width
+    return Cm(min(15.0, max(5.0, ancho_px * 2.54 / 96)))
 
 
 # ---------------------------------------------------------------------------
@@ -223,71 +202,53 @@ def _sombrear(celda: object, color: str) -> None:
 
 def _encabezado_oficio(doc: DocumentoDocx, datos: DatosOficio) -> None:
     if datos.borrador:
-        p = _parrafo(doc, alinear=WD_ALIGN_PARAGRAPH.CENTER, despues=10)
-        r = p.add_run("BORRADOR · pendiente de revisión del Comité Asesor")
-        r.bold = True
-        r.font.size = Pt(10)
+        p = _p(doc, "FCEN Destinatario")
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = _r(p, "BORRADOR · pendiente de revisión del Comité Asesor", negrita=True)
+        r.font.size = Pt(9)
         r.font.color.rgb = RGBColor(0xB0, 0x00, 0x20)
+        _vacio(doc)
 
-    p = _parrafo(doc, alinear=WD_ALIGN_PARAGRAPH.LEFT, despues=14)
-    seccion = doc.sections[0]
-    ancho = Emu(
-        int(seccion.page_width or 0)
-        - int(seccion.left_margin or 0)
-        - int(seccion.right_margin or 0)
+    radicado = datos.radicado or (
+        f"{datos.programa.radicado_prefijo or 'Mz.FCEN.1.0__'}-___-{datos.fecha:%y}"
     )
-    p.paragraph_format.tab_stops.add_tab_stop(ancho, WD_TAB_ALIGNMENT.RIGHT)
-    _run(p, f"Manizales, {fecha_larga(datos.fecha)}")
-    radicado = (
-        datos.radicado
-        or f"{datos.programa.radicado_prefijo or 'Mz.FCEN.1.0__'}-___-{datos.fecha:%y}"
-    )
-    _run(p, f"\t[{radicado}]", negrita=True)
+    p = _p(doc, "FCEN Fecha", f"Manizales, {fecha_larga(datos.fecha)}")
+    _r(p, f"\t[{radicado.upper()}]", negrita=True)
+    _vacio(doc, n=2)
 
-    for i, linea in enumerate(
-        (
-            "Señores",
-            "CONSEJO DE FACULTAD",
-            "Facultad de Ciencias Exactas y Naturales",
-            "Universidad Nacional de Colombia",
-            "Sede Manizales",
-        )
+    _p(doc, "FCEN Destinatario", "Señores")
+    _p(doc, "FCEN Destinatario", "CONSEJO DE FACULTAD", negrita=True)
+    for linea in (
+        "Facultad de Ciencias Exactas y Naturales",
+        "Universidad Nacional de Colombia",
+        "Sede Manizales",
     ):
-        _parrafo(
-            doc,
-            linea,
-            negrita=(i == 1),
-            alinear=WD_ALIGN_PARAGRAPH.LEFT,
-            despues=0 if i < 4 else 14,
-        )
+        _p(doc, "FCEN Destinatario", linea)
+    _vacio(doc, n=2)
 
     acta = datos.numero_acta or "____"
-    _parrafo(
+    _p(
         doc,
-        f"Asunto: {datos.programa.comite} — Acta {acta} de {datos.fecha.year}",
-        alinear=WD_ALIGN_PARAGRAPH.LEFT,
-        despues=10,
+        "FCEN Texto",
+        f"Asunto: {datos.programa.comite} Acta {acta} de {datos.fecha.year}",
     )
-    _parrafo(doc, "Reciban un cordial y respetuoso saludo.", despues=10)
+    _vacio(doc, "FCEN Texto")
+    _p(doc, "FCEN Texto", "Reciban un cordial y respetuoso saludo.")
+    _vacio(doc, "FCEN Texto")
     fecha_sesion = datos.fecha_sesion or "____"
-    _parrafo(
+    _p(
         doc,
+        "FCEN Texto",
         f"El {datos.programa.comite}, en sesión realizada el día {fecha_sesion}, "
         f"según consta en el Acta No. {acta}, llevó a cabo el estudio, análisis y "
         "revisión de los casos relacionados a continuación. Luego de la "
         "correspondiente deliberación y de acuerdo con las disposiciones académicas "
         "y normativas vigentes, el Comité emitió las recomendaciones que se "
         "presentan en el presente documento:",
-        despues=12,
     )
-    _parrafo(
-        doc,
-        "CASOS ESTUDIANTILES",
-        negrita=True,
-        subrayado=True,
-        alinear=WD_ALIGN_PARAGRAPH.LEFT,
-        despues=10,
-    )
+    _vacio(doc, "FCEN Cuerpo")
+    _p(doc, "FCEN Titulo", "CASOS ESTUDIANTILES")
+    _vacio(doc, "FCEN Cuerpo")
 
 
 def titulo_seccion(extraccion: ExtraccionCaso) -> str:
@@ -299,28 +260,16 @@ def titulo_seccion(extraccion: ExtraccionCaso) -> str:
     return ("SOLICITUD DE " + ", ".join(titulos[:-1]) + " Y " + titulos[-1]).upper()
 
 
-def _cita(doc: DocumentoDocx, cuerpo: str) -> None:
-    bloques = [b.strip() for b in cuerpo.replace("\r", "").split("\n\n") if b.strip()]
-    if not bloques:
-        return
-    for i, bloque in enumerate(bloques):
-        # Con saltos de línea (firmas, listas) el justificado estira las palabras.
-        alinear = (
-            WD_ALIGN_PARAGRAPH.LEFT if "\n" in bloque else WD_ALIGN_PARAGRAPH.JUSTIFY
-        )
-        p = _parrafo(doc, sangria_cm=1.25, despues=4, alinear=alinear)
-        texto = bloque
-        if i == 0:
-            texto = "“" + texto
-        if i == len(bloques) - 1:
-            texto = texto + "”"
-        lineas = texto.split("\n")
-        for j, linea in enumerate(lineas):
-            r = p.add_run(limpiar(linea.strip()))
-            r.italic = True
-            r.font.size = Pt(10)
-            if j < len(lineas) - 1:
-                r.add_break()
+def _bloques(cuerpo: str) -> list[str]:
+    return [b.strip() for b in cuerpo.replace("\r", "").split("\n\n") if b.strip()]
+
+
+def _texto_con_saltos(p: Paragraph, texto: str, *, cursiva: bool) -> None:
+    lineas = [ln.strip() for ln in texto.split("\n")]
+    for j, linea in enumerate(lineas):
+        r = _r(p, linea, cursiva=cursiva)
+        if j < len(lineas) - 1:
+            r.add_break()
 
 
 def _bullets_analisis(item: CasoDocumento, periodo: str) -> list[str]:
@@ -370,10 +319,6 @@ def _bullets_analisis(item: CasoDocumento, periodo: str) -> list[str]:
         vinetas.append(
             f"Modalidad de Trabajo de Grado solicitada: {e.modalidad_trabajo_grado}"
         )
-    estudiante = (
-        "del estudiante" if e.tratamiento == "El estudiante" else "de la estudiante"
-    )
-    vinetas.append(f"Se anexa la solicitud {estudiante}")
     for anexo in e.anexos:
         vinetas.append(f"Se anexa {anexo}")
     return vinetas
@@ -384,93 +329,55 @@ def texto_recomendacion(
 ) -> tuple[str, str, str]:
     """(antes, sentido, después) para poder resaltar el sentido si está pendiente."""
     e = item.extraccion
-    al = "al estudiante" if e.tratamiento == "El estudiante" else "a la estudiante"
     sentido = {
-        Sentido.APROBAR: "aprobar",
-        Sentido.NO_APROBAR: "no aprobar",
+        Sentido.APROBAR: "APROBAR",
+        Sentido.NO_APROBAR: "NO APROBAR",
         Sentido.PENDIENTE: "[APROBAR / NO APROBAR]",
     }[item.caso.sentido]
     objeto = e.objeto_solicitud.strip().rstrip(".") or "lo solicitado"
-    nombre = (e.nombre_estudiante or "____").strip()
-    antes = (
-        f"El {programa.comite} recomienda al Consejo de Facultad de Ciencias Exactas "
-        "y Naturales "
-    )
-    despues = f" la solicitud de {objeto} {al} {nombre}."
-    return antes, sentido, despues
+    return "El Comité Asesor recomienda ", sentido, f" la solicitud de {objeto}."
 
 
-def _tabla_asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
-    asignaturas = item.extraccion.asignaturas
-    if not asignaturas:
-        return
-    tabla = doc.add_table(rows=1, cols=4)
-    tabla.style = "Table Grid" if "Table Grid" in [s.name for s in doc.styles] else None
-    tabla.alignment = WD_TABLE_ALIGNMENT.CENTER
-    for celda, titulo in zip(
-        tabla.rows[0].cells,
-        ("Trámite", "Código", "Asignatura", "Créditos"),
-        strict=True,
-    ):
-        celda.text = ""
-        r = celda.paragraphs[0].add_run(titulo)
-        r.bold = True
-        r.font.size = Pt(9)
-        _sombrear(celda, "E7E6E6")
-    etiquetas = {
-        "inscribir": "Inscripción",
-        "cancelar": "Cancelación",
-        "apertura": "Apertura",
-    }
-    for asig in asignaturas:
-        fila = tabla.add_row().cells
-        valores = (
-            etiquetas[asig.accion],
-            asig.codigo or "",
-            asig.nombre,
-            str(asig.creditos) if asig.creditos is not None else "",
-        )
-        for celda, valor in zip(fila, valores, strict=True):
-            celda.text = ""
-            r = celda.paragraphs[0].add_run(limpiar(valor))
-            r.font.size = Pt(9)
-    _bordes_tabla(tabla)
-    _parrafo(doc, despues=4)
+_TRAMITE = {
+    "inscribir": "Inscripción",
+    "cancelar": "Cancelación",
+    "apertura": "Apertura",
+}
 
 
-def _bordes_tabla(tabla: object) -> None:
-    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-    tbl_pr = tabla._tbl.tblPr  # type: ignore[attr-defined]
-    bordes = etree.SubElement(tbl_pr, f"{w}tblBorders")
-    for lado in ("top", "left", "bottom", "right", "insideH", "insideV"):
-        b = etree.SubElement(bordes, f"{w}{lado}")
-        b.set(f"{w}val", "single")
-        b.set(f"{w}sz", "4")
-        b.set(f"{w}color", "808080")
+def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
+    """Como en el oficio de Matemáticas: «Análisis Numérico código 4100802»."""
+    for asig in item.extraccion.asignaturas:
+        p = _p(doc, "FCEN Cuerpo")
+        _r(p, f"{_TRAMITE[asig.accion]}: ")
+        _r(p, asig.nombre, negrita=True)
+        if asig.codigo:
+            _r(p, f" código {asig.codigo}")
+        if asig.creditos is not None:
+            unidad = "crédito" if asig.creditos == 1 else "créditos"
+            _r(p, f" ({asig.creditos} {unidad})")
 
 
 def _normas(doc: DocumentoDocx, normas: list[NormaCitada], borrador: bool) -> None:
     if not normas:
         return
-    _parrafo(doc, "Basados en la normativa:", despues=4)
+    _p(doc, "FCEN Cuerpo", "Basados en la normativa:")
     for norma in normas:
-        p = _parrafo(doc, sangria_cm=1.25, despues=2)
-        _run(p, f"{norma.norma}, {norma.articulo}", negrita=True, cursiva=True, tam=9.5)
-        for k, linea in enumerate(norma.texto.split("\n")):
-            texto = linea
-            if k == 0:
-                texto = "“" + texto
-            if k == len(norma.texto.split("\n")) - 1:
-                texto += "”"
-            _parrafo(doc, texto, cursiva=True, tam=9.5, sangria_cm=1.25, despues=2)
+        _p(doc, "FCEN Norma", f"{norma.norma}, {norma.articulo}", negrita=True)
+        lineas = norma.texto.split("\n")
+        for k, linea in enumerate(lineas):
+            texto = (
+                ("“" if k == 0 else "") + linea + ("”" if k == len(lineas) - 1 else "")
+            )
+            _p(doc, "FCEN Norma", texto)
         if borrador and not norma.verificada:
-            p = _parrafo(doc, sangria_cm=1.25, despues=4)
-            r = p.add_run(
-                "(Texto transcrito de un acta anterior; verificar contra la norma.)"
+            p = _p(doc, "FCEN Norma")
+            r = _r(
+                p, "(Texto transcrito de un acta anterior; verificar contra la norma.)"
             )
             r.font.size = Pt(8)
+            r.italic = False
             r.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
-    _parrafo(doc, despues=6)
 
 
 def _caso(
@@ -484,63 +391,80 @@ def _caso(
     identificado = (
         "identificado" if e.tratamiento == "El estudiante" else "identificada"
     )
-    p = _parrafo(doc, despues=6)
-    _run(p, f"{numero} ", negrita=True)
-    _run(p, f"{e.tratamiento} ")
-    _run(p, (e.nombre_estudiante or "____").upper(), negrita=True)
-    _run(p, f" {identificado} con DNI ")
-    _run(p, e.documento or "____", negrita=True)
-    _run(
-        p,
-        f" efectúa la siguiente solicitud a través del correo electrónico el día "
-        f"{fecha_larga(e.fecha_solicitud)}, así:",
-    )
-    _cita(doc, item.cuerpo_correo)
+    objeto = e.objeto_solicitud.strip().rstrip(".") or "lo que se transcribe"
+    bloques = _bloques(item.cuerpo_correo)
 
-    _parrafo(doc, "ANÁLISIS:", negrita=True, despues=2, alinear=WD_ALIGN_PARAGRAPH.LEFT)
-    for vineta in _bullets_analisis(item, periodo):
-        _vineta(doc, vineta)
-    _parrafo(doc, despues=4)
+    p = _p(doc, "FCEN Caso")
+    _r(p, f"{numero} {(e.nombre_estudiante or '____').upper()}", negrita=True)
+    _r(p, f" {identificado} con ")
+    _r(p, f"DNI No. {e.documento or '____'}", negrita=True)
+    _r(
+        p,
+        f" mediante correo del día {fecha_larga(e.fecha_solicitud)}, solicita "
+        f"{objeto}, justificando que “",
+    )
+    # La cita empieza en el mismo párrafo, como en el oficio original.
+    if bloques:
+        primero = bloques[0] + ("”." if len(bloques) == 1 else "")
+        _texto_con_saltos(p, primero, cursiva=True)
+        for i, bloque in enumerate(bloques[1:], start=2):
+            cita = _p(doc, "FCEN Cita")
+            if "\n" in bloque:  # firmas y listas: sin justificar
+                cita.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            final = "”." if i == len(bloques) else ""
+            _texto_con_saltos(cita, bloque + final, cursiva=True)
+    else:
+        _r(p, "…”.", cursiva=True)
+
+    vinetas = _bullets_analisis(item, periodo)
+    if vinetas:
+        _p(doc, "FCEN Rotulo", "ANÁLISIS:")
+        for vineta in vinetas:
+            _p(doc, "FCEN Vineta", f"•\t{vineta}")
+    _vacio(doc, "FCEN Cuerpo")
+
+    _asignaturas(doc, item)
 
     for ruta in item.imagenes:
         try:
-            doc.add_picture(imagen_reducida(ruta), width=Cm(14))
-            doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p_img = _p(doc, "FCEN Imagen")
+            p_img.add_run().add_picture(
+                imagen_reducida(ruta), width=_ancho_imagen(ruta)
+            )
         except Exception:
-            _parrafo(doc, f"[No se pudo insertar la imagen {ruta.name}]", cursiva=True)
+            _p(doc, "FCEN Cuerpo", f"[No se pudo insertar la imagen {ruta.name}]")
 
     antes, sentido, despues = texto_recomendacion(datos.programa, item)
-    p = _parrafo(doc, despues=8)
-    _run(p, "RECOMENDACIÓN: ", negrita=True)
-    _run(p, antes)
-    r = p.add_run(sentido.upper())
-    r.bold = True
-    r.font.size = Pt(10)
+    p = _p(doc, "FCEN Cuerpo")
+    _r(p, "RECOMENDACIÓN", negrita=True)
+    _r(p, f": {antes}")
+    r = _r(p, sentido, negrita=item.caso.sentido == Sentido.PENDIENTE)
     if item.caso.sentido == Sentido.PENDIENTE:
         r.font.highlight_color = WD_COLOR_INDEX.YELLOW
-    _run(p, despues)
+    _r(p, despues)
 
-    _tabla_asignaturas(doc, item)
     _normas(doc, normas_para(e.tipos, item.caso.programa), datos.borrador)
+    _vacio(doc, "FCEN Cuerpo")
 
 
 def _cierre(doc: DocumentoDocx, datos: DatosOficio) -> None:
-    _parrafo(doc, "Agradecemos su valiosa gestión.", despues=10)
-    _parrafo(doc, "Atentamente,", despues=36)
-    p = _parrafo(doc, alinear=WD_ALIGN_PARAGRAPH.LEFT, despues=0)
-    r = p.add_run("[FIRMA — se agrega al firmar]" if datos.borrador else "")
-    r.font.size = Pt(9)
-    r.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
-    _parrafo(
-        doc,
-        "NOMBRE DEL FIRMANTE",
-        negrita=True,
-        alinear=WD_ALIGN_PARAGRAPH.LEFT,
-        despues=0,
-    )
-    _parrafo(doc, "Cargo", alinear=WD_ALIGN_PARAGRAPH.LEFT, despues=0)
+    _p(doc, "FCEN Firma", "Agradecemos su valiosa gestión")
+    _vacio(doc, "FCEN Firma")
+    _p(doc, "FCEN Firma", "Atentamente,")
+    _vacio(doc, "FCEN Firma")
+    if datos.borrador:
+        p = _p(doc, "FCEN Firma")
+        r = _r(p, "[la firma se agrega al firmar]")
+        r.font.size = Pt(8)
+        r.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+    else:
+        _vacio(doc, "FCEN Firma")
+    _p(doc, "FCEN Firma", "NOMBRE DEL FIRMANTE", negrita=True)
+    _p(doc, "FCEN Firma", "Cargo")
     if datos.programa.correo:
-        _parrafo(doc, datos.programa.correo, alinear=WD_ALIGN_PARAGRAPH.LEFT, despues=0)
+        p = _p(doc, "FCEN Firma")
+        r = _r(p, datos.programa.correo, subrayado=True)
+        r.font.color.rgb = RGBColor(0x00, 0x00, 0xFF)
 
 
 def construir_oficio(datos: DatosOficio, periodo: str) -> bytes:
@@ -563,17 +487,13 @@ def construir_oficio(datos: DatosOficio, periodo: str) -> bytes:
     secciones: OrderedDict[str, list[CasoDocumento]] = OrderedDict()
     for item in datos.casos:
         secciones.setdefault(titulo_seccion(item.extraccion), []).append(item)
-    for n, (titulo, items) in enumerate(secciones.items(), start=1):
-        _parrafo(
-            doc,
-            f"{n}. {titulo}",
-            negrita=True,
-            subrayado=True,
-            alinear=WD_ALIGN_PARAGRAPH.LEFT,
-            despues=8,
-        )
-        for m, item in enumerate(items, start=1):
-            _caso(doc, datos, item, f"{n}.{m}", periodo)
+    # Como en las actas: los casos son el punto 2 del orden del día (2.1, 2.2…).
+    numero = 0
+    for titulo, items in secciones.items():
+        _p(doc, "FCEN Titulo", titulo)
+        for item in items:
+            numero += 1
+            _caso(doc, datos, item, f"2.{numero}", periodo)
     _cierre(doc, datos)
 
     buf = io.BytesIO()

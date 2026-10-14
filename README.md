@@ -57,7 +57,7 @@ uv run python scripts/probar_caso.py casos_reales/caso_01   # un caso real, con 
 
 `casos_reales/` está en `.gitignore`. Los casos con datos de estudiantes nunca van al repositorio.
 
-La plantilla `app/templates/oficio_base.docx` se generó con `scripts/build_template.py` a partir de un oficio del Comité Asesor de Ciencias de la Computación. Del original solo se conserva el membrete; el script borra el cuerpo, las imágenes y las fuentes embebidas, y comprueba que no quede ningún dato de estudiantes.
+La plantilla `app/templates/oficio_base.docx` se generó con `scripts/build_template.py` a partir de un oficio del Comité Asesor de Ciencias de la Computación. El formato copia el de ese oficio (Ancízar Sans 11 pt, interlineado 1,15, sangría francesa en cada caso, la cita del correo en el mismo párrafo) en estilos con nombre: `FCEN Caso`, `FCEN Cita`, `FCEN Titulo`, etc. Si se cambia uno de esos estilos en Word, en la plantilla, cambian todos los oficios. Del original solo se conserva el membrete; el script borra el cuerpo, las imágenes y las fuentes embebidas, y comprueba que no quede ningún dato de estudiantes.
 
 ## Costos
 

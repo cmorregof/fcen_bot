@@ -66,15 +66,14 @@ def test_cuerpo_del_oficio() -> None:
     doc = Document(io.BytesIO(_oficio(Sentido.APROBAR)))
     texto = "\n".join(p.text for p in doc.paragraphs)
     assert "CONSEJO DE FACULTAD" in texto
-    assert "1. SOLICITUD DE CARGA MÍNIMA Y CANCELACIÓN DE ASIGNATURAS" in texto
-    assert "PERSONA FICTICIA UNO identificada con DNI 1000000001" in texto
-    assert (
-        "recomienda al Consejo de Facultad de Ciencias Exactas y Naturales APROBAR"
-        in texto
-    )
+    assert "SOLICITUD DE CARGA MÍNIMA Y CANCELACIÓN DE ASIGNATURAS" in texto
+    assert "2.1 PERSONA FICTICIA UNO identificada con DNI No. 1000000001" in texto
+    assert "RECOMENDACIÓN: El Comité Asesor recomienda APROBAR la solicitud" in texto
     assert "tiene inscritos trece créditos (13 créditos)" in texto
     assert "Acuerdo 008 de 2008" in texto
-    assert len(doc.tables) == 1
+    assert "Cancelación: Termodinámica código 4100849 (4 créditos)" in texto
+    estilos = {p.style.name for p in doc.paragraphs if p.style is not None}
+    assert {"FCEN Caso", "FCEN Cita", "FCEN Titulo", "FCEN Fecha"} <= estilos
 
 
 def test_sentido_pendiente_queda_marcado() -> None:
