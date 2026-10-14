@@ -23,6 +23,9 @@ class Settings(BaseSettings):
 
     # Claude
     anthropic_api_key: str = ""
+    # Solo si la API key no pertenece a un workspace de la Console: el ID del
+    # workspace al que se cobra (wrkspc_...).
+    anthropic_workspace_id: str = ""
     extraction_model: str = "claude-sonnet-5-5"
     correction_model: str = "claude-sonnet-5-5"
     extraction_max_tokens: int = 4000

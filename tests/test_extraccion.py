@@ -77,3 +77,10 @@ def test_limpiar_caracteres_de_control() -> None:
     from app.services.documento import limpiar
 
     assert limpiar("hola\x0bmundo\tok\n") == "hola mundo\tok\n"
+
+
+def test_errores_de_configuracion_se_explican() -> None:
+    from app.integrations.claude import explicar_error
+
+    assert "workspace" in explicar_error(RuntimeError("not scoped to a workspace"))
+    assert "créditos" in explicar_error(RuntimeError("Your credit balance is too low"))

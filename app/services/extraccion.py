@@ -46,7 +46,9 @@ def get_estructurador() -> Estructurador | None:
     global _estructurador
     if _estructurador is None and settings.anthropic_api_key:
         _estructurador = ClaudeEstructurador(
-            settings.anthropic_api_key, settings.extraction_timeout_seconds
+            settings.anthropic_api_key,
+            settings.extraction_timeout_seconds,
+            settings.anthropic_workspace_id,
         )
     return _estructurador
 
