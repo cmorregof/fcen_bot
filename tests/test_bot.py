@@ -335,3 +335,17 @@ async def test_caso_interrumpido_se_puede_reprocesar(
     await bot.manejar_update(db, _update(text="/listo"))
     caso = await repo.get_caso(db, 1)
     assert caso and caso.estado == EstadoCaso.LISTO
+
+
+async def test_palabra_procesar_sin_barra(
+    db: aiosqlite.Connection,
+    tg: TelegramFalso,
+    estructurador: EstructuradorFalso,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _registrar(db, monkeypatch)
+    await bot.manejar_update(db, _update(text="Correo del estudiante"))
+    await bot.manejar_update(db, _update(text="Procesar"))
+    caso = await repo.get_caso(db, 1)
+    assert caso and caso.estado == EstadoCaso.LISTO
+    assert "Procesar" not in caso.texto

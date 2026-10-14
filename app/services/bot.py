@@ -17,7 +17,7 @@ from html import escape
 import aiosqlite
 
 from app.core.config import settings
-from app.core.programas import DIRECCIONES, PROGRAMAS, programas_de
+from app.core.programas import DIRECCIONES, PROGRAMAS, normalizar, programas_de
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.caso import Caso, EstadoCaso, Sentido
@@ -28,6 +28,16 @@ logger = logging.getLogger(__name__)
 
 _RE_CASO = re.compile(r"Caso #(\d+)")
 _RE_NOTA = re.compile(r"Nota del comité · caso #(\d+)")
+# Palabras sueltas que equivalen a /listo cuando hay un caso abierto.
+_PALABRAS_PROCESAR = {
+    "procesar",
+    "procesa",
+    "listo",
+    "lista",
+    "ya",
+    "eso es todo",
+    "fin",
+}
 _locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 AYUDA = """<b>Cómo funciona</b>
@@ -82,6 +92,11 @@ async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
     if texto.startswith("/"):
         await _comando(db, msg, usuario, texto)
         return
+    if _normalizar(texto) in _PALABRAS_PROCESAR and not msg.reply_to_message:
+        estado = await repo.get_estado(db, chat_id)
+        if estado.caso_abierto_id is not None:
+            await _procesar(db, chat_id, usuario, estado.caso_abierto_id)
+            return
 
     if msg.reply_to_message and msg.reply_to_message.text and texto:
         respondido = msg.reply_to_message.text
@@ -102,6 +117,10 @@ async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
             return
 
     await _agregar_al_caso(db, msg, usuario)
+
+
+def _normalizar(texto: str) -> str:
+    return normalizar(texto).strip(" .!¡?¿")
 
 
 async def _registro(db: aiosqlite.Connection, msg: Message, texto: str) -> None:
