@@ -1,0 +1,121 @@
+"""SQLite con SQL explícito y migraciones idempotentes."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator
+
+import aiosqlite
+
+from app.core.config import settings
+
+_ESQUEMA = (
+    """
+    CREATE TABLE IF NOT EXISTS usuarios (
+        telegram_id  INTEGER PRIMARY KEY,
+        nombre       TEXT,
+        direccion    TEXT,
+        creado       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS updates_vistos (
+        update_id  INTEGER PRIMARY KEY,
+        visto      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS casos (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id          INTEGER NOT NULL,
+        user_id          INTEGER NOT NULL,
+        direccion        TEXT    NOT NULL,
+        programa         TEXT,
+        estado           TEXT    NOT NULL DEFAULT 'abierto',
+        sentido          TEXT    NOT NULL DEFAULT 'pendiente',
+        texto            TEXT    NOT NULL DEFAULT '',
+        extraccion_json  TEXT,
+        nota_comite      TEXT,
+        error            TEXT,
+        borrador_id      INTEGER,
+        creado           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        actualizado      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS caso_archivos (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        caso_id     INTEGER NOT NULL REFERENCES casos(id),
+        tipo        TEXT    NOT NULL,
+        ruta        TEXT,
+        nombre      TEXT,
+        file_unique_id TEXT,
+        creado      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (caso_id, file_unique_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS estado_chat (
+        chat_id          INTEGER PRIMARY KEY,
+        caso_abierto_id  INTEGER,
+        esperando        TEXT,
+        esperando_caso   INTEGER,
+        actualizado      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS borradores (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        programa    TEXT NOT NULL,
+        caso_ids    TEXT NOT NULL,
+        docx_path   TEXT,
+        pdf_path    TEXT,
+        ultima_modificacion TEXT,
+        creado      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS uso_modelo (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        caso_id        INTEGER,
+        operacion      TEXT NOT NULL,
+        modelo         TEXT NOT NULL,
+        input_tokens   INTEGER NOT NULL,
+        output_tokens  INTEGER NOT NULL,
+        creado         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_casos_estado ON casos(estado, programa)",
+)
+
+
+# Columnas agregadas después de la primera versión: (tabla, columna, tipo).
+_COLUMNAS_NUEVAS = (("borradores", "ultima_modificacion", "TEXT"),)
+
+
+async def init_db(db: aiosqlite.Connection) -> None:
+    for sentencia in _ESQUEMA:
+        await db.execute(sentencia)
+    for tabla, columna, tipo in _COLUMNAS_NUEVAS:
+        cur = await db.execute(f"PRAGMA table_info({tabla})")
+        existentes = {str(r[1]) for r in await cur.fetchall()}
+        if columna not in existentes:
+            await db.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}")
+    await db.commit()
+
+
+async def connect() -> aiosqlite.Connection:
+    settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+    db = await aiosqlite.connect(settings.db_path)
+    db.row_factory = aiosqlite.Row
+    await db.execute("PRAGMA foreign_keys = ON")
+    await db.execute("PRAGMA journal_mode = WAL")
+    await init_db(db)
+    return db
+
+
+async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
+    db = await connect()
+    try:
+        yield db
+    finally:
+        await db.close()

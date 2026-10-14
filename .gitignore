@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+data/
+out/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# Casos reales para evaluación: nunca al repositorio (datos personales)
+casos_reales/
+fonts/*.ttf
+fonts/*.otf

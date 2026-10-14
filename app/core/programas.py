@@ -1,0 +1,127 @@
+"""Programas curriculares y direcciones de área.
+
+Cada programa tiene su propio comité asesor, así que cada uno produce su propio
+borrador. El programa de un caso se reconoce por el código o el nombre del
+plan de estudios que aparece en el pantallazo del SIA.
+
+Los datos marcados como None no se conocen todavía y se piden cuando hagan
+falta (por ejemplo, el prefijo del radicado al firmar).
+"""
+
+from __future__ import annotations
+
+import unicodedata
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class Direccion:
+    clave: str
+    nombre: str
+
+
+@dataclass(frozen=True)
+class Programa:
+    clave: str
+    nombre: str
+    direccion: str
+    planes: tuple[str, ...] = ()
+    correo: str | None = None
+    extension: str | None = None
+    radicado_prefijo: str | None = None
+    # Créditos disciplinares aprobados exigidos para inscribir Trabajo de Grado,
+    # cuando el programa tiene esa regla propia (Res. CFCEN-060-2008 en Física).
+    tdg_creditos_disciplinares: int | None = None
+    alias: tuple[str, ...] = field(default=())
+
+    @property
+    def comite(self) -> str:
+        return f"Comité Asesor del Programa Curricular de {self.nombre}"
+
+    @property
+    def encabezado(self) -> str:
+        return f"Programa Curricular de {self.nombre}"
+
+
+DIRECCIONES: dict[str, Direccion] = {
+    "ciencias_naturales": Direccion(
+        "ciencias_naturales", "Área Curricular de Ciencias Naturales"
+    ),
+    "matematicas": Direccion(
+        "matematicas", "Área Curricular de Matemáticas y Estadística"
+    ),
+}
+
+PROGRAMAS: dict[str, Programa] = {
+    p.clave: p
+    for p in (
+        Programa(
+            clave="ing_fisica",
+            nombre="Ingeniería Física",
+            direccion="ciencias_naturales",
+            planes=("4030",),
+            correo="caringfis_man@unal.edu.co",
+            extension="55633",
+            radicado_prefijo="Mz.FCEN.1.066",
+            tdg_creditos_disciplinares=46,
+            alias=("ingenieria fisica",),
+        ),
+        Programa(
+            clave="ing_biologica",
+            nombre="Ingeniería Biológica",
+            direccion="ciencias_naturales",
+            correo="ingbiologica_man@unal.edu.co",
+            extension="55633",
+            alias=("ingenieria biologica",),
+        ),
+        Programa(
+            clave="matematicas",
+            nombre="Matemáticas",
+            direccion="matematicas",
+            alias=("matematicas",),
+        ),
+        Programa(
+            clave="ciencias_computacion",
+            nombre="Ciencias de la Computación",
+            direccion="matematicas",
+            planes=("4034",),
+            correo="carcomp_man@unal.edu.co",
+            extension="55634",
+            radicado_prefijo="Mz.FCEN.1.065",
+            alias=("ciencias de la computacion",),
+        ),
+        Programa(
+            clave="estadistica",
+            nombre="Estadística",
+            direccion="matematicas",
+            alias=("estadistica",),
+        ),
+    )
+}
+
+
+def normalizar(texto: str) -> str:
+    sin_tildes = unicodedata.normalize("NFKD", texto)
+    sin_tildes = "".join(c for c in sin_tildes if not unicodedata.combining(c))
+    return " ".join(sin_tildes.lower().split())
+
+
+def programas_de(direccion: str) -> list[Programa]:
+    return [p for p in PROGRAMAS.values() if p.direccion == direccion]
+
+
+def identificar_programa(
+    plan_codigo: str | None, plan_nombre: str | None
+) -> Programa | None:
+    """Código del plan primero; si no se conoce, el nombre del plan."""
+    if plan_codigo:
+        codigo = plan_codigo.strip()
+        for programa in PROGRAMAS.values():
+            if codigo in programa.planes:
+                return programa
+    if plan_nombre:
+        nombre = normalizar(plan_nombre)
+        for programa in PROGRAMAS.values():
+            if any(alias == nombre or alias in nombre for alias in programa.alias):
+                return programa
+    return None

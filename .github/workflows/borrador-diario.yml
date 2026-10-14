@@ -1,0 +1,20 @@
+name: Borrador diario
+
+on:
+  schedule:
+    # 4:50 p. m. hora de Bogotá (21:50 UTC), de lunes a viernes.
+    - cron: "50 21 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir los borradores del día
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          INTERNAL_CRON_SECRET: ${{ secrets.INTERNAL_CRON_SECRET }}
+        run: |
+          curl --fail --silent --show-error --max-time 300 -X POST \
+            -H "X-Cron-Secret: ${INTERNAL_CRON_SECRET}" \
+            "${APP_URL}/internal/borrador-diario"
