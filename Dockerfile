@@ -1,9 +1,10 @@
 FROM python:3.12-slim
 
-# LibreOffice para convertir los borradores a PDF.
+# LibreOffice para convertir los borradores a PDF; poppler para leer los
+# formatos de solicitud en PDF.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        libreoffice-writer-nogui fonts-dejavu fonts-crosextra-carlito fontconfig \
+        libreoffice-writer-nogui poppler-utils fonts-dejavu fonts-crosextra-carlito fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
 # Fuente institucional opcional: copia los .ttf de Ancízar Sans en fonts/

@@ -178,6 +178,38 @@ async def agregar_archivo(
     return cur.rowcount == 1
 
 
+async def get_archivo(
+    db: aiosqlite.Connection, caso_id: int, file_unique_id: str
+) -> tuple[str, str | None, str | None] | None:
+    """(tipo, ruta, nombre) de un archivo del caso."""
+    cur = await db.execute(
+        "SELECT tipo, ruta, nombre FROM caso_archivos WHERE caso_id = ? "
+        "AND file_unique_id = ?",
+        (caso_id, file_unique_id),
+    )
+    row = await cur.fetchone()
+    return (str(row["tipo"]), row["ruta"], row["nombre"]) if row else None
+
+
+async def set_tipo_archivo(
+    db: aiosqlite.Connection,
+    caso_id: int,
+    file_unique_id: str,
+    *,
+    tipo: str,
+    ruta: str | None,
+) -> None:
+    await db.execute(
+        "UPDATE caso_archivos SET tipo = ?, ruta = ? WHERE caso_id = ? "
+        "AND file_unique_id = ?",
+        (tipo, ruta, caso_id, file_unique_id),
+    )
+    await db.execute(
+        "UPDATE casos SET actualizado = CURRENT_TIMESTAMP WHERE id = ?", (caso_id,)
+    )
+    await db.commit()
+
+
 async def _archivos(
     db: aiosqlite.Connection, caso_id: int
 ) -> tuple[list[str], list[str]]:
@@ -190,6 +222,8 @@ async def _archivos(
     for row in await cur.fetchall():
         if row["tipo"] == "imagen" and row["ruta"]:
             imagenes.append(str(row["ruta"]))
+        elif row["tipo"] == "formato":
+            continue  # su texto ya está en el caso
         else:
             anexos.append(str(row["nombre"] or "archivo"))
     return imagenes, anexos

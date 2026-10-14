@@ -13,6 +13,7 @@ import re
 from collections import defaultdict
 from datetime import UTC, datetime
 from html import escape
+from pathlib import Path
 
 import aiosqlite
 
@@ -21,8 +22,8 @@ from app.core.programas import DIRECCIONES, PROGRAMAS, normalizar, programas_de
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.caso import Caso, EstadoCaso, Sentido
-from app.schemas.telegram import CallbackQuery, Message, Update
-from app.services import borrador, extraccion, ficha, reglas
+from app.schemas.telegram import CallbackQuery, Document, Message, Update
+from app.services import borrador, extraccion, ficha, formatos, reglas
 
 logger = logging.getLogger(__name__)
 
@@ -393,16 +394,7 @@ async def _agregar_al_caso(
             ext = "." + mime.split("/")[-1].replace("jpeg", "jpg")
             await _guardar_imagen(db, caso_id, doc.file_id, doc.file_unique_id, ext)
         else:
-            # PDFs y otros soportes: se registran por nombre, no se descargan ni
-            # se envían al modelo.
-            await repo.agregar_archivo(
-                db,
-                caso_id,
-                tipo="anexo",
-                ruta=None,
-                nombre=doc.file_name or "archivo",
-                file_unique_id=doc.file_unique_id,
-            )
+            await _documento(db, chat_id, caso_id, doc)
 
     if nuevo:
         await telegram.send_message(
@@ -418,6 +410,70 @@ async def _agregar_al_caso(
                 ]
             ],
         )
+
+
+async def _documento(
+    db: aiosqlite.Connection, chat_id: int, caso_id: int, doc: Document
+) -> None:
+    """Un formato de solicitud se lee; los demás soportes solo se registran por
+    nombre: no se guardan ni se envían al modelo."""
+    nombre = doc.file_name or "archivo"
+    extension = Path(nombre).suffix.lower()
+    unico = doc.file_unique_id
+    if extension in formatos.EXTENSIONES and (doc.file_size or 0) <= formatos.MAX_BYTES:
+        datos = await telegram.descargar_archivo(doc.file_id)
+        texto = await formatos.texto_de_archivo(datos, extension)
+        if formatos.es_formato(texto):
+            if await repo.agregar_archivo(
+                db,
+                caso_id,
+                tipo="formato",
+                ruta=None,
+                nombre=nombre,
+                file_unique_id=unico,
+            ):
+                await repo.agregar_texto(
+                    db, caso_id, f"--- Formato adjunto: {nombre} ---\n{texto}"
+                )
+                await telegram.send_message(
+                    chat_id, f"Leí «{escape(nombre)}» como formato de solicitud."
+                )
+            return
+        if extension == ".pdf" and not texto.strip():
+            # Escaneado: no se puede saber si es el formato o un soporte.
+            carpeta = settings.media_dir / str(caso_id)
+            carpeta.mkdir(parents=True, exist_ok=True)
+            ruta = carpeta / f"_pendiente_{unico}.pdf"
+            ruta.write_bytes(datos)
+            if await repo.agregar_archivo(
+                db,
+                caso_id,
+                tipo="pendiente",
+                ruta=str(ruta),
+                nombre=nombre,
+                file_unique_id=unico,
+            ):
+                await telegram.send_message(
+                    chat_id,
+                    f"«{escape(nombre)}» es un PDF escaneado. ¿Es el formato de "
+                    "solicitud del estudiante?",
+                    botones=[
+                        [
+                            {
+                                "text": "Sí, léelo",
+                                "callback_data": f"f:{caso_id}:{unico}:si",
+                            },
+                            {
+                                "text": "No, es un soporte",
+                                "callback_data": f"f:{caso_id}:{unico}:no",
+                            },
+                        ]
+                    ],
+                )
+            return
+    await repo.agregar_archivo(
+        db, caso_id, tipo="anexo", ruta=None, nombre=nombre, file_unique_id=unico
+    )
 
 
 async def _guardar_imagen(
@@ -668,6 +724,37 @@ async def _callback(db: aiosqlite.Connection, cq: CallbackQuery) -> None:
                 "Ana Pérez») y el concepto debajo.",
                 forzar_respuesta=True,
             )
+    elif partes[0] == "f" and len(partes) == 4:
+        await telegram.responder_callback(cq.id)
+        if cq.message:
+            await telegram.editar_botones(chat_id, cq.message.message_id, None)
+        unico = partes[2]
+        archivo = await repo.get_archivo(db, caso.id, unico)
+        if archivo is None or archivo[0] != "pendiente" or not archivo[1]:
+            return
+        pdf = Path(archivo[1])
+        if partes[3] == "si" and pdf.exists():
+            paginas = await formatos.paginas_pdf(pdf, pdf.parent, f"formato_{unico}_")
+            for i, pagina in enumerate(paginas, 1):
+                await repo.agregar_archivo(
+                    db,
+                    caso.id,
+                    tipo="imagen",
+                    ruta=str(pagina),
+                    nombre=None,
+                    file_unique_id=f"{unico}_p{i}",
+                )
+            await repo.set_tipo_archivo(db, caso.id, unico, tipo="formato", ruta=None)
+            mensaje = (
+                f"Agregué {len(paginas)} página(s) del formato al caso #{caso.id}."
+                if paginas
+                else "No pude convertir el PDF; envía fotos o pantallazos del formato."
+            )
+        else:
+            await repo.set_tipo_archivo(db, caso.id, unico, tipo="anexo", ruta=None)
+            mensaje = f"Queda como soporte del caso #{caso.id}; no se envía al modelo."
+        pdf.unlink(missing_ok=True)
+        await telegram.send_message(chat_id, mensaje)
     elif partes[0] == "d":
         await repo.set_estado_caso(db, caso.id, EstadoCaso.DESCARTADO)
         await telegram.responder_callback(cq.id, f"Caso #{caso.id} descartado")

@@ -27,6 +27,9 @@ class TipoSolicitud(StrEnum):
     DOBLE_TITULACION = "doble_titulacion"
     MOVILIDAD = "movilidad"
     REEXPEDICION_RECIBO = "reexpedicion_recibo"
+    CANCELACION_PERIODO = "cancelacion_periodo"
+    RESERVA_CUPO = "reserva_cupo"
+    HOMOLOGACION = "homologacion"
     OTRO = "otro"
 
 
@@ -43,6 +46,9 @@ TITULOS_TIPO: dict[TipoSolicitud, str] = {
     TipoSolicitud.DOBLE_TITULACION: "doble titulación",
     TipoSolicitud.MOVILIDAD: "movilidad",
     TipoSolicitud.REEXPEDICION_RECIBO: "reexpedición de recibo de matrícula",
+    TipoSolicitud.CANCELACION_PERIODO: "cancelación del periodo académico",
+    TipoSolicitud.RESERVA_CUPO: "reserva de cupo adicional",
+    TipoSolicitud.HOMOLOGACION: "homologación, convalidación o equivalencia de asignaturas",
     TipoSolicitud.OTRO: "otras solicitudes",
 }
 
