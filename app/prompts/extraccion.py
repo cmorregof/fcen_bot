@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from app.schemas.caso import TITULOS_TIPO
 
 _TIPOS = "\n".join(f"- {tipo.value}: {titulo}" for tipo, titulo in TITULOS_TIPO.items())
@@ -37,11 +39,21 @@ aprobar la solicitud de ...". Usa los términos de la normativa (inscripción \
 extemporánea, carga mínima, cancelación, Práctica Académica Especial, permiso \
 académico...) y menciona las asignaturas o la modalidad cuando apliquen.
 7. `anexos` son solo los soportes que aporta el estudiante, descritos de forma \
-genérica ("certificado médico", "carta de aceptación de ponencia"). Los \
-pantallazos del SIA y de la oferta de asignaturas NO son anexos. No copies \
-diagnósticos, causas de muerte ni detalles de salud.
-8. `justificacion_breve` resume el motivo en una o dos frases neutrales.
-9. `dudas` es solo para lo que se ve pero es ilegible o contradictorio y afecta \
+genérica ("carta de aceptación de ponencia", "certificado laboral"). Todo \
+soporte de salud (historia clínica, incapacidad, certificado de psicología o \
+de cualquier especialidad) se anota solo como "soporte médico". Los \
+pantallazos del SIA y de la oferta de asignaturas NO son anexos.
+8. `justificacion_breve` resume el motivo en una o dos frases neutrales, sin \
+diagnósticos, especialidades médicas, tratamientos ni causas de muerte \
+("situación de salud", "calamidad doméstica", "duelo por un familiar").
+9. `fecha_solicitud` es la fecha del correo. Si Gmail no muestra el año \
+("lun, 24 ago"), es la fecha más reciente con ese día y mes que no sea \
+posterior a la fecha de hoy que se te indica.
+10. Trabajo de Grado en cualquier modalidad (trabajo investigativo, práctica \
+profesional o de extensión, pasantía, asignaturas de posgrado) es \
+`trabajo_grado`, con la modalidad en `modalidad_trabajo_grado`. `pae` es solo \
+la Práctica Académica Especial.
+11. `dudas` es solo para lo que se ve pero es ilegible o contradictorio y afecta \
 el acta (máximo 3). No anotes datos que simplemente no aparecen (documento, \
 correo, tipología): el sistema ya revisa lo que falta.
 
@@ -68,8 +80,12 @@ def mensaje_extraccion(
     n_imagenes: int,
     anexos_archivos: list[str],
     programa_hint: str | None,
+    hoy: date | None = None,
 ) -> str:
-    partes = [
+    partes = []
+    if hoy:
+        partes.append(f"Fecha de hoy: {hoy.isoformat()}.")
+    partes += [
         "Correo pegado por la administrativa (líneas numeradas):",
         "<correo>",
         texto_numerado(texto) if texto.strip() else "(no se pegó texto)",

@@ -116,6 +116,57 @@ def disciplinares_aprobados(sia: DatosSIA) -> int | None:
     return sum(f.aprobados for f in filas if f.aprobados is not None)
 
 
+def _ya_inscritas(sia: DatosSIA | None) -> set[str]:
+    if sia is None:
+        return set()
+    return {(c.codigo or "").strip() for c in sia.cursos_inscritos if c.codigo}
+
+
+def creditos_tras_solicitud(
+    extraccion: ExtraccionCaso, inscritos: int | None
+) -> int | None:
+    """Créditos inscritos después de las inscripciones y cancelaciones pedidas.
+
+    Una asignatura que el estudiante pide «inscribir» pero que ya aparece en
+    los cursos inscritos del SIA no se vuelve a sumar.
+    """
+    if inscritos is None or not extraccion.asignaturas:
+        return None
+    ya = _ya_inscritas(extraccion.sia)
+    delta = 0
+    for asig in extraccion.asignaturas:
+        if asig.accion == "apertura":
+            continue
+        if asig.accion == "inscribir" and (asig.codigo or "").strip() in ya:
+            continue
+        if asig.creditos is None:
+            return None
+        delta += asig.creditos if asig.accion == "inscribir" else -asig.creditos
+    return inscritos + delta
+
+
+def completar_tipos(extraccion: ExtraccionCaso) -> ExtraccionCaso:
+    """Agrega «carga mínima» cuando el estudiante quedaría con menos de 10 créditos.
+
+    Art. 10 del Acuerdo 008 de 2008: inscribir menos de diez créditos requiere
+    autorización del Consejo de Facultad, aunque el estudiante no lo pida con
+    ese nombre (p. ej., quien solo inscribe Trabajo de Grado).
+    """
+    sia = extraccion.sia
+    if sia is None or TipoSolicitud.CARGA_MINIMA in extraccion.tipos:
+        return extraccion
+    inscritos = creditos_inscritos(sia)
+    if inscritos is None:
+        return extraccion
+    tras = creditos_tras_solicitud(extraccion, inscritos)
+    final = tras if tras is not None else inscritos
+    if final >= CARGA_MINIMA:
+        return extraccion
+    return extraccion.model_copy(
+        update={"tipos": [*extraccion.tipos, TipoSolicitud.CARGA_MINIMA]}
+    )
+
+
 def semana_del_periodo(fecha: str | None, inicio: date | None) -> int | None:
     if not fecha or not inicio:
         return None
@@ -174,17 +225,9 @@ def analizar(
 
     # Créditos después de la solicitud
     if a.creditos_inscritos is not None:
-        delta = 0
-        conocido = True
-        for asig in extraccion.asignaturas:
-            if asig.accion == "apertura":
-                continue
-            if asig.creditos is None:
-                conocido = False
-                break
-            delta += asig.creditos if asig.accion == "inscribir" else -asig.creditos
-        if conocido and extraccion.asignaturas:
-            a.creditos_tras_solicitud = a.creditos_inscritos + delta
+        a.creditos_tras_solicitud = creditos_tras_solicitud(
+            extraccion, a.creditos_inscritos
+        )
         final = (
             a.creditos_tras_solicitud
             if a.creditos_tras_solicitud is not None

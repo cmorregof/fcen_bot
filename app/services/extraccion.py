@@ -5,7 +5,9 @@ from __future__ import annotations
 import io
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import aiosqlite
 from PIL import Image as PILImage
@@ -26,6 +28,7 @@ from app.prompts.extraccion import (
     mensaje_extraccion,
 )
 from app.schemas.caso import Caso, ExtraccionCaso
+from app.services.reglas import completar_tipos
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +103,7 @@ async def extraer_caso(db: aiosqlite.Connection, caso: Caso) -> SalidaExtraccion
         n_imagenes=len(imagenes),
         anexos_archivos=caso.anexos_archivos,
         programa_hint=direccion.nombre if direccion else None,
+        hoy=datetime.now(ZoneInfo(settings.timezone)).date(),
     )
     resultado = await estructurador.extraer(
         sistema=SISTEMA_EXTRACCION,
@@ -121,6 +125,7 @@ async def extraer_caso(db: aiosqlite.Connection, caso: Caso) -> SalidaExtraccion
     extraccion = validar(resultado, ExtraccionCaso)
     if extraccion is None:
         return SalidaExtraccion(None, None, resultado.error or "Sin resultado.")
+    extraccion = completar_tipos(extraccion)
     programa = _programa_de(extraccion, caso.direccion)
     return SalidaExtraccion(extraccion, programa)
 
@@ -154,6 +159,7 @@ async def corregir_caso(
     extraccion = validar(resultado, ExtraccionCaso)
     if extraccion is None:
         return SalidaExtraccion(None, None, resultado.error or "Sin resultado.")
+    extraccion = completar_tipos(extraccion)
     return SalidaExtraccion(extraccion, _programa_de(extraccion, caso.direccion))
 
 

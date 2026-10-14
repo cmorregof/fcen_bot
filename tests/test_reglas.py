@@ -3,10 +3,18 @@ from __future__ import annotations
 from datetime import date
 
 from app.core.programas import PROGRAMAS, identificar_programa
-from app.schemas.caso import AsignaturaSolicitada, DatosSIA, FilaCreditos, TipoSolicitud
+from app.schemas.caso import (
+    AsignaturaSolicitada,
+    CursoInscrito,
+    DatosSIA,
+    FilaCreditos,
+    TipoSolicitud,
+)
 from app.services.reglas import (
     analizar,
+    completar_tipos,
     creditos_inscritos,
+    creditos_tras_solicitud,
     disciplinares_aprobados,
     semana_del_periodo,
     verificar_tabla_sia,
@@ -162,3 +170,52 @@ def test_dudas_repetidas_se_omiten() -> None:
     mensajes = _mensajes(e)
     assert sum("documento" in m.lower() for m in mensajes) == 1
     assert any("horas" in m for m in mensajes)
+
+
+def test_no_suma_lo_que_ya_esta_inscrito() -> None:
+    # Pide "ver" dos materias que ya tiene inscritas y cancelar una: 13 - 4 = 9.
+    base = extraccion_ejemplo()
+    assert base.sia is not None
+    sia = base.sia.model_copy(
+        update={
+            "cursos_inscritos": [
+                CursoInscrito(
+                    codigo="4100577", nombre="Matemáticas Especiales", creditos=4
+                ),
+                CursoInscrito(codigo="4100849", nombre="Termodinámica", creditos=4),
+            ]
+        }
+    )
+    e = base.model_copy(
+        update={
+            "sia": sia,
+            "asignaturas": [
+                AsignaturaSolicitada(
+                    codigo="4100577", nombre="Matemáticas Especiales", creditos=4
+                ),
+                AsignaturaSolicitada(
+                    codigo="4100849",
+                    nombre="Termodinámica",
+                    creditos=4,
+                    accion="cancelar",
+                ),
+            ],
+        }
+    )
+    assert creditos_tras_solicitud(e, 13) == 9
+
+
+def test_completar_tipos_agrega_carga_minima() -> None:
+    # Solo pide Trabajo de Grado y quedaría con 13 - 4 = 9 créditos.
+    e = extraccion_ejemplo(tipos=[TipoSolicitud.TRABAJO_GRADO])
+    assert completar_tipos(e).tipos == [
+        TipoSolicitud.TRABAJO_GRADO,
+        TipoSolicitud.CARGA_MINIMA,
+    ]
+
+
+def test_completar_tipos_no_toca_si_queda_sobre_el_minimo() -> None:
+    e = extraccion_ejemplo(tipos=[TipoSolicitud.PAE], asignaturas=[])
+    assert completar_tipos(e).tipos == [TipoSolicitud.PAE]
+    sin_sia = extraccion_ejemplo(tipos=[TipoSolicitud.PAE], sia=None)
+    assert completar_tipos(sin_sia).tipos == [TipoSolicitud.PAE]
