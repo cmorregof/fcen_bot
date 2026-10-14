@@ -44,6 +44,11 @@ Las normas que se citan en el oficio están en `app/normativa/base.py`, con su t
 
 Para un PDF con la tipografía institucional, copia los `.ttf` de Ancízar Sans en `fonts/`; no se versionan.
 
+## Documentos
+
+- `docs/diseno.md`: diseño, decisiones, estado actual y lo que sigue.
+- `docs/inventario-insumos.md`: lo que entregó la Facultad (actas, oficios, normativa) y las reglas que se derivan de ahí.
+
 ## Desarrollo
 
 ```bash
