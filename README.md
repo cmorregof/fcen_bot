@@ -16,6 +16,82 @@ Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el ca
 6. **Borrador.** Cada día hábil a las 4:50 p. m. llega el borrador de cada programa que haya cambiado. También se puede pedir con `/acta`. Los casos pendientes salen resaltados como `[APROBAR / NO APROBAR]`.
 7. **Cierre.** `/cerrar_acta` saca del borrador los casos que ya tienen decisión del comité.
 
+## Arquitectura
+
+```mermaid
+flowchart TB
+    ADM["Administrativa en Telegram"]
+
+    subgraph DIA["Durante el día: un caso a la vez"]
+        direction LR
+        WH["/webhook<br/>FastAPI"] --> BOT["Orquestador<br/>bot.py"]
+        BOT -->|"Procesar"| EXT["Extracción<br/>extraccion.py"]
+        EXT <-->|"texto + pantallazos ⇄ ExtraccionCaso"| CL["Claude Sonnet 5.5"]
+        EXT --> REG["Reglas deterministas<br/>reglas.py"]
+        REG --> FICHA["Ficha + alertas<br/>ficha.py"]
+    end
+
+    subgraph NOCHE["Al final del día: un borrador por programa"]
+        direction LR
+        CRON["GitHub Actions<br/>lun–vie 4:50 p. m."] --> BOR["Borradores<br/>borrador.py"]
+        BOR --> DOC["Plantilla única + normas literales<br/>documento.py"]
+        DOC --> PDF["LibreOffice<br/>pdf.py"]
+    end
+
+    DB[("SQLite<br/>casos · usuarios · uso")]
+
+    ADM -->|"correo + pantallazos"| WH
+    FICHA -->|"ficha con botones"| ADM
+    ADM -->|"Aprobar / No aprobar / corrección"| BOT
+    BOT --- DB
+    DB --- BOR
+    ADM -->|"/acta"| BOR
+    PDF -->|".docx + PDF"| ADM
+```
+
+Quién hace qué:
+
+| Pieza | Hace | Usa el modelo |
+|---|---|---|
+| Extracción | Lee el correo y los pantallazos y los convierte en datos | Sí |
+| Corrección | Aplica a los datos el cambio que pide la administrativa | Sí |
+| Reglas | Verifican sumas del SIA, carga mínima, semanas, créditos de TdG y documento | No |
+| Ficha | Muestra los datos y las alertas | No |
+| Sentido de la recomendación | Lo marca la administrativa con un botón | No |
+| Borrador | Arma el oficio con la plantilla y las normas literales | No |
+
+### Ciclo de un caso
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Abierto: primer mensaje
+    Abierto --> Abierto: más texto o pantallazos
+    Abierto --> Procesando: Procesar
+    Procesando --> Abierto: error
+    Procesando --> Listo: datos validados
+    Listo --> Listo: corrección · sentido · nota
+    Listo --> Cerrado: /cerrar_acta
+    Abierto --> Descartado: /cancelar
+    Listo --> Descartado: Descartar
+    Cerrado --> [*]
+    Descartado --> [*]
+```
+
+Los casos en **Listo** son los que forman el borrador del día de su programa.
+
+### Estructura
+
+- `app/api/routes.py`: webhook de Telegram, ruta interna del cron y `/health`.
+- `app/services/`: un módulo por capacidad (`bot`, `extraccion`, `reglas`, `ficha`, `documento`, `pdf`, `borrador`).
+- `app/integrations/`: solo entrada y salida (Telegram y Claude).
+- `app/prompts/`: todas las instrucciones del modelo, en un solo lugar.
+- `app/schemas/`: contratos Pydantic, entre ellos `ExtraccionCaso`, que es lo único que devuelve el modelo.
+- `app/normativa/`: normas base con texto literal.
+- `app/core/programas.py`: programas, direcciones, códigos de plan y correos.
+- `app/templates/oficio_base.docx`: la plantilla membreteada con los estilos `FCEN …`.
+- `app/db/`: SQLite con SQL explícito y migraciones idempotentes.
+
 ## Alertas deterministas (`app/services/reglas.py`)
 
 | Regla | Fuente |
