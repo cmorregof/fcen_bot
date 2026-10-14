@@ -28,7 +28,8 @@ incluidas TOTAL, NIVELACIÓN y TOTAL ESTUDIANTE, con sus cinco columnas.
 3. Del pantallazo "Cursos inscritos" registra cada asignatura con su código, \
 nombre, tipología y créditos.
 4. El código del plan de estudios aparece como "[4030] INGENIERIA FISICA": \
-4030 es el código y el resto el nombre.
+4030 es el código y el resto el nombre. La convocatoria (periodo de admisión) \
+solo se registra si aparece escrita en un pantallazo.
 5. Para el cuerpo del correo da solo los números de la primera y la última \
 línea (`cuerpo_desde_linea`, `cuerpo_hasta_linea`), sin los encabezados de \
 Gmail (asunto, remitente, fecha, "para mí", avisos de antivirus o adjuntos). \

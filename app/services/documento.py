@@ -121,6 +121,8 @@ class CasoDocumento:
     analisis: Analisis
     cuerpo_correo: str
     imagenes: list[Path] = field(default_factory=list)
+    # «correo» o «formato»: por dónde llegó la solicitud.
+    medio: str = "correo"
 
 
 @dataclass
@@ -302,6 +304,8 @@ def _bullets_analisis(item: CasoDocumento, periodo: str) -> list[str]:
     if sia and sia.plan_codigo:
         nombre = (sia.plan_nombre or "").strip().title()
         vinetas.append(f"Plan de estudios [{sia.plan_codigo}] {nombre}".strip())
+    if sia and sia.convocatoria:
+        vinetas.append(f"Estudiante de la convocatoria {sia.convocatoria}")
     if a.creditos_inscritos is not None:
         vinetas.append(
             f"En el periodo académico {sia.periodo if sia and sia.periodo else periodo} "
@@ -358,7 +362,16 @@ def texto_recomendacion(
         Sentido.PENDIENTE: "[APROBAR / NO APROBAR]",
     }[item.caso.sentido]
     objeto = e.objeto_solicitud.strip().rstrip(".") or "lo solicitado"
-    return "El Comité Asesor recomienda ", sentido, f" la solicitud de {objeto}."
+    destinatario = (
+        "al estudiante" if e.tratamiento == "El estudiante" else "a la estudiante"
+    )
+    nombre = (e.nombre_estudiante or "").title()
+    final = f" {destinatario} {nombre}" if nombre else ""
+    return (
+        "El Comité Asesor recomienda al Consejo de Facultad ",
+        sentido,
+        f" la solicitud de {objeto}{final}.",
+    )
 
 
 _TRAMITE = {
@@ -369,16 +382,45 @@ _TRAMITE = {
 
 
 def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
-    """Como en el oficio de Matemáticas: «Análisis Numérico código 4100802»."""
-    for asig in item.extraccion.asignaturas:
-        p = _p(doc, "FCEN Cuerpo")
-        _r(p, f"{_TRAMITE[asig.accion]}: ")
-        _r(p, asig.nombre, negrita=True)
-        if asig.codigo:
-            _r(p, f" código {asig.codigo}")
-        if asig.creditos is not None:
-            unidad = "crédito" if asig.creditos == 1 else "créditos"
-            _r(p, f" ({asig.creditos} {unidad})")
+    """Como en el acta de Física: una tabla con lo que el Consejo autoriza."""
+    asignaturas = item.extraccion.asignaturas
+    if not asignaturas:
+        return
+    _p(doc, "FCEN Cuerpo", "Asignaturas de la solicitud:")
+    tabla = doc.add_table(rows=1, cols=4)
+    try:
+        tabla.style = doc.styles["Table Grid"]
+    except KeyError:
+        pass
+    for celda, titulo in zip(
+        tabla.rows[0].cells,
+        ("Trámite", "Código", "Asignatura", "Créditos"),
+        strict=True,
+    ):
+        celda.text = ""
+        _r(celda.paragraphs[0], titulo, negrita=True)
+    for asig in asignaturas:
+        fila = tabla.add_row().cells
+        valores = (
+            _TRAMITE[asig.accion],
+            asig.codigo or "",
+            asig.nombre,
+            "" if asig.creditos is None else str(asig.creditos),
+        )
+        for celda, valor in zip(fila, valores, strict=True):
+            celda.text = ""
+            _r(celda.paragraphs[0], valor)
+    anchos = (2.6, 2.4, 8.0, 2.0)
+    tabla.autofit = False
+    for columna, ancho_col in zip(tabla.columns, anchos, strict=True):
+        columna.width = Cm(ancho_col)
+    for fila in tabla.rows:
+        for celda, ancho in zip(fila.cells, anchos, strict=True):
+            celda.width = Cm(ancho)
+            for parrafo in celda.paragraphs:
+                for run in parrafo.runs:
+                    run.font.size = Pt(10)
+    _vacio(doc, "FCEN Cuerpo")
 
 
 def _normas(doc: DocumentoDocx, normas: list[NormaCitada], borrador: bool) -> None:
@@ -456,7 +498,8 @@ def _caso(
     _r(p, f"DNI No. {e.documento or '____'}", negrita=True)
     _r(
         p,
-        f" mediante correo del día {fecha_larga(e.fecha_solicitud)}, solicita "
+        f" mediante {'formato de solicitud' if item.medio == 'formato' else 'correo'}"
+        f" del día {fecha_larga(e.fecha_solicitud)}, solicita "
         f"{objeto}, justificando que “",
     )
     # La cita empieza en el mismo párrafo, como en el oficio original.
@@ -479,8 +522,6 @@ def _caso(
             _p(doc, "FCEN Vineta", f"•\t{vineta}")
     _vacio(doc, "FCEN Cuerpo")
 
-    _asignaturas(doc, item)
-
     for ruta in item.imagenes:
         try:
             p_img = _p(doc, "FCEN Imagen")
@@ -502,6 +543,8 @@ def _caso(
     if item.caso.sentido == Sentido.PENDIENTE:
         r.font.highlight_color = WD_COLOR_INDEX.YELLOW
     _r(p, despues)
+    _vacio(doc, "FCEN Cuerpo")
+    _asignaturas(doc, item)
 
     _normas(doc, normas_para(e.tipos, item.caso.programa), datos.borrador)
     _vacio(doc, "FCEN Cuerpo")

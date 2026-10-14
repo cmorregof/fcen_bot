@@ -82,6 +82,11 @@ class DatosSIA(BaseModel):
     periodo: str | None = Field(
         default=None, description="Periodo visto, p. ej. 2026-2S"
     )
+    convocatoria: str | None = Field(
+        default=None,
+        description="Periodo de admisión del estudiante (p. ej. 2024-1S), solo si "
+        "aparece en un pantallazo",
+    )
     papa: float | None = Field(default=None, description="P.A.P.A. acumulado")
     promedio_academico: float | None = None
     porcentaje_avance: float | None = Field(

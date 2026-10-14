@@ -77,10 +77,20 @@ def test_cuerpo_del_oficio() -> None:
     assert "CONSEJO DE FACULTAD" in texto
     assert "SOLICITUD DE CARGA MÍNIMA Y CANCELACIÓN DE ASIGNATURAS" in texto
     assert "2.1 PERSONA FICTICIA UNO identificada con DNI No. 1000000001" in texto
-    assert "RECOMENDACIÓN: El Comité Asesor recomienda APROBAR la solicitud" in texto
+    assert (
+        "RECOMENDACIÓN: El Comité Asesor recomienda al Consejo de Facultad APROBAR "
+        "la solicitud de cancelación" in texto
+    )
+    assert texto.rstrip().count("a la estudiante Persona Ficticia Uno.") >= 1
     assert "tiene inscritos trece créditos (13 créditos)" in texto
     assert "Acuerdo 008 de 2008" in texto
-    assert "Cancelación: Termodinámica código 4100849 (4 créditos)" in texto
+    [tabla] = doc.tables
+    assert [c.text for c in tabla.rows[1].cells] == [
+        "Cancelación",
+        "4100849",
+        "Termodinámica",
+        "4",
+    ]
     estilos = {p.style.name for p in doc.paragraphs if p.style is not None}
     assert {"FCEN Caso", "FCEN Cita", "FCEN Titulo", "FCEN Fecha"} <= estilos
 
@@ -142,7 +152,10 @@ def test_acta_con_sesion_y_conceptos_y_oficio_sin_ellos() -> None:
         "La profesora Elisabeth Restrepo Parra expresa: “Recomiendo aprobar." in texto
     )
     assert "Cumple los requisitos.”." in texto
-    assert "RECOMENDACIÓN: El Comité Asesor recomienda APROBAR" in texto
+    assert (
+        "RECOMENDACIÓN: El Comité Asesor recomienda al Consejo de Facultad APROBAR"
+        in texto
+    )
     assert "CONSEJO DE FACULTAD" not in texto  # el acta no es una carta
 
     oficio = Document(io.BytesIO(construir_oficio(datos, "2026-2S")))

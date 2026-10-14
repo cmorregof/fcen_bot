@@ -9,7 +9,7 @@ Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el ca
 ## Flujo
 
 1. **Registro.** Cada administrativa escanea su QR de invitación (`scripts/qr_invitacion.py`) y elige su dirección: Ciencias Naturales (Ing. Física, Ing. Biológica) o Matemáticas y Estadística (Matemáticas, Ciencias de la Computación, Estadística). Nadie más puede usar el bot.
-2. **Caso.** Pega el correo (en uno o varios mensajes) y envía los pantallazos. Los PDF adjuntos solo se registran por nombre: no se descargan ni se envían al modelo.
+2. **Caso.** Pega el correo (en uno o varios mensajes) o envía el formato de solicitud diligenciado (PDF o Word), y los pantallazos. El formato se reconoce por su título («FORMATO DE …») y se lee sin el modelo; si es un PDF escaneado, un botón pregunta si es el formato y, si lo es, sus páginas entran como pantallazos. Los demás PDF (certificados, soportes médicos) solo se registran por nombre: no se guardan ni se envían al modelo.
 3. **Procesar.** Con el botón o con `/listo`, Claude lee el texto y las imágenes y devuelve datos estructurados. El bot responde la ficha: estudiante, documento, programa (reconocido por el código del plan en el pantallazo), tipo de solicitud, créditos, P.A.P.A., avance, normas base y alertas.
 4. **Corregir.** Basta responder a la ficha con el cambio, por ejemplo «el documento es 1053…». Solo se corrige lo que se pide.
 5. **Comité.** Botones: Aprobar, No aprobar, Pendiente, Nota y **Concepto**. Con Concepto se elige el profesor (los integrantes de cada comité están en `app/core/programas.py`, o «Otro miembro») y se responde con su concepto tal como lo envió; va al acta, nunca al oficio. Responder «borrar» lo quita.
@@ -119,6 +119,22 @@ Las normas que se citan en el oficio están en `app/normativa/base.py`, con su t
 6. Comprueba que `GET /health` responda con `modelo_configurado: true`.
 
 Para un PDF con la tipografía institucional, copia los `.ttf` de Ancízar Sans en `fonts/`; no se versionan.
+
+## Formato único de oficio y acta
+
+Ambos documentos usan la misma plantilla membreteada para los cinco programas y toman lo mejor de las actas de Física y de Ciencias de la Computación:
+
+| Parte | Se toma de | Cómo queda |
+|---|---|---|
+| Encabezado del acta | CC | Fecha, hora, lugar, asistentes con su cargo, invitados |
+| Orden del día | CC + Física | 1. Quórum · 2. Casos, con los estudiantes por sección (Física) · 3. Varios |
+| Caso | CC | «2.N NOMBRE identificado con DNI No. … mediante correo (o formato) del día …, solicita …, justificando que “…”», con la cita en el mismo párrafo |
+| ANÁLISIS | Física | Plan, convocatoria, créditos inscritos y después de la solicitud, disciplinares, P.A.P.A., avance, semana, anexos |
+| Pantallazos del SIA | Ambas | Después del análisis |
+| Conceptos (solo acta) | CC | «El profesor X expresa: “…”», texto literal |
+| Recomendación | Física | «El Comité Asesor recomienda al Consejo de Facultad APROBAR la solicitud de … a la estudiante …» |
+| Asignaturas | Física | Tabla: trámite, código, asignatura, créditos |
+| Normas | Física | Texto literal de cada norma, «Basados en la normativa» |
 
 ## Documentos
 
