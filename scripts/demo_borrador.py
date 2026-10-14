@@ -20,6 +20,7 @@ from app.core.programas import PROGRAMAS
 from app.schemas.caso import (
     AsignaturaSolicitada,
     Caso,
+    Concepto,
     DatosSIA,
     EstadoCaso,
     ExtraccionCaso,
@@ -27,7 +28,12 @@ from app.schemas.caso import (
     Sentido,
     TipoSolicitud,
 )
-from app.services.documento import CasoDocumento, DatosOficio, construir_oficio
+from app.services.documento import (
+    CasoDocumento,
+    DatosOficio,
+    construir_acta,
+    construir_oficio,
+)
 from app.services.pdf import docx_a_pdf
 from app.services.reglas import analizar
 
@@ -195,17 +201,34 @@ async def main() -> None:
         for alerta in analisis.alertas:
             print(f"  caso {caso.id} [{alerta.nivel}] {alerta.mensaje}")
         items.append(CasoDocumento(caso, extr, analisis, correo.strip(), [img]))
+    # Un concepto ficticio en el primer caso, para ver cómo queda en el acta.
+    if items and programa.miembros:
+        m = programa.miembros[-1]
+        items[0].caso.conceptos = [
+            Concepto(
+                miembro=m.nombre,
+                tratamiento=m.tratamiento,
+                texto="Recomiendo aprobar la solicitud.\n\nLa estudiante cumple "
+                "los requisitos y presentó los soportes a tiempo.",
+            )
+        ]
     datos = DatosOficio(
-        programa=programa, fecha=date(2026, 10, 13), casos=items, elaboro="FCEN"
+        programa=programa,
+        fecha=date(2026, 10, 13),
+        casos=items,
+        elaboro="FCEN",
+        miembros=programa.miembros,
     )
-    docx = construir_oficio(datos, "2026-2S")
-    destino = OUT / f"demo_{clave}.docx"
-    destino.write_bytes(docx)
-    print(f"Escrito {destino}")
-    pdf = await docx_a_pdf(docx)
-    if pdf:
-        (OUT / f"demo_{clave}.pdf").write_bytes(pdf)
-        print(f"Escrito {OUT / f'demo_{clave}.pdf'}")
+    for nombre, docx in (
+        (f"demo_oficio_{clave}", construir_oficio(datos, "2026-2S")),
+        (f"demo_acta_{clave}", construir_acta(datos, "2026-2S")),
+    ):
+        (OUT / f"{nombre}.docx").write_bytes(docx)
+        print(f"Escrito {OUT / f'{nombre}.docx'}")
+        pdf = await docx_a_pdf(docx)
+        if pdf:
+            (OUT / f"{nombre}.pdf").write_bytes(pdf)
+            print(f"Escrito {OUT / f'{nombre}.pdf'}")
 
 
 if __name__ == "__main__":

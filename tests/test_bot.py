@@ -31,6 +31,14 @@ class EstructuradorFalso:
 _n = 0
 
 
+def _texto_docx(contenido: bytes) -> str:
+    import io
+
+    from docx import Document
+
+    return "\n".join(p.text for p in Document(io.BytesIO(contenido)).paragraphs)
+
+
 def _update(**mensaje: Any) -> Update:
     global _n
     _n += 1
@@ -161,10 +169,37 @@ async def test_flujo_completo(
     assert caso and caso.extraccion and caso.extraccion.documento == "1000000009"
     assert estructurador.llamadas[-1]["imagenes"] == []
 
-    # Borrador a pedido
+    # Concepto de un miembro del comité: botón, elegir el miembro, responder.
+    await bot.manejar_update(db, _callback("c:1"))
+    botones = tg.mensajes[-1]["botones"]
+    assert botones[0][0]["callback_data"] == "k:1:0"
+    await bot.manejar_update(db, _callback("k:1:2"))
+    pedido = tg.mensajes[-1]["texto"]
+    assert pedido.startswith("Concepto de Elisabeth Restrepo Parra · caso #1")
+    await bot.manejar_update(
+        db,
+        _update(
+            text="Recomiendo aprobar.\n\nCumple los requisitos.",
+            reply_to_message={
+                "message_id": 2,
+                "chat": {"id": USUARIO, "type": "private"},
+                "text": pedido,
+            },
+        ),
+    )
+    caso = await repo.get_caso(db, 1)
+    assert caso and [c.miembro for c in caso.conceptos] == ["Elisabeth Restrepo Parra"]
+    assert caso.conceptos[0].tratamiento == "La profesora"
+
+    # Borrador a pedido: oficio y acta (sin LibreOffice en las pruebas: solo .docx)
     await bot.manejar_update(db, _update(text="/acta"))
-    assert len(tg.documentos) == 1  # sin LibreOffice en las pruebas: solo .docx
-    assert tg.documentos[0]["nombre"].endswith(".docx")
+    nombres = [d["nombre"] for d in tg.documentos]
+    assert len(nombres) == 2
+    assert nombres[0].startswith("Oficio_") and nombres[1].startswith("Acta_")
+    oficio = _texto_docx(tg.documentos[0]["contenido"])
+    acta = _texto_docx(tg.documentos[1]["contenido"])
+    assert "Cumple los requisitos" in acta and "Cumple los requisitos" not in oficio
+    assert "La profesora Elisabeth Restrepo Parra expresa:" in acta
 
     # Cierre
     await bot.manejar_update(db, _callback("cerrar:ing_fisica"))
@@ -349,3 +384,41 @@ async def test_palabra_procesar_sin_barra(
     caso = await repo.get_caso(db, 1)
     assert caso and caso.estado == EstadoCaso.LISTO
     assert "Procesar" not in caso.texto
+
+
+async def test_concepto_de_otro_miembro_y_borrar(
+    db: aiosqlite.Connection,
+    tg: TelegramFalso,
+    estructurador: EstructuradorFalso,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _registrar(db, monkeypatch)
+    await bot.manejar_update(db, _update(text="Correo"))
+    await bot.manejar_update(db, _update(text="/listo"))
+    await bot.manejar_update(db, _callback("k:1:x"))
+    pedido = tg.mensajes[-1]["texto"]
+    assert pedido.startswith("Concepto de otro miembro · caso #1")
+
+    def respuesta(texto: str) -> Update:
+        return _update(
+            text=texto,
+            reply_to_message={
+                "message_id": 3,
+                "chat": {"id": USUARIO, "type": "private"},
+                "text": pedido,
+            },
+        )
+
+    await bot.manejar_update(db, respuesta("El profesor Juan Invitado:\nDe acuerdo."))
+    caso = await repo.get_caso(db, 1)
+    assert caso and caso.conceptos[0].miembro == "Juan Invitado"
+    assert caso.conceptos[0].tratamiento == "El profesor"
+    assert caso.conceptos[0].texto == "De acuerdo."
+
+    # Sin concepto debajo del nombre: no se guarda nada nuevo.
+    await bot.manejar_update(db, respuesta("Solo un nombre"))
+    assert "primera línea" in tg.textos()[-1]
+
+    await bot.manejar_update(db, respuesta("Juan Invitado\nborrar"))
+    caso = await repo.get_caso(db, 1)
+    assert caso and caso.conceptos == []

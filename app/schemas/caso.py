@@ -181,6 +181,18 @@ class Alerta(BaseModel):
     mensaje: str
 
 
+class Concepto(BaseModel):
+    """Concepto de un integrante del comité. Va al acta, nunca al oficio.
+
+    El texto se guarda tal como lo envió el profesor: no se resume ni se
+    corrige.
+    """
+
+    miembro: str
+    tratamiento: str | None = None  # «El profesor», «La profesora» o None
+    texto: str
+
+
 class Caso(BaseModel):
     id: int
     chat_id: int
@@ -193,4 +205,5 @@ class Caso(BaseModel):
     anexos_archivos: list[str] = Field(default_factory=list)
     extraccion: ExtraccionCaso | None = None
     nota_comite: str | None = None
+    conceptos: list[Concepto] = Field(default_factory=list)
     creado: str | None = None

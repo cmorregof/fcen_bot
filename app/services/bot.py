@@ -1,8 +1,8 @@
 """Flujo de Telegram: registro, caso abierto, procesar, ficha y decisiones.
 
-Orden de precedencia para un mensaje: comando con "/", respuesta a una ficha
-(corrección), nota pendiente del comité y, por último, contenido del caso
-abierto (texto o pantallazos). El modelo solo se llama al procesar o corregir.
+Orden de precedencia para un mensaje: comando con "/", respuesta al pedido
+de una nota o de un concepto del comité, respuesta a una ficha (corrección) y,
+por último, contenido del caso abierto (texto o pantallazos). El modelo solo se llama al procesar o corregir.
 """
 
 from __future__ import annotations
@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 _RE_CASO = re.compile(r"Caso #(\d+)")
 _RE_NOTA = re.compile(r"Nota del comité · caso #(\d+)")
+_RE_CONCEPTO = re.compile(r"Concepto de (.+?) · caso #(\d+)")
+_OTRO_MIEMBRO = "otro miembro"
+_RE_TRATAMIENTO = re.compile(r"^(el profesor|la profesora)\s+", re.IGNORECASE)
 # Palabras sueltas que equivalen a /listo cuando hay un caso abierto.
 _PALABRAS_PROCESAR = {
     "procesar",
@@ -44,8 +47,9 @@ AYUDA = """<b>Cómo funciona</b>
 1. Pega el correo del estudiante (texto) y envía los pantallazos del SIA y de la solicitud.
 2. Toca <b>Procesar</b> (o escribe /listo). Te respondo con la ficha del caso y las alertas.
 3. Si un dato está mal, <b>responde a la ficha</b> con la corrección.
-4. Después del comité, marca cada caso: Aprobar, No aprobar o Pendiente.
-5. Cada día a las 5 p. m. te llega el borrador por programa (.docx y PDF). También con /acta.
+4. Con <b>Concepto</b> registras lo que opinó cada profesor del comité; va al acta, no al oficio.
+5. Después del comité, marca cada caso: Aprobar, No aprobar o Pendiente.
+6. Cada día hábil a las 4:50 p. m. te llegan, por programa, el oficio y el acta (.docx y PDF). También con /acta.
 
 <b>Comandos</b>
 /nuevo — empieza otro caso
@@ -53,7 +57,7 @@ AYUDA = """<b>Cómo funciona</b>
 /cancelar — descarta el caso abierto
 /casos — últimos casos
 /caso N — vuelve a mostrar la ficha del caso N
-/acta — borradores ahora
+/acta — oficio y acta ahora
 /cerrar_acta — saca del borrador los casos ya tratados por el comité
 /costo — consumo del modelo este mes"""
 
@@ -110,6 +114,13 @@ async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
                     chat_id, f"Nota guardada en el caso #{caso.id}."
                 )
             return
+        # Respuesta al mensaje que pide el concepto de un miembro del comité.
+        m = _RE_CONCEPTO.search(respondido)
+        if m:
+            await _guardar_concepto(
+                db, chat_id, usuario, m.group(1), int(m.group(2)), texto
+            )
+            return
         # Respuesta a una ficha: corrección del caso.
         m = _RE_CASO.search(respondido)
         if m:
@@ -117,6 +128,59 @@ async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
             return
 
     await _agregar_al_caso(db, msg, usuario)
+
+
+async def _guardar_concepto(
+    db: aiosqlite.Connection,
+    chat_id: int,
+    usuario: repo.Usuario,
+    miembro: str,
+    caso_id: int,
+    texto: str,
+) -> None:
+    caso = await _caso_propio(db, caso_id, usuario)
+    if caso is None:
+        return
+    tratamiento: str | None = None
+    if miembro == _OTRO_MIEMBRO:
+        # Primera línea: el nombre; el resto, el concepto.
+        nombre, _, resto = texto.partition("\n")
+        nombre = nombre.strip().rstrip(":").strip()
+        m = _RE_TRATAMIENTO.match(nombre)
+        if m:
+            tratamiento = m.group(1).capitalize()
+            nombre = nombre[m.end() :].strip()
+        texto = resto.strip()
+        if not nombre or not texto:
+            await telegram.send_message(
+                chat_id,
+                "Escribe el nombre en la primera línea y el concepto debajo. "
+                "Vuelve a tocar «Concepto» para intentarlo otra vez.",
+            )
+            return
+        miembro = nombre
+    else:
+        programa = PROGRAMAS.get(caso.programa or "")
+        for m_ in programa.miembros if programa else ():
+            if m_.nombre == miembro:
+                tratamiento = m_.tratamiento
+    if _normalizar(texto) == "borrar":
+        borrado = await repo.borrar_concepto(db, caso.id, miembro)
+        await telegram.send_message(
+            chat_id,
+            f"Borré el concepto de {escape(miembro)} en el caso #{caso.id}."
+            if borrado
+            else f"El caso #{caso.id} no tenía concepto de {escape(miembro)}.",
+        )
+        return
+    await repo.guardar_concepto(
+        db, caso.id, miembro=miembro, tratamiento=tratamiento, texto=texto[:4000]
+    )
+    await telegram.send_message(
+        chat_id,
+        f"Concepto de {escape(miembro)} guardado en el caso #{caso.id}. "
+        "Va al acta, no al oficio.",
+    )
 
 
 def _normalizar(texto: str) -> str:
@@ -571,6 +635,39 @@ async def _callback(db: aiosqlite.Connection, cq: CallbackQuery) -> None:
             f"Nota del comité · caso #{caso.id}\nResponde a este mensaje con la nota.",
             forzar_respuesta=True,
         )
+    elif partes[0] == "c":
+        await telegram.responder_callback(cq.id)
+        programa = PROGRAMAS.get(caso.programa or "")
+        filas = [
+            [{"text": m.nombre, "callback_data": f"k:{caso.id}:{i}"}]
+            for i, m in enumerate(programa.miembros if programa else ())
+        ]
+        filas.append([{"text": "Otro miembro", "callback_data": f"k:{caso.id}:x"}])
+        await telegram.send_message(
+            chat_id, f"¿De quién es el concepto del caso #{caso.id}?", botones=filas
+        )
+    elif partes[0] == "k" and len(partes) == 3:
+        await telegram.responder_callback(cq.id)
+        if cq.message:
+            await telegram.editar_botones(chat_id, cq.message.message_id, None)
+        programa = PROGRAMAS.get(caso.programa or "")
+        miembros = programa.miembros if programa else ()
+        if partes[2].isdigit() and int(partes[2]) < len(miembros):
+            nombre = miembros[int(partes[2])].nombre
+            await telegram.send_message(
+                chat_id,
+                f"Concepto de {nombre} · caso #{caso.id}\nResponde a este mensaje "
+                "con el concepto, tal como lo envió (o «borrar» para quitarlo).",
+                forzar_respuesta=True,
+            )
+        else:
+            await telegram.send_message(
+                chat_id,
+                f"Concepto de {_OTRO_MIEMBRO} · caso #{caso.id}\nResponde a este "
+                "mensaje con el nombre en la primera línea (p. ej. «La profesora "
+                "Ana Pérez») y el concepto debajo.",
+                forzar_respuesta=True,
+            )
     elif partes[0] == "d":
         await repo.set_estado_caso(db, caso.id, EstadoCaso.DESCARTADO)
         await telegram.responder_callback(cq.id, f"Caso #{caso.id} descartado")

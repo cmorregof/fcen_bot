@@ -97,6 +97,11 @@ def ficha(caso: Caso, analisis: Analisis) -> str:
         if len(nota) > 400:
             nota = nota[:400] + " (…)"
         lineas.append(f"Nota del comité: {escape(nota)}")
+    if caso.conceptos:
+        lineas.append(
+            "Conceptos (van al acta): "
+            + ", ".join(escape(c.miembro) for c in caso.conceptos)
+        )
     lineas.append(
         f"<i>Caso #{caso.id}: para corregir un dato, responde a este mensaje con el cambio.</i>"
     )
@@ -111,7 +116,8 @@ def botones_ficha(caso_id: int) -> list[list[dict[str, str]]]:
             {"text": "⏳ Pendiente", "callback_data": f"s:{caso_id}:pendiente"},
         ],
         [
-            {"text": "📝 Nota del comité", "callback_data": f"n:{caso_id}"},
+            {"text": "🗣 Concepto", "callback_data": f"c:{caso_id}"},
+            {"text": "📝 Nota", "callback_data": f"n:{caso_id}"},
             {"text": "🗑 Descartar", "callback_data": f"d:{caso_id}"},
         ],
     ]

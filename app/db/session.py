@@ -84,6 +84,17 @@ _ESQUEMA = (
         creado         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS conceptos (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        caso_id     INTEGER NOT NULL REFERENCES casos(id),
+        miembro     TEXT NOT NULL,
+        tratamiento TEXT,
+        texto       TEXT NOT NULL,
+        creado      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (caso_id, miembro)
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_casos_estado ON casos(estado, programa)",
 )
 

@@ -1,4 +1,4 @@
-"""Arma y entrega los borradores por programa. Sin modelo: solo plantilla."""
+"""Arma y entrega los borradores por programa (oficio y acta). Sin modelo."""
 
 from __future__ import annotations
 
@@ -15,7 +15,12 @@ from app.core.programas import DIRECCIONES, PROGRAMAS, Programa
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.caso import Caso
-from app.services.documento import CasoDocumento, DatosOficio, construir_oficio
+from app.services.documento import (
+    CasoDocumento,
+    DatosOficio,
+    construir_acta,
+    construir_oficio,
+)
 from app.services.extraccion import cuerpo_del_correo
 from app.services.pdf import docx_a_pdf
 from app.services.reglas import analizar
@@ -26,15 +31,35 @@ DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.docu
 
 
 @dataclass(frozen=True)
-class Borrador:
-    programa: Programa
-    caso_ids: list[int]
+class Archivo:
+    nombre: str
     docx: bytes
     pdf: bytes | None
-    nombre_base: str
     ruta_docx: Path
     ruta_pdf: Path | None
+
+
+@dataclass(frozen=True)
+class Borrador:
+    """Los dos documentos de un programa: el oficio al Consejo de Facultad, con
+    la decisión, y el acta del comité, con los conceptos de sus integrantes."""
+
+    programa: Programa
+    caso_ids: list[int]
+    oficio: Archivo
+    acta: Archivo
     ultima_modificacion: str
+
+
+async def _guardar_archivo(carpeta: Path, nombre: str, docx: bytes) -> Archivo:
+    pdf = await docx_a_pdf(docx)
+    ruta_docx = carpeta / f"{nombre}.docx"
+    ruta_docx.write_bytes(docx)
+    ruta_pdf: Path | None = None
+    if pdf:
+        ruta_pdf = carpeta / f"{nombre}.pdf"
+        ruta_pdf.write_bytes(pdf)
+    return Archivo(nombre, docx, pdf, ruta_docx, ruta_pdf)
 
 
 def _iniciales(nombre: str | None) -> str:
@@ -99,31 +124,23 @@ async def armar_borradores(
             fecha=ahora.date(),
             casos=items,
             elaboro=_iniciales(elaboro),
+            miembros=programa.miembros,
         )
         try:
-            docx = construir_oficio(datos, settings.periodo_actual)
+            oficio_docx = construir_oficio(datos, settings.periodo_actual)
+            acta_docx = construir_acta(datos, settings.periodo_actual)
         except Exception:
             logger.exception("No pude armar el borrador de %s", clave)
             continue
-        pdf = await docx_a_pdf(docx)
-        nombre = f"Borrador_{programa.nombre.replace(' ', '_')}_{ahora:%Y-%m-%d_%H%M}"
+        sufijo = f"{programa.nombre.replace(' ', '_')}_{ahora:%Y-%m-%d_%H%M}"
         carpeta = settings.output_dir / ahora.strftime("%Y-%m-%d")
         carpeta.mkdir(parents=True, exist_ok=True)
-        ruta_docx = carpeta / f"{nombre}.docx"
-        ruta_docx.write_bytes(docx)
-        ruta_pdf: Path | None = None
-        if pdf:
-            ruta_pdf = carpeta / f"{nombre}.pdf"
-            ruta_pdf.write_bytes(pdf)
         borradores.append(
             Borrador(
                 programa=programa,
                 caso_ids=[i.caso.id for i in items],
-                docx=docx,
-                pdf=pdf,
-                nombre_base=nombre,
-                ruta_docx=ruta_docx,
-                ruta_pdf=ruta_pdf,
+                oficio=await _guardar_archivo(carpeta, f"Oficio_{sufijo}", oficio_docx),
+                acta=await _guardar_archivo(carpeta, f"Acta_{sufijo}", acta_docx),
                 ultima_modificacion=actual.ultima_modificacion,
             )
         )
@@ -135,32 +152,33 @@ async def registrar_entrega(db: aiosqlite.Connection, borrador: Borrador) -> Non
         db,
         programa=borrador.programa.clave,
         caso_ids=borrador.caso_ids,
-        docx_path=str(borrador.ruta_docx),
-        pdf_path=str(borrador.ruta_pdf) if borrador.ruta_pdf else None,
+        docx_path=str(borrador.oficio.ruta_docx),
+        pdf_path=str(borrador.oficio.ruta_pdf) if borrador.oficio.ruta_pdf else None,
         ultima_modificacion=borrador.ultima_modificacion,
     )
 
 
 async def enviar_borradores(chat_id: int, borradores: list[Borrador]) -> None:
     for b in borradores:
-        caption = (
-            f"<b>{b.programa.nombre}</b> · {len(b.caso_ids)} caso(s): "
-            + ", ".join(f"#{i}" for i in b.caso_ids)
-        )
-        await telegram.send_document(
-            chat_id,
-            nombre=f"{b.nombre_base}.docx",
-            contenido=b.docx,
-            mime=DOCX_MIME,
-            caption=caption,
-        )
-        if b.pdf:
+        casos = ", ".join(f"#{i}" for i in b.caso_ids)
+        for archivo, rotulo in (
+            (b.oficio, "Oficio al Consejo de Facultad (solo la decisión)"),
+            (b.acta, "Acta del comité (con los conceptos)"),
+        ):
             await telegram.send_document(
                 chat_id,
-                nombre=f"{b.nombre_base}.pdf",
-                contenido=b.pdf,
-                mime="application/pdf",
+                nombre=f"{archivo.nombre}.docx",
+                contenido=archivo.docx,
+                mime=DOCX_MIME,
+                caption=f"<b>{b.programa.nombre}</b> · {rotulo} · {casos}",
             )
+            if archivo.pdf:
+                await telegram.send_document(
+                    chat_id,
+                    nombre=f"{archivo.nombre}.pdf",
+                    contenido=archivo.pdf,
+                    mime="application/pdf",
+                )
 
 
 async def entrega_diaria(db: aiosqlite.Connection) -> dict[str, int]:

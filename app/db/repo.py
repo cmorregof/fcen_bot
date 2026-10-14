@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import aiosqlite
 
-from app.schemas.caso import Caso, EstadoCaso, ExtraccionCaso, Sentido
+from app.schemas.caso import Caso, Concepto, EstadoCaso, ExtraccionCaso, Sentido
 
 # ---------------------------------------------------------------------------
 # Usuarios
@@ -195,6 +195,56 @@ async def _archivos(
     return imagenes, anexos
 
 
+async def conceptos_de(db: aiosqlite.Connection, caso_id: int) -> list[Concepto]:
+    cur = await db.execute(
+        "SELECT miembro, tratamiento, texto FROM conceptos WHERE caso_id = ? "
+        "ORDER BY id",
+        (caso_id,),
+    )
+    return [
+        Concepto(miembro=r["miembro"], tratamiento=r["tratamiento"], texto=r["texto"])
+        for r in await cur.fetchall()
+    ]
+
+
+async def guardar_concepto(
+    db: aiosqlite.Connection,
+    caso_id: int,
+    *,
+    miembro: str,
+    tratamiento: str | None,
+    texto: str,
+) -> None:
+    """Un concepto por miembro y caso: si llega otro, reemplaza al anterior."""
+    await db.execute(
+        """
+        INSERT INTO conceptos (caso_id, miembro, tratamiento, texto)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(caso_id, miembro) DO UPDATE SET
+            tratamiento = excluded.tratamiento,
+            texto = excluded.texto,
+            creado = CURRENT_TIMESTAMP
+        """,
+        (caso_id, miembro, tratamiento, texto),
+    )
+    # El borrador del día se rehace si cambió algún caso.
+    await db.execute(
+        "UPDATE casos SET actualizado = CURRENT_TIMESTAMP WHERE id = ?", (caso_id,)
+    )
+    await db.commit()
+
+
+async def borrar_concepto(db: aiosqlite.Connection, caso_id: int, miembro: str) -> bool:
+    cur = await db.execute(
+        "DELETE FROM conceptos WHERE caso_id = ? AND miembro = ?", (caso_id, miembro)
+    )
+    await db.execute(
+        "UPDATE casos SET actualizado = CURRENT_TIMESTAMP WHERE id = ?", (caso_id,)
+    )
+    await db.commit()
+    return (cur.rowcount or 0) > 0
+
+
 async def _row_to_caso(db: aiosqlite.Connection, row: aiosqlite.Row) -> Caso:
     imagenes, anexos = await _archivos(db, int(row["id"]))
     extraccion = (
@@ -214,6 +264,7 @@ async def _row_to_caso(db: aiosqlite.Connection, row: aiosqlite.Row) -> Caso:
         anexos_archivos=anexos,
         extraccion=extraccion,
         nota_comite=row["nota_comite"],
+        conceptos=await conceptos_de(db, int(row["id"])),
         creado=str(row["creado"]) if row["creado"] else None,
     )
 

@@ -7,10 +7,11 @@ from datetime import date
 from docx import Document
 
 from app.core.programas import PROGRAMAS
-from app.schemas.caso import Caso, EstadoCaso, Sentido
+from app.schemas.caso import Caso, Concepto, EstadoCaso, Sentido
 from app.services.documento import (
     CasoDocumento,
     DatosOficio,
+    construir_acta,
     construir_oficio,
     creditos_texto,
     en_letras,
@@ -21,7 +22,7 @@ from app.services.reglas import analizar
 from tests.conftest import extraccion_ejemplo
 
 
-def _oficio(sentido: Sentido) -> bytes:
+def _datos(sentido: Sentido, conceptos: list[Concepto] | None = None) -> DatosOficio:
     programa = PROGRAMAS["ing_fisica"]
     e = extraccion_ejemplo()
     caso = Caso(
@@ -33,6 +34,7 @@ def _oficio(sentido: Sentido) -> bytes:
         sentido=sentido,
         texto="x",
         extraccion=e,
+        conceptos=conceptos or [],
     )
     item = CasoDocumento(
         caso,
@@ -40,10 +42,17 @@ def _oficio(sentido: Sentido) -> bytes:
         analizar(e, programa, periodo_inicio=None, hay_imagenes=False),
         "Buenos días,\n\nSolicito la cancelación.\n\nPersona Ficticia Uno",
     )
-    datos = DatosOficio(
-        programa=programa, fecha=date(2026, 10, 13), casos=[item], elaboro="AB"
+    return DatosOficio(
+        programa=programa,
+        fecha=date(2026, 10, 13),
+        casos=[item],
+        elaboro="AB",
+        miembros=programa.miembros,
     )
-    return construir_oficio(datos, "2026-2S")
+
+
+def _oficio(sentido: Sentido) -> bytes:
+    return construir_oficio(_datos(sentido), "2026-2S")
 
 
 def _texto_completo(docx: bytes) -> str:
@@ -113,3 +122,30 @@ def test_plantilla_sin_datos_personales() -> None:
     assert not any(re.search(r"\d{8,10}", t) for t in cuerpo)
     with zipfile.ZipFile(PLANTILLA) as z:
         assert not any(n.startswith("word/fonts/") for n in z.namelist())
+
+
+def test_acta_con_sesion_y_conceptos_y_oficio_sin_ellos() -> None:
+    conceptos = [
+        Concepto(
+            miembro="Elisabeth Restrepo Parra",
+            tratamiento="La profesora",
+            texto="Recomiendo aprobar.\n\nCumple los requisitos.",
+        )
+    ]
+    datos = _datos(Sentido.APROBAR, conceptos)
+    acta = Document(io.BytesIO(construir_acta(datos, "2026-2S")))
+    texto = "\n".join(p.text for p in acta.paragraphs)
+    assert "COMITÉ ASESOR PROGRAMA CURRICULAR INGENIERÍA FÍSICA" in texto
+    assert "ORDEN DEL DÍA" in texto and "2.1 Persona Ficticia Uno" in texto
+    assert "Jairo de Jesús Agudelo Calle, Representante Profesoral." in texto
+    assert (
+        "La profesora Elisabeth Restrepo Parra expresa: “Recomiendo aprobar." in texto
+    )
+    assert "Cumple los requisitos.”." in texto
+    assert "RECOMENDACIÓN: El Comité Asesor recomienda APROBAR" in texto
+    assert "CONSEJO DE FACULTAD" not in texto  # el acta no es una carta
+
+    oficio = Document(io.BytesIO(construir_oficio(datos, "2026-2S")))
+    texto_oficio = "\n".join(p.text for p in oficio.paragraphs)
+    assert "Recomiendo aprobar" not in texto_oficio
+    assert "ORDEN DEL DÍA" not in texto_oficio

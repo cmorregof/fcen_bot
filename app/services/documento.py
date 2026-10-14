@@ -1,4 +1,8 @@
-"""Borrador del oficio al Consejo de Facultad, en .docx, con la plantilla única.
+"""Oficio al Consejo de Facultad y acta del comité, en .docx, con la plantilla única.
+
+El oficio lleva solo la decisión del comité. El acta lleva además el
+encabezado de la sesión (fecha, hora, lugar, asistentes, orden del día) y los
+conceptos de los integrantes del comité, copiados tal como los enviaron.
 
 El formato es el del oficio del Comité Asesor de Ciencias de la Computación:
 los estilos «FCEN …» de la plantilla copian sus párrafos (Ancízar Sans 11 pt,
@@ -25,9 +29,9 @@ from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 from PIL import Image as PILImage
 
-from app.core.programas import Programa
+from app.core.programas import Miembro, Programa
 from app.normativa.base import NormaCitada, normas_para
-from app.schemas.caso import TITULOS_TIPO, Caso, ExtraccionCaso, Sentido
+from app.schemas.caso import TITULOS_TIPO, Caso, Concepto, ExtraccionCaso, Sentido
 from app.services.reglas import Analisis
 
 PLANTILLA = Path(__file__).resolve().parents[1] / "templates" / "oficio_base.docx"
@@ -129,6 +133,10 @@ class DatosOficio:
     fecha_sesion: str | None = None
     elaboro: str = ""
     borrador: bool = True
+    # Solo para el acta.
+    hora: str | None = None
+    lugar: str | None = None
+    miembros: tuple[Miembro, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +168,21 @@ def _r(
         r.italic = True
     if subrayado:
         r.underline = True
+    return r
+
+
+def _marcador(p: Paragraph, texto: str) -> Run:
+    """Dato que el comité completa en Word: resaltado en amarillo."""
+    r = _r(p, texto, negrita=True)
+    r.font.highlight_color = WD_COLOR_INDEX.YELLOW
+    return r
+
+
+def _nota_gris(p: Paragraph, texto: str) -> Run:
+    r = _r(p, texto)
+    r.font.size = Pt(8)
+    r.italic = False
+    r.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
     return r
 
 
@@ -380,12 +403,45 @@ def _normas(doc: DocumentoDocx, normas: list[NormaCitada], borrador: bool) -> No
             r.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
 
 
+def _conceptos(doc: DocumentoDocx, conceptos: list[Concepto], borrador: bool) -> None:
+    """Como en el Acta 35 de CC: «El profesor X expresa: “…”». Texto literal."""
+    if not conceptos:
+        if borrador:
+            _nota_gris(
+                _p(doc, "FCEN Cuerpo"), "(Sin conceptos de los miembros del comité.)"
+            )
+        return
+    for concepto in conceptos:
+        bloques = _bloques(concepto.texto)
+        if not bloques:
+            continue
+        sujeto = (
+            f"{concepto.tratamiento} {concepto.miembro}"
+            if concepto.tratamiento
+            else concepto.miembro
+        )
+        p = _p(doc, "FCEN Cuerpo")
+        _r(p, sujeto, negrita=True)
+        _r(p, " expresa: “")
+        _texto_con_saltos(
+            p, bloques[0] + ("”." if len(bloques) == 1 else ""), cursiva=False
+        )
+        for i, bloque in enumerate(bloques[1:], start=2):
+            cita = _p(doc, "FCEN Cita")
+            _texto_con_saltos(
+                cita, bloque + ("”." if i == len(bloques) else ""), cursiva=False
+            )
+    _vacio(doc, "FCEN Cuerpo")
+
+
 def _caso(
     doc: DocumentoDocx,
     datos: DatosOficio,
     item: CasoDocumento,
     numero: str,
     periodo: str,
+    *,
+    acta: bool = False,
 ) -> None:
     e = item.extraccion
     identificado = (
@@ -434,6 +490,10 @@ def _caso(
         except Exception:
             _p(doc, "FCEN Cuerpo", f"[No se pudo insertar la imagen {ruta.name}]")
 
+    if acta:
+        _vacio(doc, "FCEN Cuerpo")
+        _conceptos(doc, item.caso.conceptos, datos.borrador)
+
     antes, sentido, despues = texto_recomendacion(datos.programa, item)
     p = _p(doc, "FCEN Cuerpo")
     _r(p, "RECOMENDACIÓN", negrita=True)
@@ -467,7 +527,7 @@ def _cierre(doc: DocumentoDocx, datos: DatosOficio) -> None:
         r.font.color.rgb = RGBColor(0x00, 0x00, 0xFF)
 
 
-def construir_oficio(datos: DatosOficio, periodo: str) -> bytes:
+def _documento(datos: DatosOficio) -> DocumentoDocx:
     doc = Document(str(PLANTILLA))
     _reemplazar_marcadores(
         doc,
@@ -482,20 +542,155 @@ def construir_oficio(datos: DatosOficio, periodo: str) -> bytes:
     if doc.paragraphs and not doc.paragraphs[0].text:
         primero = doc.paragraphs[0]._element
         primero.getparent().remove(primero)
+    return doc
 
-    _encabezado_oficio(doc, datos)
+
+def _secciones(datos: DatosOficio) -> OrderedDict[str, list[CasoDocumento]]:
     secciones: OrderedDict[str, list[CasoDocumento]] = OrderedDict()
     for item in datos.casos:
         secciones.setdefault(titulo_seccion(item.extraccion), []).append(item)
+    return secciones
+
+
+def _casos(doc: DocumentoDocx, datos: DatosOficio, periodo: str, *, acta: bool) -> None:
     # Como en las actas: los casos son el punto 2 del orden del día (2.1, 2.2…).
     numero = 0
-    for titulo, items in secciones.items():
+    for titulo, items in _secciones(datos).items():
         _p(doc, "FCEN Titulo", titulo)
         for item in items:
             numero += 1
-            _caso(doc, datos, item, f"2.{numero}", periodo)
-    _cierre(doc, datos)
+            _caso(doc, datos, item, f"2.{numero}", periodo, acta=acta)
 
+
+def _guardar(doc: DocumentoDocx) -> bytes:
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
+
+
+def construir_oficio(datos: DatosOficio, periodo: str) -> bytes:
+    """Oficio al Consejo de Facultad: solo la decisión, sin conceptos."""
+    doc = _documento(datos)
+    _encabezado_oficio(doc, datos)
+    _casos(doc, datos, periodo, acta=False)
+    _cierre(doc, datos)
+    return _guardar(doc)
+
+
+# ---------------------------------------------------------------------------
+# Acta del comité
+# ---------------------------------------------------------------------------
+
+
+def _linea_dato(doc: DocumentoDocx, rotulo: str, valor: str | None, falta: str) -> None:
+    p = _p(doc, "FCEN Destinatario")
+    p.paragraph_format.tab_stops.add_tab_stop(Cm(3.5))
+    _r(p, f"{rotulo}:\t", negrita=True)
+    if valor:
+        _r(p, valor)
+    else:
+        _marcador(p, falta)
+
+
+def _encabezado_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
+    if datos.borrador:
+        p = _p(doc, "FCEN Destinatario")
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = _r(p, "BORRADOR · pendiente de revisión del Comité Asesor", negrita=True)
+        r.font.size = Pt(9)
+        r.font.color.rgb = RGBColor(0xB0, 0x00, 0x20)
+        _vacio(doc)
+
+    for linea in (
+        "UNIVERSIDAD NACIONAL DE COLOMBIA",
+        "SEDE MANIZALES",
+        "FACULTAD DE CIENCIAS EXACTAS Y NATURALES",
+        f"COMITÉ ASESOR PROGRAMA CURRICULAR {datos.programa.nombre.upper()}",
+        "PREGRADO",
+    ):
+        _p(
+            doc, "FCEN Destinatario", linea, negrita=True
+        ).alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _vacio(doc)
+    p = _p(doc, "FCEN Destinatario")
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _r(p, "ACTA ", negrita=True)
+    if datos.numero_acta:
+        _r(p, datos.numero_acta, negrita=True)
+    else:
+        _marcador(p, "[No.]")
+    _r(p, f" DE {datos.fecha.year}", negrita=True)
+    _vacio(doc, "FCEN Texto")
+
+    _linea_dato(
+        doc,
+        "FECHA",
+        datos.fecha_sesion and f"Manizales, {datos.fecha_sesion}",
+        f"Manizales, {fecha_larga(datos.fecha)}",
+    )
+    _linea_dato(doc, "HORA", datos.hora, "[hora]")
+    _linea_dato(doc, "LUGAR", datos.lugar, "[lugar o «sesión ad referéndum»]")
+    _vacio(doc, "FCEN Texto")
+
+    _p(doc, "FCEN Texto", "ASISTENTES:", negrita=True)
+    if datos.miembros:
+        for m in datos.miembros:
+            _p(doc, "FCEN Vineta", f"•\t{m.nombre}, {m.cargo}.")
+    else:
+        _marcador(_p(doc, "FCEN Vineta"), "[Integrantes del comité, con su cargo]")
+    p = _p(doc, "FCEN Destinatario")
+    p.paragraph_format.tab_stops.add_tab_stop(Cm(3.5))
+    _r(p, "INVITADOS:\t", negrita=True)
+    _marcador(p, "[Ninguno]")
+    _vacio(doc, "FCEN Texto")
+
+    _p(doc, "FCEN Texto", "ORDEN DEL DÍA", negrita=True)
+    _p(doc, "FCEN Vineta", "1.\tVerificación del quórum")
+    _p(doc, "FCEN Vineta", "2.\tCasos estudiantiles")
+    numero = 0
+    for titulo, items in _secciones(datos).items():
+        _p(doc, "FCEN Caso", titulo.capitalize(), negrita=True)
+        for item in items:
+            numero += 1
+            nombre = (item.extraccion.nombre_estudiante or "____").title()
+            _p(doc, "FCEN Caso", f"2.{numero} {nombre}")
+    _p(doc, "FCEN Vineta", "3.\tVarios")
+    _vacio(doc, "FCEN Texto")
+
+    _p(doc, "FCEN Titulo", "DESARROLLO DE LA SESIÓN")
+    _p(doc, "FCEN Texto", "1. VERIFICACIÓN DEL QUÓRUM", negrita=True)
+    _marcador(_p(doc, "FCEN Texto"), "[Se verificó el quórum con la asistencia de …]")
+    _vacio(doc, "FCEN Texto")
+    _p(doc, "FCEN Texto", "2. CASOS ESTUDIANTILES", negrita=True)
+    _vacio(doc, "FCEN Cuerpo")
+
+
+def _cierre_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
+    _p(doc, "FCEN Texto", "3. VARIOS", negrita=True)
+    _marcador(_p(doc, "FCEN Texto"), "[Sin asuntos varios]")
+    _vacio(doc, "FCEN Firma", n=2)
+    if datos.borrador:
+        _nota_gris(_p(doc, "FCEN Firma"), "[la firma se agrega al firmar]")
+    else:
+        _vacio(doc, "FCEN Firma")
+    presidente = datos.miembros[0] if datos.miembros else None
+    _p(
+        doc,
+        "FCEN Firma",
+        presidente.nombre.upper() if presidente else "NOMBRE DEL FIRMANTE",
+        negrita=True,
+    )
+    _p(doc, "FCEN Firma", presidente.cargo.split(",")[0] if presidente else "Cargo")
+    if datos.programa.correo:
+        p = _p(doc, "FCEN Firma")
+        r = _r(p, datos.programa.correo, subrayado=True)
+        r.font.color.rgb = RGBColor(0x00, 0x00, 0xFF)
+
+
+def construir_acta(datos: DatosOficio, periodo: str) -> bytes:
+    """Acta interna del comité: la sesión, los casos y los conceptos."""
+    doc = _documento(datos)
+    _encabezado_acta(doc, datos)
+    _casos(doc, datos, periodo, acta=True)
+    _cierre_acta(doc, datos)
+    return _guardar(doc)

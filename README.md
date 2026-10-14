@@ -2,7 +2,7 @@
 
 Agente de Telegram ([@fcenpregrado_bot](https://t.me/fcenpregrado_bot)) que ayuda a las administrativas de las direcciones de área curricular de la Facultad de Ciencias Exactas y Naturales (UNAL Manizales) a preparar los casos estudiantiles de los comités asesores.
 
-Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el caso, responde con una ficha que trae alertas y entrega cada día el borrador del oficio al Consejo de Facultad, uno por programa, en .docx y PDF. Todos los programas usan la misma plantilla membreteada.
+Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el caso, responde con una ficha que trae alertas y entrega cada día, por programa, dos documentos en .docx y PDF: el **oficio** al Consejo de Facultad, que lleva solo la decisión del comité, y el **acta** del comité, que además trae la sesión (fecha, hora, lugar, asistentes, orden del día) y el concepto de cada profesor. Todos los programas usan la misma plantilla membreteada.
 
 **Principio:** el modelo lee y redacta; las reglas verifican; el comité decide. El sentido de cada recomendación (aprobar o no aprobar) nunca sale del modelo: lo registra la administrativa con un botón.
 
@@ -12,8 +12,8 @@ Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el ca
 2. **Caso.** Pega el correo (en uno o varios mensajes) y envía los pantallazos. Los PDF adjuntos solo se registran por nombre: no se descargan ni se envían al modelo.
 3. **Procesar.** Con el botón o con `/listo`, Claude lee el texto y las imágenes y devuelve datos estructurados. El bot responde la ficha: estudiante, documento, programa (reconocido por el código del plan en el pantallazo), tipo de solicitud, créditos, P.A.P.A., avance, normas base y alertas.
 4. **Corregir.** Basta responder a la ficha con el cambio, por ejemplo «el documento es 1053…». Solo se corrige lo que se pide.
-5. **Comité.** Botones: Aprobar, No aprobar, Pendiente, y «Nota del comité».
-6. **Borrador.** Cada día hábil a las 4:50 p. m. llega el borrador de cada programa que haya cambiado. También se puede pedir con `/acta`. Los casos pendientes salen resaltados como `[APROBAR / NO APROBAR]`.
+5. **Comité.** Botones: Aprobar, No aprobar, Pendiente, Nota y **Concepto**. Con Concepto se elige el profesor (los integrantes de cada comité están en `app/core/programas.py`, o «Otro miembro») y se responde con su concepto tal como lo envió; va al acta, nunca al oficio. Responder «borrar» lo quita.
+6. **Borrador.** Cada día hábil a las 4:50 p. m. llegan el oficio y el acta de cada programa que haya cambiado. También se pueden pedir con `/acta`. Lo que el comité completa en Word (número de acta, hora, lugar, quórum, varios) y los casos pendientes (`[APROBAR / NO APROBAR]`) salen resaltados en amarillo.
 7. **Cierre.** `/cerrar_acta` saca del borrador los casos que ya tienen decisión del comité.
 
 ## Arquitectura
@@ -166,5 +166,5 @@ Pendiente: definir con la Facultad el plazo de retención de imágenes y la auto
 
 1. **Hecha:** lectura de casos, ficha con alertas, plantilla única y borrador diario.
 2. Índice de la normativa completa (por artículo, con vigencias) y citas verificadas contra la fuente.
-3. Firma (imagen del firmante por programa, radicado confirmado, registro de quién firmó) y acta interna con los conceptos de los profesores.
+3. Firma (imagen del firmante por programa, radicado confirmado, registro de quién firmó) y datos de la sesión capturados en el bot.
 4. Google Drive institucional, si DNTIC autoriza la app.

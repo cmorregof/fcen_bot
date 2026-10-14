@@ -21,6 +21,15 @@ class Direccion:
 
 
 @dataclass(frozen=True)
+class Miembro:
+    """Integrante del comité asesor, como aparece en ASISTENTES del acta."""
+
+    nombre: str
+    cargo: str
+    tratamiento: str = "El profesor"  # «El profesor» o «La profesora»
+
+
+@dataclass(frozen=True)
 class Programa:
     clave: str
     nombre: str
@@ -33,6 +42,9 @@ class Programa:
     # cuando el programa tiene esa regla propia (Res. CFCEN-060-2008 en Física).
     tdg_creditos_disciplinares: int | None = None
     alias: tuple[str, ...] = field(default=())
+    # Integrantes del comité (de la última acta conocida). Si cambian, se
+    # actualizan aquí; los que no están se pueden escribir a mano en el bot.
+    miembros: tuple[Miembro, ...] = field(default=())
 
     @property
     def comite(self) -> str:
@@ -65,6 +77,19 @@ PROGRAMAS: dict[str, Programa] = {
             radicado_prefijo="Mz.FCEN.1.066",
             tdg_creditos_disciplinares=46,
             alias=("ingenieria fisica",),
+            # Acta 19 de 2026.
+            miembros=(
+                Miembro(
+                    "Jorge Eduardo Giraldo Aristizábal",
+                    "Director Área Curricular Ciencias Naturales, quien lo preside",
+                ),
+                Miembro("Jairo de Jesús Agudelo Calle", "Representante Profesoral"),
+                Miembro(
+                    "Elisabeth Restrepo Parra",
+                    "Representante Profesoral",
+                    "La profesora",
+                ),
+            ),
         ),
         Programa(
             clave="ing_biologica",
@@ -89,6 +114,18 @@ PROGRAMAS: dict[str, Programa] = {
             extension="55634",
             radicado_prefijo="Mz.FCEN.1.065",
             alias=("ciencias de la computacion",),
+            # Acta 35 de 2026.
+            miembros=(
+                Miembro(
+                    "Olmer Folleco Solarte",
+                    "Coordinador Área de Matemáticas y Estadística",
+                ),
+                Miembro(
+                    "Fabián Fernando Serrano Suárez",
+                    "Coordinador Ciencias de la Computación",
+                ),
+                Miembro("David Angulo García", "Representante Profesoral"),
+            ),
         ),
         Programa(
             clave="estadistica",
