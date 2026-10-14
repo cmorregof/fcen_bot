@@ -138,6 +138,15 @@ uv run python scripts/probar_caso.py casos_reales/caso_01   # un caso real, con 
 
 `casos_reales/` está en `.gitignore`. Los casos con datos de estudiantes nunca van al repositorio.
 
+### Evaluación con casos reales
+
+```bash
+uv run python scripts/evaluar.py casos_reales/              # todos
+uv run python scripts/evaluar.py casos_reales/ --solo fis20 # solo los que empiezan así
+```
+
+Cada subcarpeta de `casos_reales/` es un caso sacado de un acta ya enviada: `correo.txt` (lo que pegaría la administrativa; vacío si el correo llegó como pantallazo), los pantallazos y `esperado.json` con lo que dice el acta. El script pasa cada caso por la misma extracción y las mismas reglas del bot y compara nombre, documento, trato, fecha, programa, tipos, créditos inscritos y después de la solicitud, créditos disciplinares, P.A.P.A., avance, códigos de las asignaturas, cuerpo del correo sin encabezados, sumas de la tabla del SIA y que no se repitan datos sensibles. Imprime una tabla (✓, ✗ o · si el acta no trae el dato), los fallos y el costo, y deja `_extraccion.json` en cada caso y `_resultados.json` en la raíz. Con 32 casos cuesta alrededor de 1 USD.
+
 La plantilla `app/templates/oficio_base.docx` se generó con `scripts/build_template.py` a partir de un oficio del Comité Asesor de Ciencias de la Computación. El formato copia el de ese oficio (Ancízar Sans 11 pt, interlineado 1,15, sangría francesa en cada caso, la cita del correo en el mismo párrafo) en estilos con nombre: `FCEN Caso`, `FCEN Cita`, `FCEN Titulo`, etc. Si se cambia uno de esos estilos en Word, en la plantilla, cambian todos los oficios. Del original solo se conserva el membrete; el script borra el cuerpo, las imágenes y las fuentes embebidas, y comprueba que no quede ningún dato de estudiantes.
 
 ## Costos
