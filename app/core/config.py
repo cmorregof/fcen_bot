@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import Literal, Self
 
-from pydantic import field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # Servicio actual del bot (actas, admision, calidad)
+    bot_servicio: Literal["actas", "admision", "calidad"] = "actas"
 
     # Telegram
     telegram_bot_token: str = ""
@@ -42,10 +46,10 @@ class Settings(BaseSettings):
     periodo_actual: str = "2026-2S"
     periodo_inicio: date | None = None
 
-    # Almacenamiento
-    db_path: Path = Path("data/fcen.db")
-    media_dir: Path = Path("data/media")
-    output_dir: Path = Path("data/out")
+    # Almacenamiento (por defecto aislados por servicio: data/<servicio>/...)
+    db_path: Path = Field(default=Path())
+    media_dir: Path = Field(default=Path())
+    output_dir: Path = Field(default=Path())
 
     # Conversión a PDF
     soffice_bin: str = "soffice"
@@ -59,6 +63,29 @@ class Settings(BaseSettings):
     def _fecha_vacia(cls, valor: object) -> object:
         # En .env.example la variable viene vacía: eso es "sin configurar".
         return None if valor == "" else valor
+
+    @model_validator(mode="after")
+    def _rutas_por_defecto(self) -> Self:
+        # Si no se configuraron o tienen los valores del .env original de un solo servicio:
+        if (
+            not self.db_path
+            or self.db_path == Path()
+            or self.db_path == Path("data/fcen.db")
+        ):
+            self.db_path = Path(f"data/{self.bot_servicio}/fcen.db")
+        if (
+            not self.media_dir
+            or self.media_dir == Path()
+            or self.media_dir == Path("data/media")
+        ):
+            self.media_dir = Path(f"data/{self.bot_servicio}/media")
+        if (
+            not self.output_dir
+            or self.output_dir == Path()
+            or self.output_dir == Path("data/out")
+        ):
+            self.output_dir = Path(f"data/{self.bot_servicio}/out")
+        return self
 
 
 settings = Settings()
