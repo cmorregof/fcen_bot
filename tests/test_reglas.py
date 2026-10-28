@@ -205,6 +205,34 @@ def test_no_suma_lo_que_ya_esta_inscrito() -> None:
     assert creditos_tras_solicitud(e, 13) == 9
 
 
+def test_no_suma_trabajo_de_grado_sin_codigo_ya_inscrito() -> None:
+    # El SIA ya muestra el Trabajo de Grado inscrito y el correo lo pide sin código.
+    base = extraccion_ejemplo()
+    assert base.sia is not None
+    sia = base.sia.model_copy(
+        update={
+            "cursos_inscritos": [
+                CursoInscrito(
+                    codigo="4100870",
+                    nombre="Cursos en posgrado",
+                    tipologia="TRABAJO DE GRADO",
+                    creditos=6,
+                ),
+            ]
+        }
+    )
+    e = base.model_copy(
+        update={
+            "sia": sia,
+            "tipos": [TipoSolicitud.TRABAJO_GRADO],
+            "asignaturas": [
+                AsignaturaSolicitada(nombre="Trabajo de Grado", creditos=6),
+            ],
+        }
+    )
+    assert creditos_tras_solicitud(e, 9) == 9
+
+
 def test_completar_tipos_agrega_carga_minima() -> None:
     # Solo pide Trabajo de Grado y quedaría con 13 - 4 = 9 créditos.
     e = extraccion_ejemplo(tipos=[TipoSolicitud.TRABAJO_GRADO])

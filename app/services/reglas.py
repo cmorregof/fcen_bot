@@ -122,22 +122,37 @@ def _ya_inscritas(sia: DatosSIA | None) -> set[str]:
     return {(c.codigo or "").strip() for c in sia.cursos_inscritos if c.codigo}
 
 
+def _es_trabajo_grado(texto: str | None) -> bool:
+    return normalizar(texto or "").startswith(normalizar("Trabajo de Grado"))
+
+
 def creditos_tras_solicitud(
     extraccion: ExtraccionCaso, inscritos: int | None
 ) -> int | None:
     """Créditos inscritos después de las inscripciones y cancelaciones pedidas.
 
     Una asignatura que el estudiante pide «inscribir» pero que ya aparece en
-    los cursos inscritos del SIA no se vuelve a sumar.
+    los cursos inscritos del SIA no se vuelve a sumar. Tampoco el Trabajo de
+    Grado pedido sin código cuando el SIA ya muestra uno inscrito.
     """
     if inscritos is None or not extraccion.asignaturas:
         return None
     ya = _ya_inscritas(extraccion.sia)
+    tdg_inscrito = extraccion.sia is not None and any(
+        _es_trabajo_grado(c.tipologia) for c in extraccion.sia.cursos_inscritos
+    )
     delta = 0
     for asig in extraccion.asignaturas:
         if asig.accion == "apertura":
             continue
         if asig.accion == "inscribir" and (asig.codigo or "").strip() in ya:
+            continue
+        if (
+            asig.accion == "inscribir"
+            and not (asig.codigo or "").strip()
+            and tdg_inscrito
+            and _es_trabajo_grado(asig.nombre)
+        ):
             continue
         if asig.creditos is None:
             return None

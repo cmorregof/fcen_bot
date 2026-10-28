@@ -73,6 +73,11 @@ def preparar_imagen(ruta: str | Path, lado_max: int | None = None) -> Imagen:
     return Imagen(buf.getvalue(), "image/jpeg")
 
 
+def _es_encabezado_gmail(linea: str) -> bool:
+    limpia = linea.strip()
+    return limpia.lower() in {"para mí", "para mi"} or limpia.startswith("Para:")
+
+
 def cuerpo_del_correo(texto: str, extraccion: ExtraccionCaso) -> str:
     """El cuerpo citado en el acta sale del texto pegado, no del modelo."""
     if extraccion.cuerpo_transcrito and not texto.strip():
@@ -81,7 +86,13 @@ def cuerpo_del_correo(texto: str, extraccion: ExtraccionCaso) -> str:
     desde = extraccion.cuerpo_desde_linea
     hasta = extraccion.cuerpo_hasta_linea
     if desde and hasta and 1 <= desde <= hasta <= len(lineas):
-        return "\n".join(lineas[desde - 1 : hasta]).strip()
+        # Si el rango arrastra el encabezado de Gmail, empieza después de él.
+        for i in range(hasta - 1, desde - 2, -1):
+            if _es_encabezado_gmail(lineas[i]):
+                desde = i + 2
+                break
+        if desde <= hasta:
+            return "\n".join(lineas[desde - 1 : hasta]).strip()
     if extraccion.cuerpo_transcrito:
         return extraccion.cuerpo_transcrito.strip()
     return texto.strip()
