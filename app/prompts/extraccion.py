@@ -57,7 +57,9 @@ posterior a la fecha de hoy que se te indica.
 10. Trabajo de Grado en cualquier modalidad (trabajo investigativo, práctica \
 profesional o de extensión, pasantía, asignaturas de posgrado) es \
 `trabajo_grado`, con la modalidad en `modalidad_trabajo_grado`. `pae` es solo \
-la Práctica Académica Especial.
+la Práctica Académica Especial. Si la solicitud trata de una práctica \
+profesional como Trabajo de Grado, incluye `trabajo_grado` aunque el trámite \
+principal sea otro (p. ej., `excepcion_norma`).
 11. `dudas` es solo para lo que se ve pero es ilegible o contradictorio y afecta \
 el acta (máximo 3). No anotes datos que simplemente no aparecen (documento, \
 correo, tipología): el sistema ya revisa lo que falta.

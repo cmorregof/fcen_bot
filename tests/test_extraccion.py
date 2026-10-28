@@ -26,6 +26,12 @@ def test_cuerpo_por_lineas() -> None:
     assert cuerpo_del_correo(texto, e) == "Buenos días,\nSolicito X."
 
 
+def test_cuerpo_salta_encabezado_de_gmail() -> None:
+    texto = "Asunto\nPersona <correo>\npara mí\nBuenos días,\nSolicito X."
+    e = extraccion_ejemplo(cuerpo_desde_linea=1, cuerpo_hasta_linea=5)
+    assert cuerpo_del_correo(texto, e) == "Buenos días,\nSolicito X."
+
+
 def test_cuerpo_con_lineas_invalidas_usa_todo() -> None:
     e = extraccion_ejemplo(cuerpo_desde_linea=8, cuerpo_hasta_linea=3)
     assert cuerpo_del_correo("hola", e) == "hola"
