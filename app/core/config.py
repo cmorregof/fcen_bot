@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     periodo_actual: str = "2026-2S"
     periodo_inicio: date | None = None
 
+    # Jurados de Trabajo de Grado que se presentan como mínimo. No es norma:
+    # es instrucción del Consejo de Facultad (reunión del 28-oct-2026).
+    jurados_minimo: int = 6
+
     # Almacenamiento. Si DB_PATH, MEDIA_DIR u OUTPUT_DIR no se definen, se
     # derivan de DATA_DIR por servicio: <DATA_DIR>/<servicio>/... En Docker,
     # DATA_DIR=/data (el volumen).

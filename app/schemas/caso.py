@@ -19,6 +19,7 @@ class TipoSolicitud(StrEnum):
     CARGA_MINIMA = "carga_minima"
     CANCELACION = "cancelacion"
     TRABAJO_GRADO = "trabajo_grado"
+    DESIGNACION_JURADOS = "designacion_jurados"
     EXCEPCION_NORMA = "excepcion_norma"
     PAE = "pae"
     PERMISO_ACADEMICO = "permiso_academico"
@@ -38,6 +39,7 @@ TITULOS_TIPO: dict[TipoSolicitud, str] = {
     TipoSolicitud.CARGA_MINIMA: "carga mínima",
     TipoSolicitud.CANCELACION: "cancelación de asignaturas",
     TipoSolicitud.TRABAJO_GRADO: "inscripción de trabajo de grado",
+    TipoSolicitud.DESIGNACION_JURADOS: "designación de jurados de trabajo de grado",
     TipoSolicitud.EXCEPCION_NORMA: "excepción a la norma",
     TipoSolicitud.PAE: "práctica académica especial (PAE)",
     TipoSolicitud.PERMISO_ACADEMICO: "permiso académico",
@@ -156,6 +158,18 @@ class CuadroEquivalencias(BaseModel):
     filas: list[FilaCuadro] = Field(default_factory=list)
 
 
+class Jurado(BaseModel):
+    """Un jurado de Trabajo de Grado, copiado tal como aparece en la solicitud."""
+
+    nombre: str
+    vinculacion: str | None = Field(
+        default=None,
+        description="Vinculación o institución, solo si aparece (p. ej. 'Profesor "
+        "asociado, Departamento de Física y Química' o 'Universidad de Caldas')",
+    )
+    correo: str | None = Field(default=None, description="Solo si aparece")
+
+
 class ExtraccionCaso(BaseModel):
     """Salida estructurada del modelo para un caso."""
 
@@ -189,6 +203,11 @@ class ExtraccionCaso(BaseModel):
         "extensión o asignaturas de posgrado, como lo dice el estudiante",
     )
     asignaturas: list[AsignaturaSolicitada] = Field(default_factory=list)
+    jurados: list[Jurado] = Field(
+        default_factory=list,
+        description="Jurados de Trabajo de Grado que trae la solicitud, en el orden "
+        "en que aparecen. No se inventan ni se completan",
+    )
     equivalencias: list[CuadroEquivalencias] = Field(
         default_factory=list,
         description="Cuadros comparativos de asignaturas cursadas y reconocidas, "
@@ -207,6 +226,12 @@ class ExtraccionCaso(BaseModel):
         default=None,
         description="Solo si el correo llegó como imagen y no como texto: el cuerpo "
         "transcrito literalmente",
+    )
+    cita_textual: str | None = Field(
+        default=None,
+        description="Fragmento del cuerpo (o de la justificación del formato) donde "
+        "el estudiante expone su motivo, copiado carácter por carácter, sin los "
+        "números de línea. Va entre comillas en el oficio",
     )
     justificacion_breve: str = Field(
         default="", description="Una o dos frases neutrales con el motivo que expone"

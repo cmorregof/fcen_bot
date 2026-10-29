@@ -28,7 +28,7 @@ from app.prompts.extraccion import (
     mensaje_extraccion,
 )
 from app.schemas.caso import Caso, ExtraccionCaso
-from app.services.reglas import completar_tipos
+from app.services.reglas import cita_literal, completar_tipos
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,20 @@ def cuerpo_del_correo(texto: str, extraccion: ExtraccionCaso) -> str:
     if extraccion.cuerpo_transcrito:
         return extraccion.cuerpo_transcrito.strip()
     return texto.strip()
+
+
+def cita_del_caso(texto: str, extraccion: ExtraccionCaso) -> tuple[str, bool]:
+    """Lo que va entre comillas en «justificando que “…”» y si está verificado.
+
+    Si el modelo señaló el fragmento de la justificación, se usa tal cual y se
+    comprueba que sea una subcadena exacta del texto original; si no lo es, no
+    se arregla: el borrador lo resalta y la ficha lo alerta. Sin fragmento, la
+    cita es el cuerpo completo, que ya sale recortado del texto pegado.
+    """
+    cita = (extraccion.cita_textual or "").strip()
+    if cita:
+        return cita, cita_literal(cita, texto, extraccion.cuerpo_transcrito)
+    return cuerpo_del_correo(texto, extraccion), True
 
 
 async def extraer_caso(db: aiosqlite.Connection, caso: Caso) -> SalidaExtraccion:
