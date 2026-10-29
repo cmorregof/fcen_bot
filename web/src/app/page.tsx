@@ -21,10 +21,14 @@ export default function Inicio() {
             <h1>
               Memor<span className="ia">IA</span>
             </h1>
-            <p className="lema">La memoria de la Facultad, con inteligencia artificial</p>
+            <p className="lema">
+              Menos tiempo en trámites,
+              <br />
+              más tiempo para los estudiantes.
+            </p>
             <p className="frase">
-              La IA lee, organiza y redacta; las reglas verifican; las decisiones siempre las toman
-              las personas y las instancias competentes.
+              Prepare los casos del comité, siga el plan de mejoramiento y oriente a los admitidos,
+              todo en un solo lugar. Usted revisa y decide; MemorIA prepara.
             </p>
           </div>
         </div>
