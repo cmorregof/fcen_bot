@@ -53,3 +53,9 @@ uv run python scripts/cierre_plan.py \
 - De un PDF largo el modelo ve solo las primeras páginas: la descripción lo dice.
 - De un xlsx el modelo no ve el contenido: no puede confirmar cifras.
 - La fecha de metadatos suele ser la de la copia del archivo, no la del documento.
+- De un xlsx el modelo solo sabe cuántas filas tiene: no puede verificar si los registros caen en el periodo del plan.
+
+## Referencia de costo
+
+Piloto de MCMA (153 archivos, 19 acciones): 5,91 USD en total y unos 7 minutos.
+Sonnet describió los archivos por unos 4,3 USD y Opus hizo los cruces y el resumen por unos 1,6 USD.

@@ -409,3 +409,16 @@ async def test_sin_creditos_detiene_la_corrida() -> None:
     assert primera.error == "no quedan créditos en la cuenta de la API"
     assert segunda.error.startswith("corrida detenida")
     assert intentos[0] == 1
+
+
+def test_parrafo_con_formato_quita_marcas_markdown() -> None:
+    from docx import Document
+
+    from app.servicios.calidad.soportes.salidas import parrafo_con_formato
+
+    doc = Document()
+    parrafo_con_formato(doc, "- **Becas (2.3):** listado [S001].")
+    p = doc.paragraphs[-1]
+    assert p.text == "Becas (2.3): listado [S001]."
+    assert p.style.name == "List Bullet"
+    assert p.runs[0].bold and p.runs[0].text == "Becas (2.3):"

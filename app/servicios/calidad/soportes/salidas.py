@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -212,6 +213,29 @@ def citas_a_nombres(texto: str, inventario: dict[str, Archivo]) -> str:
     return PATRON_CITA.sub(reemplazar, texto)
 
 
+PATRON_NEGRITA = re.compile(r"\*\*(.+?)\*\*")
+
+
+def parrafo_con_formato(doc: Any, texto: str) -> None:
+    """Escribe un párrafo del modelo: «- » es viñeta y **x** es negrita.
+
+    El modelo a veces responde con marcas de Markdown; en Word saldrían tal cual.
+    """
+    texto = texto.strip()
+    estilo = None
+    if texto.startswith(("- ", "• ")):
+        texto, estilo = texto[2:].strip(), "List Bullet"
+    parrafo = doc.add_paragraph(style=estilo)
+    inicio = 0
+    for m in PATRON_NEGRITA.finditer(texto):
+        if m.start() > inicio:
+            parrafo.add_run(texto[inicio : m.start()])
+        parrafo.add_run(m.group(1)).bold = True
+        inicio = m.end()
+    if inicio < len(texto):
+        parrafo.add_run(texto[inicio:])
+
+
 def borrador_docx(
     ruta: Path,
     programa: str,
@@ -257,7 +281,7 @@ def borrador_docx(
     if resumen:
         for parrafo in resumen.resumen.split("\n"):
             if parrafo.strip():
-                doc.add_paragraph(citas_a_nombres(parrafo.strip(), inventario))
+                parrafo_con_formato(doc, citas_a_nombres(parrafo, inventario))
     else:
         doc.add_paragraph("No se pudo generar el resumen general.")
     for alerta in alertas_resumen:
@@ -277,11 +301,14 @@ def borrador_docx(
         linea = doc.add_paragraph()
         linea.add_run("Veredicto propuesto: ").bold = True
         linea.add_run(f"{p.veredicto.value} · avance propuesto {p.avance_propuesto} %")
-        doc.add_paragraph(citas_a_nombres(p.parrafo_cierre, inventario))
+        for parrafo in p.parrafo_cierre.split("\n"):
+            if parrafo.strip():
+                parrafo_con_formato(doc, citas_a_nombres(parrafo, inventario))
         if p.falta:
-            falta = doc.add_paragraph()
-            falta.add_run("Lo que falta: ").italic = True
-            falta.add_run(citas_a_nombres(p.falta, inventario))
+            doc.add_paragraph().add_run("Lo que falta:").italic = True
+            for parrafo in p.falta.split("\n"):
+                if parrafo.strip():
+                    parrafo_con_formato(doc, citas_a_nombres(parrafo, inventario))
         for alerta in c.alertas:
             doc.add_paragraph(f"⚠ {alerta}")
     ruta.parent.mkdir(parents=True, exist_ok=True)
