@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 from html import escape
 
 import aiosqlite
@@ -14,8 +15,8 @@ from app.schemas.telegram import Message, Update
 from app.servicios.calidad import (
     alertas,
     directorio,
-    operaciones,
     plan,
+    plantilla,
     reloj,
     reporte,
     textos,
@@ -106,9 +107,9 @@ async def _importar(db: aiosqlite.Connection, msg: Message, uid: int) -> None:
         await _esperar(db, msg.chat.id, "plan")
         await telegram.send_message(
             msg.chat.id,
-            "Envíame el .xlsx del plan con las columnas: programa, código, tarea, "
-            "responsable_cargo, responsable_dependencia, fecha_limite, "
-            "evidencia_esperada (y, opcionales, factor_cna y eje_plan_accion).",
+            "Envíame el .xlsx del plan de mejoramiento con la plantilla institucional "
+            "(hojas «1. Formulación», «2. Plan de Mejora», «3. Cronograma 20XX» y "
+            "«4. Evaluación»).",
         )
         return
     nombre = doc.file_name or "plan.xlsx"
@@ -120,22 +121,19 @@ async def _importar(db: aiosqlite.Connection, msg: Message, uid: int) -> None:
     except Exception:
         await telegram.send_message(msg.chat.id, "No pude descargar el archivo.")
         return
-    vista = await operaciones.previsualizar(db, contenido)
-    if vista.resumen is None:
-        lista = "\n".join(f"• {escape(e)}" for e in vista.errores[:15])
-        extra = len(vista.errores) - 15
-        if extra > 0:
-            lista += f"\n… y {extra} más"
+    lectura = plantilla.leer_plantilla(contenido)
+    if lectura.errores or lectura.plan is None:
+        lista = "\n".join(f"• {escape(e)}" for e in lectura.errores[:15])
         await telegram.send_message(
-            msg.chat.id, f"No guardé nada. Corrige el archivo:\n{lista}"
+            msg.chat.id, f"No guardé nada. No pude leer el plan:\n{lista}"
         )
         return
-    resumen = vista.resumen
+    resumen = await plan.resumir(db, lectura.plan)
     await _esperar(
         db,
         msg.chat.id,
         "confirmar_plan",
-        json.dumps({"archivo": nombre, "filas": plan.filas_a_json(vista.filas)}),
+        json.dumps({"archivo": nombre, "plan": lectura.plan.model_dump_json()}),
     )
     await telegram.send_message(
         msg.chat.id,
@@ -154,70 +152,88 @@ async def _confirmar_importacion(
     if not aceptar:
         return "Importación cancelada. No se guardó nada."
     datos = json.loads(estado[1])
-    filas = plan.filas_de_json(datos["filas"])
-    resumen = await operaciones.guardar_plan(
-        db, filas, archivo=datos["archivo"], usuario_id=uid
+    leido = plantilla.Plan.model_validate_json(datos["plan"])
+    resumen = await plan.aplicar_importacion(
+        db,
+        leido,
+        archivo=datos["archivo"],
+        usuario_id=uid,
+        creado=reloj.ahora().isoformat(),
     )
-    return operaciones.mensaje_guardado(resumen)
+    return (
+        f"Plan de {escape(resumen.programa)} guardado: {len(resumen.nuevas)} acciones "
+        f"nuevas, {len(resumen.actualizadas)} actualizadas, {resumen.sin_cambios} sin "
+        f"cambios; {resumen.cortes_nuevos} cortes nuevos. El historial conserva lo "
+        "que cambió. Míralo con /plan."
+    )
+
+
+async def _programa_o_lista(
+    db: aiosqlite.Connection, chat_id: int, arg: str, uso: str
+) -> str | None:
+    programas = await plan.listar_programas(db)
+    if not programas:
+        await telegram.send_message(
+            chat_id, "Aún no hay plan cargado. Usa /importar_plan."
+        )
+        return None
+    if not arg and len(programas) == 1:
+        return programas[0]
+    programa = await plan.buscar_programa(db, arg) if arg else None
+    if programa is None:
+        lista = "\n".join(f"• {escape(p)}" for p in programas)
+        inicio = f"No encontré el programa «{escape(arg)}». " if arg else ""
+        await telegram.send_message(chat_id, f"{inicio}Uso: {uso}\n{lista}")
+    return programa
 
 
 async def _cmd_plan(db: aiosqlite.Connection, chat_id: int, arg: str) -> None:
-    hoy = reloj.hoy()
-    if not arg:
-        programas = await plan.listar_programas(db)
-        if not programas:
-            await telegram.send_message(
-                chat_id, "Aún no hay plan cargado. Usa /importar_plan."
-            )
-            return
-        lista = "\n".join(f"• {escape(p)}" for p in programas)
-        await telegram.send_message(
-            chat_id, f"Indica el programa: /plan &lt;programa&gt;\n{lista}"
-        )
-        return
-    programa = await plan.buscar_programa(db, arg)
+    programa = await _programa_o_lista(db, chat_id, arg, "/plan &lt;programa&gt;")
     if programa is None:
-        await telegram.send_message(
-            chat_id,
-            f"No encontré el programa «{escape(arg)}». Usa /plan para ver la lista.",
-        )
         return
-    tareas = await plan.listar_tareas(db, programa)
-    await telegram.send_message(chat_id, textos.texto_plan(programa, tareas, hoy))
+    guardado = await plan.cargar_plan(db, programa)
+    if guardado is not None:
+        await telegram.send_message(chat_id, textos.texto_plan(guardado, reloj.hoy()))
+
+
+_RE_CODIGO = re.compile(r"^\d+(?:\.\d+)*\.?$")
 
 
 async def _cmd_evidencia(
     db: aiosqlite.Connection, msg: Message, uid: int, arg: str
 ) -> None:
-    codigo, _, resto = arg.partition(" ")
-    if not codigo:
-        await telegram.send_message(
-            msg.chat.id, "Uso: /evidencia &lt;código&gt; [enlace]"
-        )
+    uso = "/evidencia &lt;programa&gt; &lt;código de acción&gt; [enlace]"
+    palabras = arg.split()
+    i = next((n for n, p in enumerate(palabras) if _RE_CODIGO.match(p)), None)
+    if i is None:
+        await telegram.send_message(msg.chat.id, f"Uso: {uso}")
         return
-    tareas = await plan.buscar_tareas_por_codigo(db, codigo)
-    if not tareas:
-        await telegram.send_message(
-            msg.chat.id, f"No hay una tarea con el código {escape(codigo)}."
-        )
+    programa = await _programa_o_lista(db, msg.chat.id, " ".join(palabras[:i]), uso)
+    if programa is None:
         return
-    if len(tareas) > 1:
-        lista = ", ".join(escape(t.programa) for t in tareas)
+    codigo = palabras[i].rstrip(".")
+    guardado = await plan.cargar_plan(db, programa)
+    accion = guardado.accion(codigo) if guardado else None
+    if guardado is None or accion is None:
         await telegram.send_message(
             msg.chat.id,
-            f"El código está en varios programas ({lista}); revisa el plan.",
+            f"No hay una acción {escape(codigo)} en el plan de {escape(programa)}.",
         )
         return
-    tarea = tareas[0]
-    enlace = resto.strip()
+    enlace = " ".join(palabras[i + 1 :]).strip()
     if msg.document is not None or enlace:
-        await _guardar_evidencia(db, msg, uid, tarea, enlace)
+        await _guardar_evidencia(db, msg, uid, guardado, accion, enlace)
         return
-    await _esperar(db, msg.chat.id, f"evidencia:{tarea.id}")
+    await _esperar(
+        db,
+        msg.chat.id,
+        "evidencia",
+        json.dumps({"programa": programa, "codigo": codigo}),
+    )
     await telegram.send_message(
         msg.chat.id,
-        f"Envíame el archivo o el enlace de la evidencia de {escape(tarea.codigo)}. "
-        f"Se espera: {escape(tarea.evidencia_esperada)}",
+        f"Envíame el archivo o el enlace del soporte de la acción {escape(codigo)}. "
+        f"Indicador: {escape(textos.corto(accion.indicador, 200) or 'sin indicador en el plan')}",
     )
 
 
@@ -225,13 +241,14 @@ async def _guardar_evidencia(
     db: aiosqlite.Connection,
     msg: Message,
     uid: int,
-    tarea: plan.Tarea,
+    guardado: plan.PlanGuardado,
+    accion: plantilla.Accion,
     enlace: str,
 ) -> None:
     if msg.document is not None:
         tipo, valor = "archivo", msg.document.file_name or "archivo sin nombre"
         referencia: str | None = msg.document.file_id
-    elif operaciones.es_enlace(enlace):
+    elif enlace.lower().startswith(("http://", "https://")):
         tipo, valor, referencia = "enlace", enlace, None
     else:
         await telegram.send_message(
@@ -239,9 +256,9 @@ async def _guardar_evidencia(
             "Envía un archivo o un enlace que empiece por http:// o https://.",
         )
         return
-    await plan.registrar_evidencia(
+    await plan.registrar_soporte(
         db,
-        tarea.id,
+        guardado.ids[accion.codigo],
         tipo=tipo,
         valor=valor,
         referencia=referencia,
@@ -252,9 +269,9 @@ async def _guardar_evidencia(
     await _limpiar(db, msg.chat.id)
     await telegram.send_message(
         msg.chat.id,
-        f"Tarea {escape(tarea.codigo)} marcada como cumplida. "
-        f"Evidencia registrada por ti el {reloj.ahora().date().isoformat()}.\n"
-        f"Responsable: {textos.responsable(tarea)}",
+        f"Soporte de la acción {escape(accion.codigo)} ({escape(guardado.programa)}) "
+        f"registrado por ti el {reloj.ahora().date().isoformat()}. Queda por revisar: "
+        "el % de avance solo cambia cuando se actualiza el plan.",
     )
 
 
@@ -275,22 +292,17 @@ async def _cmd_alerta(db: aiosqlite.Connection, chat_id: int) -> None:
 
 
 async def _cmd_reporte(db: aiosqlite.Connection, chat_id: int, arg: str) -> None:
-    programa = await plan.buscar_programa(db, arg) if arg else None
-    if programa is None:
-        await telegram.send_message(
-            chat_id, "Uso: /reporte &lt;programa&gt; (mira /plan para la lista)."
-        )
+    programa = await _programa_o_lista(db, chat_id, arg, "/reporte &lt;programa&gt;")
+    guardado = await plan.cargar_plan(db, programa) if programa else None
+    if guardado is None:
         return
     hoy = reloj.hoy()
-    contenido = reporte.generar_reporte(
-        programa, await plan.listar_tareas(db, programa), hoy
-    )
     await telegram.send_document(
         chat_id,
         nombre=f"reporte-plan-{hoy.isoformat()}.xlsx",
-        contenido=contenido,
+        contenido=reporte.generar_reporte(guardado, hoy),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        caption=f"Estado del plan de {escape(programa)}. La pestaña «fuentes» lista los registros de cada cifra.",
+        caption=f"Estado del plan de {escape(guardado.programa)}. La pestaña «fuentes» lista las acciones de cada cifra y su fila en el plan.",
     )
 
 
@@ -380,14 +392,14 @@ async def _continuar(db: aiosqlite.Connection, msg: Message, uid: int) -> None:
     if estado[0] == "plan" and msg.document is not None:
         await _limpiar(db, msg.chat.id)
         await _importar(db, msg, uid)
-    elif estado[0].startswith("evidencia:"):
-        tareas = [
-            t
-            for t in await plan.listar_tareas(db)
-            if t.id == int(estado[0].split(":")[1])
-        ]
-        if tareas:
-            await _guardar_evidencia(db, msg, uid, tareas[0], (msg.text or "").strip())
+    elif estado[0] == "evidencia":
+        datos = json.loads(estado[1])
+        guardado = await plan.cargar_plan(db, datos["programa"])
+        accion = guardado.accion(datos["codigo"]) if guardado else None
+        if guardado is not None and accion is not None:
+            await _guardar_evidencia(
+                db, msg, uid, guardado, accion, (msg.text or "").strip()
+            )
 
 
 __all__ = ["MENSAJE_BIENVENIDA", "manejar_update"]

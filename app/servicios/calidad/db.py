@@ -1,4 +1,8 @@
-"""Tablas del servicio de calidad. Se crean desde este paquete, sin migraciones."""
+"""Tablas del servicio de calidad. Se crean desde este paquete, sin migraciones.
+
+Las tablas del formato plano anterior (cal_tareas, cal_historial, cal_evidencias)
+ya no se crean; si existen en una base vieja, quedan sin uso y no se borran.
+"""
 
 from __future__ import annotations
 
@@ -24,35 +28,50 @@ _ESQUEMA = (
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS cal_tareas (
-        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-        programa            TEXT NOT NULL,
-        programa_clave      TEXT NOT NULL,
-        codigo              TEXT NOT NULL,
-        tarea               TEXT NOT NULL,
-        dependencia         TEXT NOT NULL,
-        cargo               TEXT NOT NULL,
-        fecha_limite        TEXT NOT NULL,
-        evidencia_esperada  TEXT NOT NULL,
-        factor_cna          TEXT NOT NULL DEFAULT '',
-        eje_plan_accion     TEXT NOT NULL DEFAULT '',
-        importacion_id      INTEGER REFERENCES cal_importaciones(id),
+    CREATE TABLE IF NOT EXISTS cal_planes (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        programa        TEXT NOT NULL,
+        programa_clave  TEXT NOT NULL UNIQUE,
+        datos_json      TEXT NOT NULL,
+        importacion_id  INTEGER NOT NULL REFERENCES cal_importaciones(id),
+        actualizado     TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS cal_acciones (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        programa_clave  TEXT NOT NULL,
+        codigo          TEXT NOT NULL,
+        importacion_id  INTEGER REFERENCES cal_importaciones(id),
         UNIQUE (programa_clave, codigo)
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS cal_historial (
+    CREATE TABLE IF NOT EXISTS cal_cortes (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        tarea_id        INTEGER NOT NULL REFERENCES cal_tareas(id),
+        accion_id       INTEGER NOT NULL REFERENCES cal_acciones(id),
+        clave           TEXT NOT NULL,
+        rotulo          TEXT NOT NULL,
+        fecha           TEXT,
+        descripcion     TEXT NOT NULL,
+        evidencias      TEXT NOT NULL,
         importacion_id  INTEGER NOT NULL REFERENCES cal_importaciones(id),
-        accion          TEXT NOT NULL,
+        UNIQUE (accion_id, clave)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS cal_cambios (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        accion_id       INTEGER NOT NULL REFERENCES cal_acciones(id),
+        importacion_id  INTEGER NOT NULL REFERENCES cal_importaciones(id),
+        tipo            TEXT NOT NULL,
         cambios_json    TEXT NOT NULL
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS cal_evidencias (
+    CREATE TABLE IF NOT EXISTS cal_soportes (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-        tarea_id            INTEGER NOT NULL REFERENCES cal_tareas(id),
+        accion_id           INTEGER NOT NULL REFERENCES cal_acciones(id),
         tipo                TEXT NOT NULL,
         valor               TEXT NOT NULL,
         referencia          TEXT,
@@ -68,7 +87,7 @@ _ESQUEMA = (
         dato        TEXT NOT NULL DEFAULT ''
     )
     """,
-    "CREATE INDEX IF NOT EXISTS idx_cal_evid_tarea ON cal_evidencias(tarea_id)",
+    "CREATE INDEX IF NOT EXISTS idx_cal_soportes_accion ON cal_soportes(accion_id)",
 )
 
 
