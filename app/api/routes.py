@@ -10,6 +10,8 @@ from app.db.session import connect
 from app.schemas.telegram import Update
 from app.services import borrador
 from app.servicios import despachar_update
+from app.servicios.calidad import alertas as alertas_calidad
+from app.servicios.calidad import reloj as reloj_calidad
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -60,6 +62,25 @@ async def borrador_diario(
     finally:
         await db.close()
     return {"ok": True, "borradores": enviados}
+
+
+@router.post("/internal/alerta-quincenal")
+async def alerta_quincenal(
+    x_cron_secret: str | None = Header(None),
+) -> dict[str, object]:
+    if (
+        not settings.internal_cron_secret
+        or x_cron_secret != settings.internal_cron_secret
+    ):
+        raise HTTPException(status_code=403, detail="secreto inválido")
+    if settings.bot_servicio != "calidad":
+        raise HTTPException(status_code=404, detail="no aplica a este servicio")
+    db = await connect()
+    try:
+        resultado = await alertas_calidad.enviar_alertas(db, reloj_calidad.hoy())
+    finally:
+        await db.close()
+    return {"ok": True, **resultado}
 
 
 @router.get("/health")
