@@ -1,0 +1,60 @@
+# Directorio «a quién acudo para qué» (trámite → dependencia → cargo → correo).
+# TODOS los datos son de EJEMPLO y están marcados PARA COMPLETAR: la Vicedecanatura
+# debe confirmarlos antes de usarlo. No lleva nombres de personas ni correos reales.
+version: 1
+estado: PARA COMPLETAR
+tramites:
+  - tema: Seguimiento del plan de mejoramiento
+    palabras_clave: [plan de mejoramiento, tarea, seguimiento, evidencia, indicador]
+    dependencia: "Vicedecanatura Académica (PARA COMPLETAR)"
+    cargo: "Vicedecano(a) Académico(a) (PARA COMPLETAR)"
+    correo: "PARA COMPLETAR"
+    vigencia: "PARA COMPLETAR"
+  - tema: Acreditación de alta calidad y factores CNA
+    palabras_clave: [acreditacion, cna, factor, autoevaluacion, condiciones iniciales]
+    dependencia: "Oficina de Calidad / Autoevaluación (PARA COMPLETAR)"
+    cargo: "Profesional de acreditación (PARA COMPLETAR)"
+    correo: "PARA COMPLETAR"
+    vigencia: "PARA COMPLETAR"
+  - tema: Indicadores de calidad y tiempos de respuesta
+    palabras_clave: [indicadores, tiempos de respuesta, reporte, metrica, plantilla]
+    dependencia: "Oficina de Calidad / Autoevaluación (PARA COMPLETAR)"
+    cargo: "Profesional de calidad (PARA COMPLETAR)"
+    correo: "PARA COMPLETAR"
+    vigencia: "PARA COMPLETAR"
+  - tema: Solicitudes estudiantiles ordinarias (cancelación, carga mínima, reingreso)
+    palabras_clave: [cancelacion, carga minima, reingreso, reserva de cupo, homologacion, traslado]
+    dependencia: "Comité asesor del programa curricular (PARA COMPLETAR)"
+    cargo: "Coordinador(a) del programa curricular (PARA COMPLETAR)"
+    correo: "PARA COMPLETAR"
+    vigencia: "PARA COMPLETAR"
+  - tema: Decisión sobre solicitudes ordinarias
+    palabras_clave: [consejo de facultad, decision, acta del consejo, aprobar]
+    dependencia: "Secretaría de Facultad (PARA COMPLETAR)"
+    cargo: "Secretario(a) de Facultad (PARA COMPLETAR)"
+    correo: "PARA COMPLETAR"
+    vigencia: "PARA COMPLETAR"
+  - tema: Doble titulación
+    palabras_clave: [doble titulacion, consejo de sede]
+    dependencia: "Secretaría de Sede (PARA COMPLETAR)"
+    cargo: "Secretario(a) de Sede (PARA COMPLETAR)"
+    correo: "PARA COMPLETAR"
+    vigencia: "PARA COMPLETAR"
+  - tema: Casos excepcionales
+    palabras_clave: [excepcional, consejo superior, papa, segundo reingreso]
+    dependencia: "Secretaría de Facultad, para escalar al Consejo Superior (PARA COMPLETAR)"
+    cargo: "Secretario(a) de Facultad (PARA COMPLETAR)"
+    correo: "PARA COMPLETAR"
+    vigencia: "PARA COMPLETAR"
+  - tema: Calendario académico y fechas límite
+    palabras_clave: [calendario, semana, fechas, preinscripcion, periodo]
+    dependencia: "Vicedecanatura Académica (PARA COMPLETAR)"
+    cargo: "Vicedecano(a) Académico(a) (PARA COMPLETAR)"
+    correo: "PARA COMPLETAR"
+    vigencia: "PARA COMPLETAR"
+  - tema: Trabajo de grado y jurados
+    palabras_clave: [trabajo de grado, jurado, jurados, director, codirector]
+    dependencia: "Comité asesor del programa curricular (PARA COMPLETAR)"
+    cargo: "Coordinador(a) del programa curricular (PARA COMPLETAR)"
+    correo: "PARA COMPLETAR"
+    vigencia: "PARA COMPLETAR"

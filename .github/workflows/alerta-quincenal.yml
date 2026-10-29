@@ -1,0 +1,22 @@
+name: Alerta quincenal de calidad
+
+on:
+  schedule:
+    # Días 1 y 15 de cada mes, 8:00 a. m. hora de Bogotá (13:00 UTC).
+    - cron: "0 13 1,15 * *"
+  workflow_dispatch:
+
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir la alerta al servicio de calidad
+        env:
+          # URL del servicio de calidad (no la de actas).
+          CALIDAD_APP_URL: ${{ secrets.CALIDAD_APP_URL }}
+          INTERNAL_CRON_SECRET: ${{ secrets.INTERNAL_CRON_SECRET }}
+        run: |
+          # Sin ALERTAS_ACTIVAS=true en el servicio, responde activas=false y no envía.
+          curl --fail --silent --show-error --max-time 300 -X POST \
+            -H "X-Cron-Secret: ${INTERNAL_CRON_SECRET}" \
+            "${CALIDAD_APP_URL}/internal/alerta-quincenal"
