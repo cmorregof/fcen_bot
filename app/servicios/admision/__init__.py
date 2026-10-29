@@ -244,10 +244,16 @@ def _tipo_por_texto(texto: str) -> str | None:
     norm = _normal(texto)
     if not norm.strip():
         return None
-    for doc in chequeo.cargar().documentos:
-        if _normal(doc.nombre) in norm or doc.clave.replace("_", " ") in norm:
-            return doc.clave
-    return None
+    # Gana el nombre más largo: «constancia del colegio (peama o paet)» no
+    # debe quedar como «constancia del colegio».
+    candidatos = [
+        doc
+        for doc in chequeo.cargar().documentos
+        if _normal(doc.nombre) in norm or doc.clave.replace("_", " ") in norm
+    ]
+    if not candidatos:
+        return None
+    return max(candidatos, key=lambda d: len(d.nombre)).clave
 
 
 async def _archivo(db: aiosqlite.Connection, msg: Message) -> None:

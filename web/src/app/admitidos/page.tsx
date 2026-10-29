@@ -4,13 +4,34 @@ import { useEffect, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { llamar } from "@/lib/api";
 
+type DocumentoLista = {
+  clave: string;
+  nombre: string;
+  seccion: string;
+  tipo: "obligatorio" | "condicional" | "opcional";
+  condicion: string | null;
+  nota: string | null;
+};
 type Aviso = {
   aviso: string;
   proposito: string;
   contacto: string;
-  documentos: { clave: string; nombre: string }[];
+  documentos: DocumentoLista[];
   max_mb: number;
 };
+
+// Agrupa los documentos por sección de la lista oficial, en su orden.
+function porSeccion(docs: DocumentoLista[]): [string, DocumentoLista[]][] {
+  const grupos = new Map<string, DocumentoLista[]>();
+  for (const d of docs) grupos.set(d.seccion, [...(grupos.get(d.seccion) ?? []), d]);
+  return [...grupos.entries()];
+}
+
+function etiqueta(d: DocumentoLista): string {
+  if (d.tipo === "condicional" && d.condicion) return `${d.nombre} — ${d.condicion}`;
+  if (d.tipo === "opcional") return `${d.nombre} (opcional)`;
+  return d.nombre;
+}
 type Respuesta = { estado: string; credenciales: boolean; respuesta: string; citas: string[]; contacto: string };
 type Revision = {
   estado: string;
@@ -78,6 +99,7 @@ function RevisarDocumento({ token, aviso }: { token: string; aviso: Aviso }) {
   const [res, setRes] = useState<Revision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const elegido = aviso.documentos.find((d) => d.clave === clave);
   return (
     <form
       onSubmit={async (e) => {
@@ -101,12 +123,22 @@ function RevisarDocumento({ token, aviso }: { token: string; aviso: Aviso }) {
       <label htmlFor="tipo">1. ¿Qué documento es?</label>
       <select id="tipo" value={clave} onChange={(e) => setClave(e.target.value)} required>
         <option value="">Elija el documento</option>
-        {aviso.documentos.map((d) => (
-          <option key={d.clave} value={d.clave}>
-            {d.nombre}
-          </option>
+        {porSeccion(aviso.documentos).map(([seccion, docs]) => (
+          <optgroup key={seccion} label={seccion}>
+            {docs.map((d) => (
+              <option key={d.clave} value={d.clave}>
+                {etiqueta(d)}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
+      {elegido?.condicion ? <Mensaje tipo="info">{elegido.condicion}.</Mensaje> : null}
+      {elegido?.nota ? (
+        <p>
+          <small>{elegido.nota}</small>
+        </p>
+      ) : null}
       <label htmlFor="archivo">
         2. Elija el archivo
         <span className="ayuda">PDF o foto (JPG o PNG), máximo {aviso.max_mb} MB.</span>

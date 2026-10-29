@@ -32,6 +32,17 @@ class AdmisionSettings(BaseSettings):
     # Lado mayor de las imágenes antes de enviarlas al modelo.
     lado_maximo_px: int = 1568
 
+    # Límite por hora y por IP de la web pública (cada pregunta o revisión
+    # llama al modelo). Varios admitidos pueden compartir IP (colegio, wifi).
+    limite_consentimiento_hora: int = 30
+    limite_preguntar_hora: int = 20
+    limite_revisar_hora: int = 10
+    # Proxies de confianza delante del servicio (Railway: 1). La IP del
+    # cliente es la que añadió el último de ellos en X-Forwarded-For.
+    proxies_confiables: int = 1
+    # Peso máximo de un insumo subido desde la web (listado, manual…).
+    max_bytes_insumo: int = 40_000_000
+
     chequeo_path: Path = RAIZ / "config" / "admision" / "chequeo.yaml"
     aviso_path: Path = RAIZ / "docs" / "admision" / "aviso_datos.md"
 

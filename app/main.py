@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -27,7 +28,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await db.close()
     settings.media_dir.mkdir(parents=True, exist_ok=True)
     settings.output_dir.mkdir(parents=True, exist_ok=True)
+    precarga = None
+    if settings.bot_servicio == "admision":
+        from app.servicios.admision import fuentes
+
+        precarga = asyncio.create_task(fuentes.precargar())
     yield
+    if precarga is not None and not precarga.done():
+        precarga.cancel()
 
 
 app = FastAPI(title="fcen_bot", lifespan=lifespan)
