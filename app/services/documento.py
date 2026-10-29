@@ -536,8 +536,8 @@ _FIGURA = {
     "homologacion": ("Cuadro de homologaciones", "Asignatura a homologar"),
     "convalidacion": ("Cuadro de convalidaciones", "Asignatura a convalidar"),
 }
-_COLUMNAS_LADO = ("Código", "Asignatura", "Tipología", "Créditos", "Nota")
-_ANCHOS_CUADRO = (1.4, 3.3, 1.6, 1.2, 1.0) * 2
+_COLUMNAS_LADO = ("Código", "Asignatura", "Tipología", "Cr.", "Nota")
+_ANCHOS_CUADRO = (1.4, 3.0, 2.1, 0.8, 0.9) * 2
 
 
 def _lado(a: AsignaturaCuadro) -> tuple[str, ...]:
