@@ -1,0 +1,41 @@
+# Lista de chequeo por documento. Editable por la responsable del proceso.
+# `clave` identifica el documento; `nombre` es el texto del botón; `seccion` es
+# la sección del listado de donde sale el requisito.
+# El modelo solo compara el archivo contra estos puntos: no decide si el
+# documento es válido ni si es auténtico.
+documentos:
+  - clave: documento_identidad
+    nombre: Documento de identidad
+    seccion: "Documentos de identificación (Obligatorios)"
+    chequeo:
+      - Es un documento de identidad (cédula, tarjeta de identidad, pasaporte o similar)
+      - Se ven las dos caras
+      - Los datos se leen completos, sin recortes ni reflejos
+  - clave: registro_civil
+    nombre: Registro civil de nacimiento
+    seccion: "Documentos de identificación (Obligatorios)"
+    chequeo:
+      - Es un registro civil de nacimiento
+      - Aparece el nombre de los padres (con parentesco)
+      - Los datos se leen completos
+  - clave: icfes
+    nombre: Resultado del examen ICFES
+    seccion: "Documentos personales (Obligatorios)"
+    chequeo:
+      - Es el resultado del Examen de Estado (ICFES)
+      - Aparecen número de documento, nombres y apellidos
+      - Los datos se leen completos
+  - clave: acta_grado
+    nombre: Acta de grado de bachiller
+    seccion: "Documentos personales (Obligatorios)"
+    chequeo:
+      - Es un acta de grado de bachiller
+      - Aparecen número de documento, nombres y apellidos
+      - Aparece la firma o el sello de la institución
+  - clave: formato_matricula
+    nombre: Formato de matrícula
+    seccion: "Documentos personales (Obligatorios)"
+    chequeo:
+      - Es el formato de matrícula de admitidos de pregrado
+      - Todos los campos están diligenciados
+      - Está firmado por el admitido (y por quien tenga la patria potestad si es menor de edad)

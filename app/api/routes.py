@@ -8,7 +8,10 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 from app.core.config import settings
 from app.db.session import connect
 from app.schemas.telegram import Update
-from app.services import borrador, bot
+from app.services import borrador
+from app.servicios import despachar_update
+from app.servicios.calidad import alertas as alertas_calidad
+from app.servicios.calidad import reloj as reloj_calidad
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -17,7 +20,7 @@ router = APIRouter()
 async def _procesar_en_fondo(update: Update) -> None:
     db = await connect()
     try:
-        await bot.manejar_update(db, update)
+        await despachar_update(db, update)
     except Exception:
         logger.exception("Error procesando el update %s", update.update_id)
     finally:
@@ -50,6 +53,9 @@ async def borrador_diario(
         or x_cron_secret != settings.internal_cron_secret
     ):
         raise HTTPException(status_code=403, detail="secreto inválido")
+    if settings.bot_servicio != "actas":
+        # El borrador diario es del servicio de actas; los demás no lo tienen.
+        raise HTTPException(status_code=404, detail="no aplica a este servicio")
     db = await connect()
     try:
         enviados = await borrador.entrega_diaria(db)
@@ -58,10 +64,30 @@ async def borrador_diario(
     return {"ok": True, "borradores": enviados}
 
 
+@router.post("/internal/alerta-quincenal")
+async def alerta_quincenal(
+    x_cron_secret: str | None = Header(None),
+) -> dict[str, object]:
+    if (
+        not settings.internal_cron_secret
+        or x_cron_secret != settings.internal_cron_secret
+    ):
+        raise HTTPException(status_code=403, detail="secreto inválido")
+    if settings.bot_servicio != "calidad":
+        raise HTTPException(status_code=404, detail="no aplica a este servicio")
+    db = await connect()
+    try:
+        resultado = await alertas_calidad.enviar_alertas(db, reloj_calidad.hoy())
+    finally:
+        await db.close()
+    return {"ok": True, **resultado}
+
+
 @router.get("/health")
 async def health() -> dict[str, object]:
     return {
         "ok": True,
+        "servicio": settings.bot_servicio,
         "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7],
         "modelo": settings.extraction_model,
         "modelo_configurado": bool(settings.anthropic_api_key),
