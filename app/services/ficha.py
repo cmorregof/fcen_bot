@@ -51,6 +51,12 @@ def ficha(caso: Caso, analisis: Analisis) -> str:
         cod = f"{asig.codigo} " if asig.codigo else ""
         grupo = f", grupo {escape(asig.grupo)}" if asig.grupo else ""
         lineas.append(f"  · {asig.accion}: {escape(cod + asig.nombre)}{grupo}{cred}")
+    for cuadro in e.equivalencias:
+        lineas.append(f"Cuadro de {cuadro.figura}: {len(cuadro.filas)} asignaturas")
+        for f in cuadro.filas:
+            origen = " ".join(x for x in (f.origen.codigo, f.origen.nombre) if x)
+            destino = " ".join(x for x in (f.destino.codigo, f.destino.nombre) if x)
+            lineas.append(f"  · {escape(origen or '¿?')} → {escape(destino or '¿?')}")
 
     datos: list[str] = []
     if analisis.creditos_inscritos is not None:

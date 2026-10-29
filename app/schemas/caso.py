@@ -118,6 +118,44 @@ class AsignaturaSolicitada(BaseModel):
     accion: Literal["inscribir", "cancelar", "apertura"] = "inscribir"
 
 
+class AsignaturaCuadro(BaseModel):
+    """Un lado de una fila del cuadro comparativo, tal como lo escribe el estudiante."""
+
+    codigo: str | None = None
+    nombre: str | None = None
+    tipologia: str | None = None
+    creditos: int | None = None
+    nota: str | None = Field(
+        default=None, description="Nota tal como aparece (p. ej. '4.2', 'AP')"
+    )
+
+
+class FilaCuadro(BaseModel):
+    origen: AsignaturaCuadro = Field(description="Asignatura ya cursada")
+    destino: AsignaturaCuadro = Field(
+        description="Asignatura que se reconoce en el plan de destino"
+    )
+
+
+class CuadroEquivalencias(BaseModel):
+    """Cuadro comparativo de asignaturas (formato de homologación, convalidación
+    o equivalencia; también el que acompaña un traslado o una doble titulación)."""
+
+    figura: Literal["equivalencia", "homologacion", "convalidacion"] = Field(
+        default="equivalencia",
+        description="equivalencia: entre planes de la UNAL; homologacion: desde otra "
+        "institución; convalidacion: la que marque el formato como tal",
+    )
+    origen: str | None = Field(
+        default=None,
+        description="Programa o universidad donde se cursaron, como aparece",
+    )
+    destino: str | None = Field(
+        default=None, description="Programa donde se reconocen, como aparece"
+    )
+    filas: list[FilaCuadro] = Field(default_factory=list)
+
+
 class ExtraccionCaso(BaseModel):
     """Salida estructurada del modelo para un caso."""
 
@@ -151,6 +189,11 @@ class ExtraccionCaso(BaseModel):
         "extensión o asignaturas de posgrado, como lo dice el estudiante",
     )
     asignaturas: list[AsignaturaSolicitada] = Field(default_factory=list)
+    equivalencias: list[CuadroEquivalencias] = Field(
+        default_factory=list,
+        description="Cuadros comparativos de asignaturas cursadas y reconocidas, "
+        "uno por cada cuadro que traiga la solicitud",
+    )
     cuerpo_desde_linea: int | None = Field(
         default=None,
         description="Primera línea (numerada) del cuerpo del correo, sin encabezados "

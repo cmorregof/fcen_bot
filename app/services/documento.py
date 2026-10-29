@@ -35,6 +35,7 @@ from app.core.programas import Miembro, Programa
 from app.normativa.base import NormaCitada, normas_para
 from app.schemas.caso import (
     TITULOS_TIPO,
+    AsignaturaCuadro,
     AsignaturaSolicitada,
     Caso,
     Concepto,
@@ -432,6 +433,84 @@ def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
         _vacio(doc, "FCEN Cuerpo")
 
 
+_FIGURA = {
+    "equivalencia": ("Cuadro de equivalencias", "Asignatura a equivaler"),
+    "homologacion": ("Cuadro de homologaciones", "Asignatura a homologar"),
+    "convalidacion": ("Cuadro de convalidaciones", "Asignatura a convalidar"),
+}
+_COLUMNAS_LADO = ("Código", "Asignatura", "Tipología", "Créditos", "Nota")
+_ANCHOS_CUADRO = (1.4, 3.3, 1.6, 1.2, 1.0) * 2
+
+
+def _lado(a: AsignaturaCuadro) -> tuple[str, ...]:
+    return (
+        a.codigo or "",
+        a.nombre or "",
+        a.tipologia or "",
+        "" if a.creditos is None else str(a.creditos),
+        a.nota or "",
+    )
+
+
+def _equivalencias(doc: DocumentoDocx, item: CasoDocumento) -> None:
+    """Cuadro comparativo como el del formato de homologación, convalidación o
+    equivalencia: lo cursado a la izquierda y lo que se reconoce a la derecha.
+    Las celdas vacías del lado de destino se resaltan: sin ellas no se ejecuta."""
+    for cuadro in item.extraccion.equivalencias:
+        if not cuadro.filas:
+            continue
+        titulo, encabezado_destino = _FIGURA[cuadro.figura]
+        _p(doc, "FCEN Cuerpo", f"{titulo}:")
+        tabla = doc.add_table(rows=2, cols=10)
+        try:
+            tabla.style = doc.styles["Table Grid"]
+        except KeyError:
+            pass
+        izquierda = tabla.cell(0, 0).merge(tabla.cell(0, 4))
+        derecha = tabla.cell(0, 5).merge(tabla.cell(0, 9))
+        for celda, texto in (
+            (
+                izquierda,
+                "Asignatura cursada"
+                + (f" en {cuadro.origen}" if cuadro.origen else ""),
+            ),
+            (
+                derecha,
+                encabezado_destino
+                + (f" en {cuadro.destino}" if cuadro.destino else ""),
+            ),
+        ):
+            celda.text = ""
+            _r(celda.paragraphs[0], texto, negrita=True)
+        for celda, titulo_col in zip(
+            tabla.rows[1].cells, _COLUMNAS_LADO * 2, strict=True
+        ):
+            celda.text = ""
+            _r(celda.paragraphs[0], titulo_col, negrita=True)
+        for fila in cuadro.filas:
+            celdas = tabla.add_row().cells
+            valores = _lado(fila.origen) + _lado(fila.destino)
+            for i, (celda, valor) in enumerate(zip(celdas, valores, strict=True)):
+                celda.text = ""
+                r = _r(celda.paragraphs[0], valor)
+                # Código, asignatura o créditos de destino faltantes.
+                if i in (5, 6, 8) and not valor:
+                    r.font.highlight_color = WD_COLOR_INDEX.YELLOW
+                    _resaltar_celda_amarillo(celda)
+        tabla.autofit = False
+        for columna, ancho in zip(tabla.columns, _ANCHOS_CUADRO, strict=True):
+            columna.width = Cm(ancho)
+        for fila_t in tabla.rows[1:]:
+            for celda, ancho in zip(fila_t.cells, _ANCHOS_CUADRO, strict=True):
+                celda.width = Cm(ancho)
+        for fila_t in tabla.rows:
+            for celda in fila_t.cells:
+                for parrafo in celda.paragraphs:
+                    for run in parrafo.runs:
+                        run.font.size = Pt(8)
+        _vacio(doc, "FCEN Cuerpo")
+
+
 def _normas(
     doc: DocumentoDocx,
     normas: list[NormaCitada],
@@ -554,6 +633,7 @@ def _caso(
     _r(p, despues)
     _vacio(doc, "FCEN Cuerpo")
     _asignaturas(doc, item)
+    _equivalencias(doc, item)
 
     _normas(
         doc,
