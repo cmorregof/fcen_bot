@@ -23,6 +23,7 @@ type Detalle = {
     dudas?: string[];
     asignaturas?: { codigo: string | null; nombre: string; grupo: string | null; accion: string }[];
     equivalencias?: Cuadro[];
+    jurados?: Jurado[];
   } | null;
   alertas: { nivel: string; mensaje: string }[];
   cifras: Record<string, number | null> | null;
@@ -33,6 +34,8 @@ type Detalle = {
   imagenes: number;
   anexos: string[];
 };
+
+type Jurado = { nombre: string; vinculacion: string | null; correo: string | null };
 
 type LadoCuadro = {
   codigo: string | null;
@@ -166,6 +169,32 @@ function Ficha() {
                 ))}
               </ul>
             </>
+          ) : null}
+          {caso.extraccion.jurados && caso.extraccion.jurados.length > 0 ? (
+            <div className="tabla">
+              <h3>Jurados de Trabajo de Grado ({caso.extraccion.jurados.length})</h3>
+              <p>
+                <small>Se recomiendan tal como los trae la solicitud.</small>
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Vinculación o institución</th>
+                    <th>Correo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {caso.extraccion.jurados.map((j, i) => (
+                    <tr key={i}>
+                      <td>{j.nombre}</td>
+                      <td>{j.vinculacion ?? ""}</td>
+                      <td>{j.correo ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : null}
           {(caso.extraccion.equivalencias ?? [])
             .filter((c) => c.filas.length > 0)
