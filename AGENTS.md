@@ -14,7 +14,7 @@ El archivo `README.md` describe a fondo el flujo del bot de actas.
 ## Reglas que se mantienen
 
 - **El modelo extrae y redacta; nunca decide el sentido de una recomendación ni despacha acciones.** Toda decisión pasa por un botón o un comando de una persona autorizada.
-- **Reglas de la reunión del 28-oct (§5 de `docs/torre-de-control.md`):**
+- **Reglas de la reunión del 28-oct (§5 de `docs/torre-de-control.md`, archivo local fuera del repositorio):**
   - El comité asesor **NUNCA aprueba**, solo recomienda **APROBAR** o **NO APROBAR**.
   - Quien decide es el **Consejo de Facultad** (o el **Consejo de Sede** o el **Consejo Superior**, según la instancia competente).
   - Esta regla aplica a plantillas, prompts, botones y textos del bot.

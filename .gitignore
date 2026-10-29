@@ -12,3 +12,6 @@ out/
 casos_reales/
 fonts/*.ttf
 fonts/*.otf
+
+# Torre de control: honorarios y datos internos; el repo es público
+docs/torre-de-control.md
