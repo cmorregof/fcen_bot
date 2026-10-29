@@ -382,7 +382,9 @@ def _resaltar_celda_amarillo(celda: _Cell) -> None:
     celda._tc.get_or_add_tcPr().append(shd)
 
 
-def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
+def _asignaturas(
+    doc: DocumentoDocx, item: CasoDocumento, *, posgrado: bool = False
+) -> None:
     """Cuadro por trámite: párrafo introductorio + tabla Código | Asignatura | Grupo | Tipología | Créditos."""
     # ZAPC no es una asignatura: va en la frase de la recomendación (§5.4).
     asignaturas = [a for a in item.extraccion.asignaturas if a.accion != "apertura"]
@@ -393,9 +395,15 @@ def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
     for asig in asignaturas:
         por_accion.setdefault(asig.accion, []).append(asig)
 
+    # En posgrado se habla de «cursos» (§5.4 de la reunión del 28-oct).
+    unidad = "cursos" if posgrado else "asignaturas"
     _INTRO = {
-        "inscribir": "Inscribir las siguientes asignaturas:",
-        "cancelar": "Cancelar las siguientes asignaturas:",
+        "inscribir": f"Inscribir los siguientes {unidad}:"
+        if posgrado
+        else "Inscribir las siguientes asignaturas:",
+        "cancelar": f"Cancelar los siguientes {unidad}:"
+        if posgrado
+        else "Cancelar las siguientes asignaturas:",
     }
 
     for accion, grupo_asigs in por_accion.items():
@@ -444,6 +452,44 @@ def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
 _ANCHOS_JURADOS = (5.5, 6.5, 4.5)
 
 
+def _proyecto(doc: DocumentoDocx, item: CasoDocumento) -> None:
+    """Datos del proyecto de tesis o trabajo final de posgrado, como aparecen."""
+    proyecto = item.extraccion.proyecto
+    if proyecto is None:
+        return
+    filas = [
+        ("Título", proyecto.titulo),
+        ("Director(a)", proyecto.director),
+        ("Codirector(a)", proyecto.codirector),
+        ("Línea de investigación", proyecto.linea),
+    ]
+    filas = [(r, v) for r, v in filas if v or r in ("Título", "Director(a)")]
+    _p(doc, "FCEN Cuerpo", "Proyecto de tesis o trabajo final:")
+    tabla = doc.add_table(rows=0, cols=2)
+    try:
+        tabla.style = doc.styles["Table Grid"]
+    except KeyError:
+        pass
+    for rotulo, valor in filas:
+        celdas = tabla.add_row().cells
+        celdas[0].text = ""
+        _r(celdas[0].paragraphs[0], rotulo, negrita=True)
+        celdas[1].text = ""
+        r = _r(celdas[1].paragraphs[0], valor or "")
+        # Título y director son indispensables para inscribir el proyecto.
+        if not valor:
+            r.font.highlight_color = WD_COLOR_INDEX.YELLOW
+            _resaltar_celda_amarillo(celdas[1])
+    tabla.autofit = False
+    for fila_t in tabla.rows:
+        for celda, ancho in zip(fila_t.cells, (4.0, 12.0), strict=True):
+            celda.width = Cm(ancho)
+            for parrafo in celda.paragraphs:
+                for run in parrafo.runs:
+                    run.font.size = Pt(10)
+    _vacio(doc, "FCEN Cuerpo")
+
+
 def _jurados(doc: DocumentoDocx, item: CasoDocumento) -> None:
     """Jurados de Trabajo de Grado tal como los trae la solicitud. Se
     recomiendan: el estudiante no los «propone» ni los «sugiere» (instrucción
@@ -490,8 +536,8 @@ _FIGURA = {
     "homologacion": ("Cuadro de homologaciones", "Asignatura a homologar"),
     "convalidacion": ("Cuadro de convalidaciones", "Asignatura a convalidar"),
 }
-_COLUMNAS_LADO = ("Código", "Asignatura", "Tipología", "Créditos", "Nota")
-_ANCHOS_CUADRO = (1.4, 3.3, 1.6, 1.2, 1.0) * 2
+_COLUMNAS_LADO = ("Código", "Asignatura", "Tipología", "Cr.", "Nota")
+_ANCHOS_CUADRO = (1.4, 3.0, 2.1, 0.8, 0.9) * 2
 
 
 def _lado(a: AsignaturaCuadro) -> tuple[str, ...]:
@@ -690,7 +736,8 @@ def _recomendacion(
         r.font.highlight_color = WD_COLOR_INDEX.YELLOW
     _r(p, despues)
     _vacio(doc, "FCEN Cuerpo")
-    _asignaturas(doc, item)
+    _proyecto(doc, item)
+    _asignaturas(doc, item, posgrado=datos.programa.nivel == "posgrado")
     _jurados(doc, item)
     _equivalencias(doc, item)
 

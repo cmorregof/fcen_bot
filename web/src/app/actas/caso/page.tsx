@@ -24,6 +24,7 @@ type Detalle = {
     asignaturas?: { codigo: string | null; nombre: string; grupo: string | null; accion: string }[];
     equivalencias?: Cuadro[];
     jurados?: Jurado[];
+    proyecto?: { titulo: string | null; director: string | null; codirector: string | null; linea: string | null } | null;
   } | null;
   alertas: { nivel: string; mensaje: string }[];
   cifras: Record<string, number | null> | null;
@@ -167,6 +168,17 @@ function Ficha() {
                     {a.accion}: {a.codigo ?? ""} {a.nombre} {a.grupo ? `(grupo ${a.grupo})` : ""}
                   </li>
                 ))}
+              </ul>
+            </>
+          ) : null}
+          {caso.extraccion.proyecto ? (
+            <>
+              <h3>Proyecto de tesis o trabajo final</h3>
+              <ul>
+                <li>Título: {caso.extraccion.proyecto.titulo ?? "no aparece"}</li>
+                <li>Director(a): {caso.extraccion.proyecto.director ?? "no aparece"}</li>
+                {caso.extraccion.proyecto.codirector ? <li>Codirector(a): {caso.extraccion.proyecto.codirector}</li> : null}
+                {caso.extraccion.proyecto.linea ? <li>Línea: {caso.extraccion.proyecto.linea}</li> : null}
               </ul>
             </>
           ) : null}

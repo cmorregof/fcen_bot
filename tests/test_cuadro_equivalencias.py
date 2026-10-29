@@ -86,7 +86,7 @@ def test_oficio_y_acta_traen_el_cuadro_de_equivalencias() -> None:
             "Código",
             "Asignatura",
             "Tipología",
-            "Créditos",
+            "Cr.",
             "Nota",
         ]
         assert [c.text for c in tabla.rows[2].cells] == [
