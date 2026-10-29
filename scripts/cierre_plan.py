@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import os
 import sys
+from collections import Counter
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -104,8 +105,13 @@ def main() -> int:
     print("Veredictos propuestos:", dict(informe.veredictos()))
     fallos = [d for d in informe.descripciones.values() if d.datos is None]
     print(f"Archivos sin descripción: {len(fallos)}")
-    for d in fallos:
-        print(f"  {d.archivo_id}: {d.error}")
+    for error, cuantos in Counter(d.error for d in fallos).most_common():
+        ids = [d.archivo_id for d in fallos if d.error == error]
+        print(
+            f"  {cuantos} × {error} ({', '.join(ids[:8])}{'…' if len(ids) > 8 else ''})"
+        )
+    if fallos:
+        print("Volver a correr retoma desde la caché: solo se pagan los que faltan.")
     alertas = sum(len(c.alertas) for c in informe.cruces)
     print(f"Alertas del verificador: {alertas}")
     for nombre, ruta in informe.salidas.items():

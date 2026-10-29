@@ -378,3 +378,34 @@ def test_estimacion_descuenta_cache(carpeta: Path, tmp_path: Path) -> None:
     antes = estimar(archivos, acciones, cache)
     assert antes.archivos_al_modelo == len([a for a in archivos if a.tipo != "zip"])
     assert antes.costo > 0
+
+
+async def test_sin_creditos_detiene_la_corrida() -> None:
+    from app.servicios.calidad.soportes.cliente import ClienteAnthropic
+    from app.servicios.calidad.soportes.modelos import DescripcionArchivo
+
+    intentos = [0]
+
+    class Mensajes:
+        async def create(self, **_: Any) -> Any:
+            intentos[0] += 1
+            raise RuntimeError("Your credit balance is too low to access the API.")
+
+    class Beta:
+        messages = Mensajes()
+
+    class Falso:
+        beta = Beta()
+
+    cliente = ClienteAnthropic("clave-ficticia")
+    cliente._cliente = Falso()  # type: ignore[assignment]
+    kwargs: dict[str, Any] = {
+        "modelo": "m", "sistema": "s", "bloques": [], "texto": "t",
+        "salida": DescripcionArchivo, "nombre_herramienta": "h",
+        "esfuerzo": "low", "max_tokens": 10,
+    }  # fmt: skip
+    primera = await cliente.llamar(**kwargs)
+    segunda = await cliente.llamar(**kwargs)
+    assert primera.error == "no quedan créditos en la cuenta de la API"
+    assert segunda.error.startswith("corrida detenida")
+    assert intentos[0] == 1

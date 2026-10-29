@@ -50,6 +50,23 @@ def herramienta(salida: type[BaseModel], nombre: str) -> dict[str, Any]:
     }
 
 
+def es_fatal(exc: Exception) -> bool:
+    texto = str(exc).lower()
+    return any(
+        marca in texto
+        for marca in ("credit balance", "invalid x-api-key", "authentication_error")
+    )
+
+
+def error_corto(exc: Exception) -> str:
+    texto = str(exc)
+    if "credit balance" in texto:
+        return "no quedan créditos en la cuenta de la API"
+    if "invalid x-api-key" in texto or "authentication_error" in texto:
+        return "la API key no es válida"
+    return f"{type(exc).__name__}: {texto[:200]}"
+
+
 class ClienteAnthropic:
     def __init__(
         self, api_key: str, workspace_id: str = "", timeout: float = 300.0
@@ -60,6 +77,9 @@ class ClienteAnthropic:
         self._cliente = AsyncAnthropic(
             api_key=api_key, timeout=timeout, max_retries=4, default_headers=cabeceras
         )
+        # Sin créditos o con la clave inválida, las demás llamadas también
+        # fallarían: se detiene la corrida en vez de gastar cientos de intentos.
+        self.detenido = ""
 
     async def llamar(
         self,
@@ -73,6 +93,8 @@ class ClienteAnthropic:
         esfuerzo: str,
         max_tokens: int,
     ) -> Respuesta:
+        if self.detenido:
+            return Respuesta(None, error=self.detenido)
         contenido = [*bloques, {"type": "text", "text": texto}]
         try:
             crear: Any = self._cliente.beta.messages.create
@@ -90,8 +112,11 @@ class ClienteAnthropic:
                 messages=[{"role": "user", "content": contenido}],
             )
         except Exception as exc:  # red, cuota, clave inválida
-            logger.warning("Falló la llamada al modelo: %s", exc)
-            return Respuesta(None, error=f"{type(exc).__name__}: {str(exc)[:300]}")
+            error = error_corto(exc)
+            if es_fatal(exc):
+                self.detenido = f"corrida detenida: {error}"
+            logger.warning("Falló la llamada al modelo: %s", error)
+            return Respuesta(None, error=error)
 
         uso = resp.usage
         ent = int(getattr(uso, "input_tokens", 0) or 0)
