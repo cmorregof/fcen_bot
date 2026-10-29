@@ -6,6 +6,8 @@ El proyecto **MemorIA** (`fcen_bot`) aloja tres agentes de Telegram que comparte
 2. **`admision`**: documentación y requisitos de admitidos.
 3. **`calidad`**: plan de mejoramiento, autoevaluación e indicadores.
 
+> Admisión tiene su guía propia, con insumos, OCR y web: [`docs/admision/despliegue.md`](admision/despliegue.md).
+
 Cada servicio se despliega de manera independiente en Railway a partir del mismo repositorio y rama, con sus propias variables de entorno, su propio bot en Telegram y su propia base de datos SQLite. **Un servicio nunca lee ni escribe en la base de datos de otro.**
 
 ---
@@ -94,7 +96,7 @@ Configura las variables en la pestaña **Variables** de cada servicio en Railway
 | `TELEGRAM_BOT_TOKEN` | Token BotFather Actas | Token BotFather Admisión | Token BotFather Calidad | Acceso a la Bot API de Telegram |
 | `TELEGRAM_WEBHOOK_SECRET` | Secreto hex Actas | Secreto hex Admisión | Secreto hex Calidad | Validación del header `X-Telegram-Bot-Api-Secret-Token` |
 | `DB_PATH`, `MEDIA_DIR`, `OUTPUT_DIR` | No definir | No definir | No definir | Se derivan de `DATA_DIR=/data` (lo fija el Dockerfile): `/data/<servicio>/fcen.db`, `media` y `out` |
-| `ANTHROPIC_API_KEY` | Requerida | Opcional (fase esqueleto) | Opcional (fase esqueleto) | Acceso a Claude para lectura y redacción |
+| `ANTHROPIC_API_KEY` | Requerida | Requerida | Opcional (fase esqueleto) | Acceso a Claude para lectura y redacción |
 | `INVITE_CODE` | Código alfanumérico | No aplica por ahora | No aplica por ahora | Registro de administrativos autorizados |
 | `INTERNAL_CRON_SECRET` | Secreto cron diario | No aplica | No aplica | Autenticación de `/internal/borrador-diario` |
 | `PERIODO_ACTUAL` | `2026-2S` | `2026-2S` | `2026-2S` | Periodo académico en curso |

@@ -1,41 +1,195 @@
 # Lista de chequeo por documento. Editable por la responsable del proceso.
-# `clave` identifica el documento; `nombre` es el texto del botón; `seccion` es
-# la sección del listado de donde sale el requisito.
+#
+# Sigue la «Lista de Chequeo y Verificación de Documentos» oficial (admitidos
+# de pregrado 2027-1S). Cada campo:
+#   clave      identifica el documento (no cambiarla: la usan los botones).
+#   nombre     texto del botón.
+#   seccion    nombre literal de la sección en la lista oficial.
+#   tipo       obligatorio | condicional | opcional.
+#   condicion  solo en los condicionales: a quién aplica (texto de la lista).
+#   nota       opcional: texto literal de la lista que acompaña al documento.
+#   chequeo    puntos que el modelo compara contra el archivo. Salen del texto
+#              oficial; los marcados «# del LISTADO» salen del listado de
+#              documentos (LISTADO_DE_DOCUMENTOS_ADMITIDOS_PREGRADO_2027_1S.pdf).
+#
 # El modelo solo compara el archivo contra estos puntos: no decide si el
 # documento es válido ni si es auténtico.
+#
+# Se deja fuera el ítem opcional «Medellín: certificación laboral expedida por
+# la Universidad de Antioquia»: solo aplica a la Sede Medellín, no a Manizales.
 documentos:
+  # --- DOCUMENTOS DE IDENTIFICACIÓN (OBLIGATORIOS) ---
   - clave: documento_identidad
     nombre: Documento de identidad
-    seccion: "Documentos de identificación (Obligatorios)"
+    seccion: "DOCUMENTOS DE IDENTIFICACIÓN (OBLIGATORIOS)"
+    tipo: obligatorio
     chequeo:
-      - Es un documento de identidad (cédula, tarjeta de identidad, pasaporte o similar)
-      - Se ven las dos caras
-      - Los datos se leen completos, sin recortes ni reflejos
+      - Es una copia del documento de identidad vigente
+      - Es legible (los datos se leen completos, sin recortes ni reflejos)
+      - Se ven las dos caras  # del LISTADO
   - clave: registro_civil
     nombre: Registro civil de nacimiento
-    seccion: "Documentos de identificación (Obligatorios)"
+    seccion: "DOCUMENTOS DE IDENTIFICACIÓN (OBLIGATORIOS)"
+    tipo: obligatorio
     chequeo:
       - Es un registro civil de nacimiento
-      - Aparece el nombre de los padres (con parentesco)
-      - Los datos se leen completos
+      - Tiene el parentesco (aparece el nombre de los padres)
+      - Es legible (los datos se leen completos)
+
+  # --- DOCUMENTOS PERSONALES (OBLIGATORIOS) ---
   - clave: icfes
     nombre: Resultado del examen ICFES
-    seccion: "Documentos personales (Obligatorios)"
+    seccion: "DOCUMENTOS PERSONALES (OBLIGATORIOS)"
+    tipo: obligatorio
     chequeo:
-      - Es el resultado del Examen de Estado (ICFES)
-      - Aparecen número de documento, nombres y apellidos
-      - Los datos se leen completos
+      - Es el resultado del Examen de Estado para el ingreso a la Educación Superior ICFES
+      - Aparecen número de documento, nombres y apellidos  # del LISTADO
+      - Es legible (los datos se leen completos)
   - clave: acta_grado
     nombre: Acta de grado de bachiller
-    seccion: "Documentos personales (Obligatorios)"
+    seccion: "DOCUMENTOS PERSONALES (OBLIGATORIOS)"
+    tipo: obligatorio
     chequeo:
       - Es un acta de grado de bachiller
-      - Aparecen número de documento, nombres y apellidos
-      - Aparece la firma o el sello de la institución
+      - Es legible (los datos se leen completos)
   - clave: formato_matricula
     nombre: Formato de matrícula
-    seccion: "Documentos personales (Obligatorios)"
+    seccion: "DOCUMENTOS PERSONALES (OBLIGATORIOS)"
+    tipo: obligatorio
     chequeo:
-      - Es el formato de matrícula de admitidos de pregrado
-      - Todos los campos están diligenciados
-      - Está firmado por el admitido (y por quien tenga la patria potestad si es menor de edad)
+      - Es el formato de matrícula
+      - Está diligenciado (ningún campo vacío)
+      - Está firmado por el admitido (y por quien tenga la patria potestad si es menor de edad)  # del LISTADO
+  - clave: certificado_paes
+    nombre: Certificado de Población Afrocolombiana (PAES)
+    seccion: "DOCUMENTOS PERSONALES (OBLIGATORIOS)"
+    tipo: condicional
+    condicion: "Solo admitidos PAES"
+    nota: >-
+      Este documento se debe anexar Únicamente para los admitidos por el
+      Programa de Admisión Especial para Bachilleres de Población Negra,
+      Afrocolombiana, Palenquera y Raizal.
+    chequeo:
+      - Es un certificado de miembro de Población Afrocolombiana
+      - Lo expide el Ministerio del Interior
+  - clave: certificado_residencia
+    nombre: Certificado de residencia (PEAMA o PAET)
+    seccion: "DOCUMENTOS PERSONALES (OBLIGATORIOS)"
+    tipo: condicional
+    condicion: "Solo para admitidos PEAMA o PAET"
+    nota: >-
+      Zona de influencia: Sede de Presencia Nacional (Caribe, Amazonas,
+      Orinoquía, Tumaco), Sede Medellín (Antioquia, Córdoba o Chocó), Sede
+      Manizales (Caldas, Quindío, Risaralda y Tolima), Sede Palmira (Cauca,
+      Nariño, Putumayo y Valle del Cauca), PAET Facultad de Medicina Bogotá
+      (municipios PDET y ZOMAC del departamento de Córdoba)
+    chequeo:
+      - Es un certificado de residencia
+      - Lo expide la Alcaldía Municipal o la autoridad competente (no se aceptan certificados de Junta de Acción Comunal)
+      - Consta que el aspirante se encuentra residiendo y ha residido en la zona de influencia
+      - Es legible (los datos se leen completos)
+
+  # --- DOCUMENTOS PARA ESTABLECER EL NIVEL SOCIOECONÓMICO DEL ADMITIDO (OBLIGATORIOS) ---
+  - clave: certificado_eps
+    nombre: Certificado de afiliación a EPS
+    seccion: "DOCUMENTOS PARA ESTABLECER EL NIVEL SOCIOECONÓMICO DEL ADMITIDO (OBLIGATORIOS)"
+    tipo: obligatorio
+    chequeo:
+      - Es un certificado de afiliación al Sistema General Seguridad Social en Salud EPS
+      - Es legible (los datos se leen completos)
+  - clave: identidad_responsables
+    nombre: Documento de identidad de los responsables socioeconómicos
+    seccion: "DOCUMENTOS PARA ESTABLECER EL NIVEL SOCIOECONÓMICO DEL ADMITIDO (OBLIGATORIOS)"
+    tipo: obligatorio
+    chequeo:
+      - Es un documento de identidad
+      - Es legible (los datos se leen completos)
+  - clave: constancia_colegio
+    nombre: Constancia del colegio
+    seccion: "DOCUMENTOS PARA ESTABLECER EL NIVEL SOCIOECONÓMICO DEL ADMITIDO (OBLIGATORIOS)"
+    tipo: obligatorio
+    chequeo:
+      - Es una constancia expedida por el colegio o institución educativa
+      - Está firmada
+  - clave: constancia_colegio_peama_paet
+    nombre: Constancia del colegio (PEAMA o PAET)
+    seccion: "DOCUMENTOS PARA ESTABLECER EL NIVEL SOCIOECONÓMICO DEL ADMITIDO (OBLIGATORIOS)"
+    tipo: condicional
+    condicion: "Solo para admitidos PEAMA o PAET"
+    nota: >-
+      (10) Resolución 098 de 2024 de Rectoría: Por la cual se reglamenta el
+      Programa de Admisión Especial con enfoque territorial (PAET) de las Sedes
+      Manizales, Medellín, Palmira, Amazonía, Caribe, Orinoquía y Tumaco
+    chequeo:
+      - Es una constancia expedida por el colegio o institución educativa
+      - Está firmada
+      - Indica que el admitido cursó los DOS últimos años de bachillerato (Grados 10° y 11° de la Educación Media) en la institución educativa
+  - clave: facturas_servicios
+    nombre: Factura de servicios públicos
+    seccion: "DOCUMENTOS PARA ESTABLECER EL NIVEL SOCIOECONÓMICO DEL ADMITIDO (OBLIGATORIOS)"
+    tipo: obligatorio
+    nota: "Se pide la última factura de 2 (dos) servicios públicos domiciliarios distintos."
+    chequeo:
+      - Es la última factura de un servicio público domiciliario
+      - Se especifica el estrato
+      - Se especifica la dirección de la vivienda
+      - Es legible (los datos se leen completos)
+  - clave: propiedad_vivienda
+    nombre: Soportes de propiedad de vivienda
+    seccion: "DOCUMENTOS PARA ESTABLECER EL NIVEL SOCIOECONÓMICO DEL ADMITIDO (OBLIGATORIOS)"
+    tipo: obligatorio
+    chequeo:
+      - Es un soporte de propiedad de vivienda de los responsables socioeconómicos del admitido
+  - clave: soportes_ingresos
+    nombre: Soportes de ingresos
+    seccion: "DOCUMENTOS PARA ESTABLECER EL NIVEL SOCIOECONÓMICO DEL ADMITIDO (OBLIGATORIOS)"
+    tipo: obligatorio
+    chequeo:
+      - Es un soporte de ingresos de los responsables socioeconómicos del admitido
+  - clave: soportes_ausencia
+    nombre: Soportes de ausencia de un responsable
+    seccion: "DOCUMENTOS PARA ESTABLECER EL NIVEL SOCIOECONÓMICO DEL ADMITIDO (OBLIGATORIOS)"
+    tipo: obligatorio
+    chequeo:
+      - Es un soporte de ausencia de alguno de los responsables socioeconómicos del admitido
+
+  # --- DOCUMENTOS PARA LA APLICACIÓN DE DESCUENTOS (OPCIONALES) ---
+  - clave: registro_civil_hermanos
+    nombre: Registro civil de hermanos (tres hijos o más)
+    seccion: "DOCUMENTOS PARA LA APLICACIÓN DE DESCUENTOS (OPCIONALES)"
+    tipo: opcional
+    nota: "(Núcleos familiares con tres (3) hijos o más)"
+    chequeo:
+      - Es un registro civil de hermanos
+      - Es legible (los datos se leen completos)
+  - clave: registro_civil_hermano_unal
+    nombre: Registro civil de hermano estudiante UNAL
+    seccion: "DOCUMENTOS PARA LA APLICACIÓN DE DESCUENTOS (OPCIONALES)"
+    tipo: opcional
+    nota: "Hermano estudiante activo de pregrado de la Universidad Nacional de Colombia."
+    chequeo:
+      - Es un registro civil de hermano
+      - Es legible (los datos se leen completos)
+  - clave: certificado_electoral
+    nombre: Certificado electoral
+    seccion: "DOCUMENTOS PARA LA APLICACIÓN DE DESCUENTOS (OPCIONALES)"
+    tipo: opcional
+    chequeo:
+      - Es un certificado electoral
+      - Es del admitido (No es válido el certificado electoral de los responsables socioeconómicos del admitido)
+      - Es legible (los datos se leen completos)
+  - clave: registro_matrimonio
+    nombre: Registro civil de matrimonio o unión marital
+    seccion: "DOCUMENTOS PARA LA APLICACIÓN DE DESCUENTOS (OPCIONALES)"
+    tipo: opcional
+    nota: "Con personal de planta vinculado a la Universidad Nacional de Colombia."
+    chequeo:
+      - Es un registro civil de matrimonio o de unión marital de hecho
+      - Es legible (los datos se leen completos)
+  - clave: discapacidad
+    nombre: Documento de condición de discapacidad
+    seccion: "DOCUMENTOS PARA LA APLICACIÓN DE DESCUENTOS (OPCIONALES)"
+    tipo: opcional
+    nota: "Debe refrendar dicho documento ante el área de salud de la sede correspondiente."
+    chequeo:
+      - Es un documento sobre la condición de discapacidad

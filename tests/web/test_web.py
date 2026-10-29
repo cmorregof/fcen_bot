@@ -80,6 +80,7 @@ MATRIZ: dict[str, dict[str, set[str]]] = {
     "admision": {
         "/api/web/admision/metricas": {"admision", "admin"},
         "/api/web/admision/chequeo": {"admision", "admin"},
+        "/api/web/admision/insumos": {"admision", "admin"},
         "/api/web/admision/tablero": {"admision", "admin", "decanatura"},
         "/api/web/usuarios": {"admin"},
     },
@@ -293,7 +294,8 @@ async def test_admitidos_tienen_limite_por_hora(
             "/api/web/admision/consentimiento", json={"acepto": True, "menor": False}
         )
         cab = {"Authorization": f"Bearer {r.json()['token']}"}
-        ip_a = {**cab, "X-Forwarded-For": "203.0.113.7, 10.0.0.1"}
+        # El proxy de Railway añade la IP real al final de X-Forwarded-For.
+        ip_a = {**cab, "X-Forwarded-For": "10.0.0.1, 203.0.113.7"}
         ip_b = {**cab, "X-Forwarded-For": "198.51.100.9"}
         pregunta = {"texto": "¿Cómo subo la cédula?"}
         for _ in range(2):
@@ -479,3 +481,165 @@ def test_token_de_google_invalido_responde_401_no_500(
     monkeypatch.setattr(id_token, "verify_oauth2_token", _invalido)
     r = cliente("calidad").post("/api/web/sesion", json={"credencial": "falso"})
     assert r.status_code == 401
+
+
+async def test_ip_falsa_al_comienzo_de_x_forwarded_for_no_salta_el_limite(
+    cliente: Cliente, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.web import admision as web_admision
+    from app.servicios.admision import fuentes
+
+    async def _fuentes(*a: Any) -> str:
+        return "Listado ficticio"
+
+    monkeypatch.setattr(fuentes, "cargar", _fuentes)
+    monkeypatch.setitem(web_admision.LIMITES_POR_HORA, "preguntar", 2)
+    web_admision.reiniciar_limites()
+    admision.usar_modelo(ModeloFalso())  # type: ignore[arg-type]
+    try:
+        c = cliente("admision")
+        r = c.post(
+            "/api/web/admision/consentimiento", json={"acepto": True, "menor": False}
+        )
+        cab = {"Authorization": f"Bearer {r.json()['token']}"}
+        codigos = [
+            c.post(
+                "/api/web/admision/preguntar",
+                json={"texto": "¿Cómo subo la cédula?"},
+                headers={**cab, "X-Forwarded-For": f"192.0.2.{i}, 203.0.113.7"},
+            ).status_code
+            for i in range(3)
+        ]
+        assert codigos == [200, 200, 429]
+    finally:
+        admision.usar_modelo(None)
+        web_admision.reiniciar_limites()
+
+
+def test_limites_por_hora_salen_de_la_configuracion() -> None:
+    from app.api.web import admision as web_admision
+    from app.servicios.admision.config import config
+
+    assert web_admision.LIMITES_POR_HORA == {
+        "consentimiento": config.limite_consentimiento_hora,
+        "preguntar": config.limite_preguntar_hora,
+        "revisar": config.limite_revisar_hora,
+    }
+
+
+def test_aviso_lleva_seccion_tipo_y_condicion(cliente: Cliente) -> None:
+    docs = cliente("admision").get("/api/web/admision/aviso").json()["documentos"]
+    paes = next(d for d in docs if d["clave"] == "certificado_paes")
+    assert paes["tipo"] == "condicional"
+    assert paes["condicion"] == "Solo admitidos PAES"
+    assert paes["seccion"] == "DOCUMENTOS PERSONALES (OBLIGATORIOS)"
+    assert {d["tipo"] for d in docs} == {"obligatorio", "condicional", "opcional"}
+    # El público no recibe los puntos de chequeo, solo la lista.
+    assert all("chequeo" not in d for d in docs)
+
+
+async def test_responsable_sube_insumos_al_volumen(
+    cliente: Cliente, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.servicios.admision import fuentes
+    from app.servicios.admision.config import config
+
+    carpeta = tmp_path / "insumos"
+    monkeypatch.setattr(config, "insumos_dir", carpeta)
+    olvidos: list[bool] = []
+    monkeypatch.setattr(fuentes, "olvidar", lambda: olvidos.append(True))
+    c = cliente("admision")
+    cab = await _token("adm@unal.edu.co", "admision")
+    nombre = fuentes.INSUMOS_ESPERADOS[1]
+
+    pdf = b"%PDF-1.4 ficticio"
+    r = c.post(
+        "/api/web/admision/insumos",
+        files={"archivo": (nombre, pdf, "application/pdf")},
+        headers=cab,
+    )
+    assert r.status_code == 200
+    assert (carpeta / nombre).read_bytes() == pdf
+    assert olvidos == [True]
+    cuerpo = r.json()
+    assert nombre not in cuerpo["faltan"]
+    assert len(cuerpo["faltan"]) == len(fuentes.INSUMOS_ESPERADOS) - 1
+    assert [a["nombre"] for a in cuerpo["archivos"]] == [nombre]
+    assert not [p for p in carpeta.iterdir() if p.name.startswith(".")]
+
+    # La caché OCR de un PDF escaneado también se puede subir.
+    r = c.post(
+        "/api/web/admision/insumos",
+        files={"archivo": ("Escaneado.ocr.txt", b"texto", "text/plain")},
+        headers=cab,
+    )
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("nombre", "datos"),
+    [
+        ("cedula.jpg", b"\xff\xd8\xff"),  # solo PDF, TXT o MD
+        (".oculto.pdf", b"%PDF-1.4"),
+        ("listado.pdf", b"no es un pdf"),
+        ("notas.txt", b"\xff\xfe\x00"),  # no es UTF-8
+    ],
+)
+async def test_insumo_no_valido_se_rechaza(
+    nombre: str,
+    datos: bytes,
+    cliente: Cliente,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.servicios.admision.config import config
+
+    carpeta = tmp_path / "insumos"
+    monkeypatch.setattr(config, "insumos_dir", carpeta)
+    c = cliente("admision")
+    cab = await _token("adm@unal.edu.co", "admision")
+    r = c.post(
+        "/api/web/admision/insumos", files={"archivo": (nombre, datos)}, headers=cab
+    )
+    assert r.status_code == 400
+    assert not carpeta.exists() or list(carpeta.iterdir()) == []
+
+
+async def test_ruta_en_el_nombre_del_insumo_no_sale_de_la_carpeta(
+    cliente: Cliente, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.servicios.admision.config import config
+
+    carpeta = tmp_path / "insumos"
+    monkeypatch.setattr(config, "insumos_dir", carpeta)
+    c = cliente("admision")
+    cab = await _token("adm@unal.edu.co", "admision")
+    r = c.post(
+        "/api/web/admision/insumos",
+        files={"archivo": ("../../fuera.pdf", b"%PDF-1.4")},
+        headers=cab,
+    )
+    assert r.status_code == 200
+    assert (carpeta / "fuera.pdf").exists()
+    assert not (tmp_path / "fuera.pdf").exists()
+
+
+async def test_admitido_no_puede_subir_insumos(
+    cliente: Cliente, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.servicios.admision.config import config
+
+    carpeta = tmp_path / "insumos"
+    monkeypatch.setattr(config, "insumos_dir", carpeta)
+    c = cliente("admision")
+    r = c.post(
+        "/api/web/admision/consentimiento", json={"acepto": True, "menor": False}
+    )
+    cab = {"Authorization": f"Bearer {r.json()['token']}"}
+    r = c.post(
+        "/api/web/admision/insumos",
+        files={"archivo": ("x.pdf", b"%PDF-1.4")},
+        headers=cab,
+    )
+    assert r.status_code in (401, 403)
+    assert not carpeta.exists() or list(carpeta.iterdir()) == []

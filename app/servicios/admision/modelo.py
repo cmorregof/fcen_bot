@@ -88,6 +88,16 @@ def _sistema(fuentes: str) -> list[dict[str, Any]]:
     ]
 
 
+def _contexto_documento(documento: Documento) -> str:
+    """Sección, condición y nota de la lista oficial, para dar contexto."""
+    lineas = [f"Sección de la lista oficial: {documento.seccion}."]
+    if documento.condicion:
+        lineas.append(f"Aplica solo en este caso: {documento.condicion}.")
+    if documento.nota:
+        lineas.append(f"Nota de la lista oficial: {documento.nota}")
+    return "\n".join(lineas) + "\n"
+
+
 class ClaudeModelo:
     def __init__(self) -> None:
         cabeceras = (
@@ -173,7 +183,8 @@ class ClaudeModelo:
                 "type": "text",
                 "text": (
                     f"El estudiante dice que este archivo es: {documento.nombre}.\n"
-                    "Compara lo que se ve contra cada punto de esta lista y "
+                    + _contexto_documento(documento)
+                    + "Compara lo que se ve contra cada punto de esta lista y "
                     "registra un ítem por punto (usa el texto del punto tal cual). "
                     "Si algo no se puede ver, usa 'no_se_ve'.\n"
                     + "\n".join(f"- {p}" for p in documento.chequeo)
