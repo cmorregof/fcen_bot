@@ -2,57 +2,46 @@ from __future__ import annotations
 
 import io
 from collections.abc import Callable
+from pathlib import Path
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import aiosqlite
 import pytest
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from app.integrations import telegram
 from app.schemas.telegram import Chat, Document, Message, Update, User
 from app.servicios import calidad
 from app.servicios.calidad import reloj
 from app.servicios.calidad.config import calidad_settings
+from app.servicios.calidad.plantilla import Plan, leer_plantilla
 from tests.conftest import TelegramFalso
 
 HOY = date(2026, 10, 28)
 USUARIO = 777
-ENCABEZADO = [
-    "programa", "código", "tarea", "responsable_cargo", "responsable_dependencia",
-    "fecha_límite", "evidencia_esperada",
-]  # fmt: skip
+DOCS = Path(__file__).resolve().parents[2] / "docs" / "calidad"
+ALFA = DOCS / "plantilla_plan_mejoramiento.xlsx"
+BETA = DOCS / "plantilla_plan_mejoramiento_beta.xlsx"
 
 
-def fila(
-    programa: str = "Programa Uno",
-    codigo: str = "UNO-01",
-    limite: date | str = date(2026, 11, 10),
-    **cambios: str,
-) -> list[object]:
-    valores: dict[str, object] = {
-        "programa": programa,
-        "código": codigo,
-        "tarea": "Tarea de prueba " + codigo,
-        "responsable_cargo": "Cargo de prueba",
-        "responsable_dependencia": "Dependencia de prueba",
-        "fecha_límite": limite,
-        "evidencia_esperada": "Informe",
-    }
-    valores.update(cambios)
-    return [valores[c] for c in ENCABEZADO]
-
-
-def xlsx(filas: list[list[object]], encabezado: list[str] | None = None) -> bytes:
-    libro = Workbook()
-    hoja = libro.active
-    assert hoja is not None
-    hoja.append(encabezado or ENCABEZADO)
-    for f in filas:
-        hoja.append(f)
+def plantilla(
+    ruta: Path = ALFA, cambios: Callable[[Workbook], None] | None = None
+) -> bytes:
+    """Una de las plantillas ficticias de docs/calidad, con cambios opcionales."""
+    if cambios is None:
+        return ruta.read_bytes()
+    libro = load_workbook(io.BytesIO(ruta.read_bytes()))
+    cambios(libro)
     salida = io.BytesIO()
     libro.save(salida)
     return salida.getvalue()
+
+
+def leer(ruta: Path = ALFA) -> Plan:
+    lectura = leer_plantilla(plantilla(ruta))
+    assert lectura.plan is not None, lectura.errores
+    return lectura.plan
 
 
 @pytest.fixture(autouse=True)
