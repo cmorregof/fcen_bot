@@ -39,8 +39,12 @@ def test_estado_con_fecha_fija(campos: dict[str, object], esperado: Estado) -> N
 
 def test_proxima_a_vencer_en_cuatro_semanas() -> None:
     assert proxima_a_vencer(accion(avance=10, fecha_fin=date(2026, 11, 25)), HOY, 28)
-    assert not proxima_a_vencer(accion(avance=10, fecha_fin=date(2026, 11, 26)), HOY, 28)
-    assert not proxima_a_vencer(accion(avance=100, fecha_fin=date(2026, 11, 1)), HOY, 28)
+    assert not proxima_a_vencer(
+        accion(avance=10, fecha_fin=date(2026, 11, 26)), HOY, 28
+    )
+    assert not proxima_a_vencer(
+        accion(avance=100, fecha_fin=date(2026, 11, 1)), HOY, 28
+    )
 
 
 def test_estados_de_las_plantillas_ficticias() -> None:
@@ -62,7 +66,9 @@ def test_proximo_corte() -> None:
         cortes = [Corte(rotulo=f.isoformat(), fecha=f) for f in fechas]
         return Plan(
             programa="P",
-            objetivos=[Objetivo(codigo="1", texto="", acciones=[accion(cortes=cortes)])],
+            objetivos=[
+                Objetivo(codigo="1", texto="", acciones=[accion(cortes=cortes)])
+            ],
         )
 
     assert proximo_corte(plan(date(2026, 12, 16)), HOY) == (date(2026, 12, 16), False)
