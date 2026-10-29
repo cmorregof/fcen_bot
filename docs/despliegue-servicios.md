@@ -93,9 +93,7 @@ Configura las variables en la pestaña **Variables** de cada servicio en Railway
 | `BOT_SERVICIO` | `actas` | `admision` | `calidad` | Define el servicio activo y el enrutador de updates |
 | `TELEGRAM_BOT_TOKEN` | Token BotFather Actas | Token BotFather Admisión | Token BotFather Calidad | Acceso a la Bot API de Telegram |
 | `TELEGRAM_WEBHOOK_SECRET` | Secreto hex Actas | Secreto hex Admisión | Secreto hex Calidad | Validación del header `X-Telegram-Bot-Api-Secret-Token` |
-| `DB_PATH` | `/data/actas/fcen.db` | `/data/admision/fcen.db` | `/data/calidad/fcen.db` | Ruta a la base SQLite exclusiva del servicio |
-| `MEDIA_DIR` | `/data/actas/media` | `/data/admision/media` | `/data/calidad/media` | Directorio de descargas temporales |
-| `OUTPUT_DIR` | `/data/actas/out` | `/data/admision/out` | `/data/calidad/out` | Directorio para documentos generados |
+| `DB_PATH`, `MEDIA_DIR`, `OUTPUT_DIR` | No definir | No definir | No definir | Se derivan de `DATA_DIR=/data` (lo fija el Dockerfile): `/data/<servicio>/fcen.db`, `media` y `out` |
 | `ANTHROPIC_API_KEY` | Requerida | Opcional (fase esqueleto) | Opcional (fase esqueleto) | Acceso a Claude para lectura y redacción |
 | `INVITE_CODE` | Código alfanumérico | No aplica por ahora | No aplica por ahora | Registro de administrativos autorizados |
 | `INTERNAL_CRON_SECRET` | Secreto cron diario | No aplica | No aplica | Autenticación de `/internal/borrador-diario` |
@@ -103,7 +101,10 @@ Configura las variables en la pestaña **Variables** de cada servicio en Railway
 | `PERIODO_INICIO` | `AAAA-MM-DD` | No aplica | No aplica | Fecha de inicio de clases para cálculo de semanas |
 
 > [!CAUTION]
-> Asegúrate de que `DB_PATH`, `MEDIA_DIR` y `OUTPUT_DIR` apunten a rutas separadas bajo `/data/<servicio>/`. Ningún servicio debe compartir base de datos con otro.
+> Cada servicio de Railway tiene su propio volumen en `/data`. Si se define `DB_PATH` a mano, debe ser exclusiva del servicio: `admision` y `calidad` se niegan a arrancar si apuntan a la base de actas.
+
+> [!IMPORTANT]
+> **Servicio `actas` ya desplegado.** Antes de esta versión la base vivía en `/data/fcen.db` (con `/data/media` y `/data/out`). Si esa base existe y `/data/actas/fcen.db` no, el servicio la sigue usando sin cambios. No definas `DB_PATH=/data/actas/fcen.db` en ese servicio: arrancaría con una base vacía y los casos y usuarios registrados quedarían huérfanos.
 
 ---
 

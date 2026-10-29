@@ -111,21 +111,73 @@ async def test_despachar_update_actas(
     assert llamadas == [107]
 
 
-def test_rutas_almacenamiento_por_defecto_por_servicio() -> None:
-    s_actas = Settings(bot_servicio="actas")
-    assert s_actas.db_path == Path("data/actas/fcen.db")
-    assert s_actas.media_dir == Path("data/actas/media")
-    assert s_actas.output_dir == Path("data/actas/out")
+@pytest.fixture
+def sin_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Que el .env y las variables de quien corre las pruebas no influyan."""
+    for var in ("BOT_SERVICIO", "DATA_DIR", "DB_PATH", "MEDIA_DIR", "OUTPUT_DIR"):
+        monkeypatch.delenv(var, raising=False)
 
-    s_admision = Settings(bot_servicio="admision")
-    assert s_admision.db_path == Path("data/admision/fcen.db")
-    assert s_admision.media_dir == Path("data/admision/media")
-    assert s_admision.output_dir == Path("data/admision/out")
 
-    s_calidad = Settings(bot_servicio="calidad")
-    assert s_calidad.db_path == Path("data/calidad/fcen.db")
-    assert s_calidad.media_dir == Path("data/calidad/media")
-    assert s_calidad.output_dir == Path("data/calidad/out")
+def _settings(**kw: Any) -> Settings:
+    return Settings(_env_file=None, **kw)  # type: ignore[call-arg]
+
+
+@pytest.mark.usefixtures("sin_entorno")
+def test_rutas_almacenamiento_por_defecto_por_servicio(tmp_path: Path) -> None:
+    for servicio in ("actas", "admision", "calidad"):
+        s = _settings(bot_servicio=servicio, data_dir=tmp_path)
+        assert s.db_path == tmp_path / servicio / "fcen.db"
+        assert s.media_dir == tmp_path / servicio / "media"
+        assert s.output_dir == tmp_path / servicio / "out"
+
+
+@pytest.mark.usefixtures("sin_entorno")
+def test_data_dir_por_defecto_y_variables_vacias() -> None:
+    s = _settings(bot_servicio="calidad", db_path="", media_dir="", output_dir="")
+    assert s.db_path == Path("data/calidad/fcen.db")
+    assert s.media_dir == Path("data/calidad/media")
+    assert s.output_dir == Path("data/calidad/out")
+
+
+@pytest.mark.usefixtures("sin_entorno")
+def test_actas_conserva_la_base_de_un_despliegue_anterior(tmp_path: Path) -> None:
+    # El Dockerfile de main guardaba la base en /data/fcen.db.
+    (tmp_path / "fcen.db").write_bytes(b"")
+    s = _settings(bot_servicio="actas", data_dir=tmp_path)
+    assert s.db_path == tmp_path / "fcen.db"
+    assert s.media_dir == tmp_path / "media"
+    assert s.output_dir == tmp_path / "out"
+    # Los demás servicios no la heredan.
+    s_adm = _settings(bot_servicio="admision", data_dir=tmp_path)
+    assert s_adm.db_path == tmp_path / "admision" / "fcen.db"
+
+
+@pytest.mark.usefixtures("sin_entorno")
+def test_ruta_explicita_se_respeta(tmp_path: Path) -> None:
+    s = _settings(bot_servicio="actas", db_path=tmp_path / "otra.db")
+    assert s.db_path == tmp_path / "otra.db"
+
+
+@pytest.mark.usefixtures("sin_entorno")
+@pytest.mark.parametrize(
+    "ruta", ["data/fcen.db", "/data/fcen.db", "/data/actas/fcen.db"]
+)
+def test_otro_servicio_no_puede_usar_la_base_de_actas(ruta: str) -> None:
+    with pytest.raises(ValueError, match="base de actas"):
+        _settings(bot_servicio="admision", db_path=ruta)
+
+
+@pytest.mark.parametrize("servicio", ["admision", "calidad"])
+def test_cron_de_borradores_no_aplica_fuera_de_actas(
+    servicio: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "internal_cron_secret", "cron-prueba")
+    monkeypatch.setattr(settings, "bot_servicio", servicio)
+    with TestClient(app) as client:
+        r = client.post(
+            "/internal/borrador-diario", headers={"X-Cron-Secret": "cron-prueba"}
+        )
+    assert r.status_code == 404
 
 
 def test_webhook_con_secreto_despacha_en_fondo(

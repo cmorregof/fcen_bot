@@ -51,6 +51,9 @@ async def borrador_diario(
         or x_cron_secret != settings.internal_cron_secret
     ):
         raise HTTPException(status_code=403, detail="secreto inválido")
+    if settings.bot_servicio != "actas":
+        # El borrador diario es del servicio de actas; los demás no lo tienen.
+        raise HTTPException(status_code=404, detail="no aplica a este servicio")
     db = await connect()
     try:
         enviados = await borrador.entrega_diaria(db)
