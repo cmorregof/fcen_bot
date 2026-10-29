@@ -12,12 +12,8 @@ from app.servicios.calidad.config import calidad_settings
 
 
 async def construir_alertas(db: aiosqlite.Connection, hoy: date) -> dict[str, str]:
-    tareas = await plan.listar_tareas(db)
     return {
-        programa: textos.texto_alerta(
-            programa, [t for t in tareas if t.programa == programa], hoy
-        )
-        for programa in sorted({t.programa for t in tareas})
+        pg.programa: textos.texto_alerta(pg, hoy) for pg in await plan.listar_planes(db)
     }
 
 
