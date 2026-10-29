@@ -76,6 +76,21 @@ que venga diligenciado, con cada fila tal como la escribió el estudiante \
 Copia la nota como aparece. No emparejes asignaturas que el estudiante no \
 emparejó ni completes celdas vacías. Estas asignaturas NO van en \
 `asignaturas`.
+14. Si la solicitud trae jurados de Trabajo de Grado, incluye \
+`designacion_jurados` en `tipos` y registra cada jurado en `jurados`, en el \
+orden en que aparecen: el nombre y, solo si aparecen, la vinculación o \
+institución y el correo. No inventes jurados, no completes datos que faltan \
+y no agregues jurados para llegar a un número. La designación de jurados no \
+es inscripción: no incluyas `trabajo_grado` salvo que también pida inscribir \
+el Trabajo de Grado. En `objeto_solicitud` no \
+escribas que el estudiante «propone» o «sugiere» jurados: escribe, por \
+ejemplo, "designación de jurados del Trabajo de Grado «…»".
+15. `cita_textual` es el fragmento del cuerpo (o de la justificación del \
+formato, o de `cuerpo_transcrito`) donde el estudiante expone su motivo; va \
+entre comillas en "justificando que “…”". Cópialo carácter por carácter, sin \
+los números de línea, sin el saludo ni la firma, sin corregir ortografía ni \
+puntuación y sin unir ni cortar palabras. Si no puedes copiarlo exacto, déjalo \
+vacío.
 
 Tipos de solicitud (puede haber varios; el principal primero):
 {_TIPOS}

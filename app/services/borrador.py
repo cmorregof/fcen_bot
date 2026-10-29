@@ -21,7 +21,7 @@ from app.services.documento import (
     construir_acta,
     construir_oficio,
 )
-from app.services.extraccion import cuerpo_del_correo
+from app.services.extraccion import cita_del_caso
 from app.services.pdf import docx_a_pdf
 from app.services.reglas import analizar
 
@@ -75,12 +75,16 @@ def caso_documento(caso: Caso, programa: Programa) -> CasoDocumento | None:
         programa,
         periodo_inicio=settings.periodo_inicio,
         hay_imagenes=bool(caso.imagenes),
+        texto_original=caso.texto,
+        jurados_minimo=settings.jurados_minimo,
     )
+    cita, verificada = cita_del_caso(caso.texto, caso.extraccion)
     return CasoDocumento(
         caso=caso,
         extraccion=caso.extraccion,
         analisis=analisis,
-        cuerpo_correo=cuerpo_del_correo(caso.texto, caso.extraccion),
+        cuerpo_correo=cita,
+        cita_verificada=verificada,
         medio="formato" if caso.texto.startswith("--- Formato adjunto") else "correo",
     )
 

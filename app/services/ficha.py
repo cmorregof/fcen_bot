@@ -51,6 +51,13 @@ def ficha(caso: Caso, analisis: Analisis) -> str:
         cod = f"{asig.codigo} " if asig.codigo else ""
         grupo = f", grupo {escape(asig.grupo)}" if asig.grupo else ""
         lineas.append(f"  · {asig.accion}: {escape(cod + asig.nombre)}{grupo}{cred}")
+    if e.jurados:
+        lineas.append(f"Jurados que se recomiendan ({len(e.jurados)}):")
+        for j in e.jurados:
+            detalle = " · ".join(x for x in (j.vinculacion, j.correo) if x)
+            lineas.append(
+                f"  · {escape(j.nombre)}" + (f" ({escape(detalle)})" if detalle else "")
+            )
     for cuadro in e.equivalencias:
         lineas.append(f"Cuadro de {cuadro.figura}: {len(cuadro.filas)} asignaturas")
         for f in cuadro.filas:
