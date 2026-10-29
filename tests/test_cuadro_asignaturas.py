@@ -153,3 +153,15 @@ def test_oficio_cita_la_norma_y_el_acta_la_transcribe() -> None:
     assert "Acuerdo 008 de 2008" in oficio
     assert "En cada período académico los estudiantes" not in oficio
     assert "En cada período académico los estudiantes" in acta
+
+
+def test_apertura_sin_posgrado_genera_aviso() -> None:
+    e = extraccion_ejemplo()
+    e.asignaturas.append(
+        AsignaturaSolicitada(nombre="Componente ZAPC", accion="apertura")
+    )
+    a = analizar(e, None, periodo_inicio=None, hay_imagenes=False)
+    assert any("apertura (ZAPC)" in x.mensaje for x in a.alertas)
+    e.modalidad_trabajo_grado = "asignaturas de posgrado"
+    a = analizar(e, None, periodo_inicio=None, hay_imagenes=False)
+    assert not any("apertura (ZAPC)" in x.mensaje for x in a.alertas)

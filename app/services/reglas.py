@@ -193,6 +193,13 @@ def semana_del_periodo(fecha: str | None, inicio: date | None) -> int | None:
     return dias // 7 + 1 if dias >= 0 else 0
 
 
+def lleva_zapc(e: ExtraccionCaso) -> bool:
+    """ZAPC solo se abre con asignaturas de posgrado (§5.4)."""
+    return "posgrado" in (e.modalidad_trabajo_grado or "").lower() and any(
+        a.accion == "apertura" for a in e.asignaturas
+    )
+
+
 def analizar(
     extraccion: ExtraccionCaso,
     programa: Programa | None,
@@ -228,6 +235,15 @@ def analizar(
                 f"Falta el grupo de {asig.nombre}: el cuadro del oficio lo exige. "
                 "Responde a la ficha con el grupo.",
             )
+
+    if any(a.accion == "apertura" for a in extraccion.asignaturas) and not lleva_zapc(
+        extraccion
+    ):
+        a.agregar(
+            "aviso",
+            "La solicitud trae una apertura (ZAPC) pero no es de asignaturas de "
+            "posgrado: no saldrá en el oficio ni en el acta. Revísala.",
+        )
 
     # Historia académica
     sia = extraccion.sia

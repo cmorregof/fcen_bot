@@ -41,7 +41,7 @@ from app.schemas.caso import (
     ExtraccionCaso,
     Sentido,
 )
-from app.services.reglas import Analisis
+from app.services.reglas import Analisis, lleva_zapc
 
 PLANTILLA = Path(__file__).resolve().parents[1] / "templates" / "oficio_base.docx"
 
@@ -341,13 +341,6 @@ def _bullets_analisis(item: CasoDocumento, periodo: str) -> list[str]:
     return vinetas
 
 
-def _lleva_zapc(e: ExtraccionCaso) -> bool:
-    """ZAPC solo se abre con asignaturas de posgrado (§5.4)."""
-    return "posgrado" in (e.modalidad_trabajo_grado or "").lower() and any(
-        a.accion == "apertura" for a in e.asignaturas
-    )
-
-
 def texto_recomendacion(
     programa: Programa, item: CasoDocumento
 ) -> tuple[str, str, str]:
@@ -365,7 +358,7 @@ def texto_recomendacion(
     nombre = (e.nombre_estudiante or "").title()
     final = f" {destinatario} {nombre}" if nombre else ""
     zapc = (
-        " y, en consecuencia, la apertura del componente ZAPC" if _lleva_zapc(e) else ""
+        " y, en consecuencia, la apertura del componente ZAPC" if lleva_zapc(e) else ""
     )
     return (
         "El Comité Asesor recomienda al Consejo de Facultad ",

@@ -677,8 +677,8 @@ async def _callback(db: aiosqlite.Connection, cq: CallbackQuery) -> None:
         sentido = Sentido(partes[2])
         await repo.set_sentido(db, caso.id, sentido)
         etiqueta = {
-            "aprobar": "APROBAR",
-            "no_aprobar": "NO APROBAR",
+            "aprobar": "se recomienda APROBAR",
+            "no_aprobar": "se recomienda NO APROBAR",
             "pendiente": "pendiente",
         }
         await telegram.responder_callback(

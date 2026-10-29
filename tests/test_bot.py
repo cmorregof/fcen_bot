@@ -147,8 +147,9 @@ async def test_flujo_completo(
     await bot.manejar_update(db, _update(text="Otro correo"))
     assert any("Abrí el caso #2" in t for t in tg.textos())
 
-    # Decisión del comité
+    # Recomendación del comité
     await bot.manejar_update(db, _callback("s:1:aprobar"))
+    assert tg.callbacks[-1] == "Caso #1: se recomienda APROBAR"
     caso = await repo.get_caso(db, 1)
     assert caso and caso.sentido == Sentido.APROBAR
 
