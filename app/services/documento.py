@@ -40,6 +40,7 @@ from app.schemas.caso import (
     Caso,
     Concepto,
     ExtraccionCaso,
+    Jurado,
     Sentido,
 )
 from app.services.reglas import Analisis, lleva_zapc
@@ -121,6 +122,9 @@ class CasoDocumento:
     cuerpo_correo: str
     # «correo» o «formato»: por dónde llegó la solicitud.
     medio: str = "correo"
+    # False si la cita no es una subcadena exacta del texto original: sale en
+    # amarillo para que el comité la revise (no se corrige en silencio).
+    cita_verificada: bool = True
 
 
 @dataclass
@@ -280,10 +284,14 @@ def _bloques(cuerpo: str) -> list[str]:
     return [b.strip() for b in cuerpo.replace("\r", "").split("\n\n") if b.strip()]
 
 
-def _texto_con_saltos(p: Paragraph, texto: str, *, cursiva: bool) -> None:
+def _texto_con_saltos(
+    p: Paragraph, texto: str, *, cursiva: bool, resaltar: bool = False
+) -> None:
     lineas = [ln.strip() for ln in texto.split("\n")]
     for j, linea in enumerate(lineas):
         r = _r(p, linea, cursiva=cursiva)
+        if resaltar:
+            r.font.highlight_color = WD_COLOR_INDEX.YELLOW
         if j < len(lineas) - 1:
             r.add_break()
 
@@ -433,6 +441,50 @@ def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
         _vacio(doc, "FCEN Cuerpo")
 
 
+_ANCHOS_JURADOS = (5.5, 6.5, 4.5)
+
+
+def _jurados(doc: DocumentoDocx, item: CasoDocumento) -> None:
+    """Jurados de Trabajo de Grado tal como los trae la solicitud. Se
+    recomiendan: el estudiante no los «propone» ni los «sugiere» (instrucción
+    del Consejo de Facultad, 28-oct-2026)."""
+    jurados = item.extraccion.jurados
+    if not jurados:
+        return
+    _p(doc, "FCEN Cuerpo", "Se recomiendan los siguientes jurados:")
+    tabla = doc.add_table(rows=1, cols=3)
+    try:
+        tabla.style = doc.styles["Table Grid"]
+    except KeyError:
+        pass
+    for celda, titulo in zip(
+        tabla.rows[0].cells,
+        ("Nombre", "Vinculación o institución", "Correo"),
+        strict=True,
+    ):
+        celda.text = ""
+        _r(celda.paragraphs[0], titulo, negrita=True)
+    for jurado in jurados:
+        fila = tabla.add_row().cells
+        for celda, valor in zip(fila, _fila_jurado(jurado), strict=True):
+            celda.text = ""
+            _r(celda.paragraphs[0], valor)
+    tabla.autofit = False
+    for columna, ancho in zip(tabla.columns, _ANCHOS_JURADOS, strict=True):
+        columna.width = Cm(ancho)
+    for fila_t in tabla.rows:
+        for celda, ancho in zip(fila_t.cells, _ANCHOS_JURADOS, strict=True):
+            celda.width = Cm(ancho)
+            for parrafo in celda.paragraphs:
+                for run in parrafo.runs:
+                    run.font.size = Pt(10)
+    _vacio(doc, "FCEN Cuerpo")
+
+
+def _fila_jurado(j: Jurado) -> tuple[str, str, str]:
+    return (j.nombre, j.vinculacion or "", j.correo or "")
+
+
 _FIGURA = {
     "equivalencia": ("Cuadro de equivalencias", "Asignatura a equivaler"),
     "homologacion": ("Cuadro de homologaciones", "Asignatura a homologar"),
@@ -573,24 +625,21 @@ def _conceptos(doc: DocumentoDocx, conceptos: list[Concepto], borrador: bool) ->
     _vacio(doc, "FCEN Cuerpo")
 
 
-def _caso(
-    doc: DocumentoDocx,
-    datos: DatosOficio,
-    item: CasoDocumento,
-    numero: str,
-    periodo: str,
-    *,
-    acta: bool = False,
+def _solicitud(
+    doc: DocumentoDocx, item: CasoDocumento, numero: str | None, estilo: str
 ) -> None:
+    """«NOMBRE identificado con DNI No. … solicita …, justificando que “…”»."""
     e = item.extraccion
     identificado = (
         "identificado" if e.tratamiento == "El estudiante" else "identificada"
     )
     objeto = e.objeto_solicitud.strip().rstrip(".") or "lo que se transcribe"
     bloques = _bloques(item.cuerpo_correo)
+    resaltar = not item.cita_verificada
 
-    p = _p(doc, "FCEN Caso")
-    _r(p, f"{numero} {(e.nombre_estudiante or '____').upper()}", negrita=True)
+    p = _p(doc, estilo)
+    prefijo = f"{numero} " if numero else ""
+    _r(p, f"{prefijo}{(e.nombre_estudiante or '____').upper()}", negrita=True)
     _r(p, f" {identificado} con ")
     _r(p, f"DNI No. {e.documento or '____'}", negrita=True)
     _r(
@@ -602,16 +651,18 @@ def _caso(
     # La cita empieza en el mismo párrafo, como en el oficio original.
     if bloques:
         primero = bloques[0] + ("”." if len(bloques) == 1 else "")
-        _texto_con_saltos(p, primero, cursiva=True)
+        _texto_con_saltos(p, primero, cursiva=True, resaltar=resaltar)
         for i, bloque in enumerate(bloques[1:], start=2):
             cita = _p(doc, "FCEN Cita")
             if "\n" in bloque:  # firmas y listas: sin justificar
                 cita.alignment = WD_ALIGN_PARAGRAPH.LEFT
             final = "”." if i == len(bloques) else ""
-            _texto_con_saltos(cita, bloque + final, cursiva=True)
+            _texto_con_saltos(cita, bloque + final, cursiva=True, resaltar=resaltar)
     else:
         _r(p, "…”.", cursiva=True)
 
+
+def _analisis(doc: DocumentoDocx, item: CasoDocumento, periodo: str) -> None:
     vinetas = _bullets_analisis(item, periodo)
     if vinetas:
         _p(doc, "FCEN Rotulo", "ANÁLISIS:")
@@ -619,12 +670,19 @@ def _caso(
             _p(doc, "FCEN Vineta", f"•\t{vineta}")
     _vacio(doc, "FCEN Cuerpo")
 
-    if acta:
-        _vacio(doc, "FCEN Cuerpo")
-        _conceptos(doc, item.caso.conceptos, datos.borrador)
 
+def _recomendacion(
+    doc: DocumentoDocx,
+    datos: DatosOficio,
+    item: CasoDocumento,
+    numero: str | None,
+    estilo: str,
+) -> None:
+    """La recomendación y lo que se recomienda (asignaturas, jurados, cuadro)."""
     antes, sentido, despues = texto_recomendacion(datos.programa, item)
-    p = _p(doc, "FCEN Cuerpo")
+    p = _p(doc, estilo)
+    if numero:
+        _r(p, f"{numero} ", negrita=True)
     _r(p, "RECOMENDACIÓN", negrita=True)
     _r(p, f": {antes}")
     r = _r(p, sentido, negrita=item.caso.sentido == Sentido.PENDIENTE)
@@ -633,7 +691,34 @@ def _caso(
     _r(p, despues)
     _vacio(doc, "FCEN Cuerpo")
     _asignaturas(doc, item)
+    _jurados(doc, item)
     _equivalencias(doc, item)
+
+
+def _caso(
+    doc: DocumentoDocx,
+    datos: DatosOficio,
+    item: CasoDocumento,
+    numero: str,
+    periodo: str,
+    *,
+    acta: bool = False,
+) -> None:
+    e = item.extraccion
+    if acta:
+        # El acta narra la sesión: solicitud, análisis, conceptos y, como
+        # resultado de la deliberación, la recomendación.
+        _solicitud(doc, item, numero, "FCEN Caso")
+        _analisis(doc, item, periodo)
+        _vacio(doc, "FCEN Cuerpo")
+        _conceptos(doc, item.caso.conceptos, datos.borrador)
+        _recomendacion(doc, datos, item, None, "FCEN Cuerpo")
+    else:
+        # En el oficio la recomendación se lee primero (pedido del Consejo de
+        # Facultad, 28-oct-2026); después, la solicitud y el análisis.
+        _recomendacion(doc, datos, item, numero, "FCEN Caso")
+        _solicitud(doc, item, None, "FCEN Cuerpo")
+        _analisis(doc, item, periodo)
 
     _normas(
         doc,
