@@ -307,6 +307,30 @@ def analizar(
             "a la ficha con el fragmento exacto.",
         )
 
+    # Proyecto de tesis o trabajo final de posgrado
+    if TipoSolicitud.PROYECTO_TESIS in tipos:
+        proyecto = extraccion.proyecto
+        faltan = [
+            nombre
+            for nombre, valor in (
+                ("el título", proyecto.titulo if proyecto else None),
+                ("el director", proyecto.director if proyecto else None),
+            )
+            if not (valor or "").strip()
+        ]
+        if faltan:
+            a.agregar(
+                "aviso",
+                f"Falta {' y '.join(faltan)} del proyecto: en el borrador sale en "
+                "amarillo. Responde a la ficha con el dato.",
+            )
+        if programa is not None and programa.nivel != "posgrado":
+            a.agregar(
+                "aviso",
+                f"Es una inscripción de proyecto de tesis, pero el programa es "
+                f"{programa.nombre} (pregrado). Revisa el programa del caso.",
+            )
+
     # Jurados de Trabajo de Grado
     if TipoSolicitud.DESIGNACION_JURADOS in tipos or extraccion.jurados:
         n = len(extraccion.jurados)

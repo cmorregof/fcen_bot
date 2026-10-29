@@ -51,6 +51,11 @@ def ficha(caso: Caso, analisis: Analisis) -> str:
         cod = f"{asig.codigo} " if asig.codigo else ""
         grupo = f", grupo {escape(asig.grupo)}" if asig.grupo else ""
         lineas.append(f"  · {asig.accion}: {escape(cod + asig.nombre)}{grupo}{cred}")
+    if e.proyecto:
+        lineas.append(f"Proyecto: «{escape(e.proyecto.titulo or '¿título?')}»")
+        lineas.append(f"  · Director(a): {escape(e.proyecto.director or '¿?')}")
+        if e.proyecto.codirector:
+            lineas.append(f"  · Codirector(a): {escape(e.proyecto.codirector)}")
     if e.jurados:
         lineas.append(f"Jurados que se recomiendan ({len(e.jurados)}):")
         for j in e.jurados:

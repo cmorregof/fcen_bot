@@ -20,6 +20,7 @@ class TipoSolicitud(StrEnum):
     CANCELACION = "cancelacion"
     TRABAJO_GRADO = "trabajo_grado"
     DESIGNACION_JURADOS = "designacion_jurados"
+    PROYECTO_TESIS = "proyecto_tesis"
     EXCEPCION_NORMA = "excepcion_norma"
     PAE = "pae"
     PERMISO_ACADEMICO = "permiso_academico"
@@ -40,6 +41,7 @@ TITULOS_TIPO: dict[TipoSolicitud, str] = {
     TipoSolicitud.CANCELACION: "cancelación de asignaturas",
     TipoSolicitud.TRABAJO_GRADO: "inscripción de trabajo de grado",
     TipoSolicitud.DESIGNACION_JURADOS: "designación de jurados de trabajo de grado",
+    TipoSolicitud.PROYECTO_TESIS: "inscripción de proyecto de tesis o trabajo final de maestría",
     TipoSolicitud.EXCEPCION_NORMA: "excepción a la norma",
     TipoSolicitud.PAE: "práctica académica especial (PAE)",
     TipoSolicitud.PERMISO_ACADEMICO: "permiso académico",
@@ -170,6 +172,19 @@ class Jurado(BaseModel):
     correo: str | None = Field(default=None, description="Solo si aparece")
 
 
+class ProyectoTesis(BaseModel):
+    """Proyecto de tesis o trabajo final de posgrado, tal como aparece."""
+
+    titulo: str | None = None
+    director: str | None = Field(
+        default=None, description="Director(a), como aparece (con su vinculación)"
+    )
+    codirector: str | None = None
+    linea: str | None = Field(
+        default=None, description="Línea o grupo de investigación, solo si aparece"
+    )
+
+
 class ExtraccionCaso(BaseModel):
     """Salida estructurada del modelo para un caso."""
 
@@ -207,6 +222,11 @@ class ExtraccionCaso(BaseModel):
         default_factory=list,
         description="Jurados de Trabajo de Grado que trae la solicitud, en el orden "
         "en que aparecen. No se inventan ni se completan",
+    )
+    proyecto: ProyectoTesis | None = Field(
+        default=None,
+        description="Solo si pide inscribir un proyecto de tesis o trabajo final "
+        "de posgrado",
     )
     equivalencias: list[CuadroEquivalencias] = Field(
         default_factory=list,

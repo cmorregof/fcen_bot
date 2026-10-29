@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,8 @@ class Programa:
     correo: str | None = None
     extension: str | None = None
     radicado_prefijo: str | None = None
+    # En posgrado las asignaturas se llaman «cursos» en el oficio.
+    nivel: Literal["pregrado", "posgrado"] = "pregrado"
     # Créditos disciplinares aprobados exigidos para inscribir Trabajo de Grado,
     # cuando el programa tiene esa regla propia (Res. CFCEN-060-2008 en Física).
     tdg_creditos_disciplinares: int | None = None
@@ -125,6 +128,35 @@ PROGRAMAS: dict[str, Programa] = {
                     "Coordinador Ciencias de la Computación",
                 ),
                 Miembro("David Angulo García", "Representante Profesoral"),
+            ),
+        ),
+        # Posgrados. Los integrantes del comité, el correo y el prefijo del
+        # radicado se agregan cuando los confirme cada programa.
+        Programa(
+            clave="mcf",
+            nombre="Maestría en Ciencias - Física",
+            direccion="ciencias_naturales",
+            nivel="posgrado",
+            alias=("maestria en ciencias - fisica", "maestria en ciencias fisica"),
+        ),
+        Programa(
+            clave="mcma",
+            nombre="Maestría en Ciencias - Matemática Aplicada",
+            direccion="matematicas",
+            nivel="posgrado",
+            alias=(
+                "maestria en ciencias - matematica aplicada",
+                "maestria en ciencias matematica aplicada",
+            ),
+        ),
+        Programa(
+            clave="mecen",
+            nombre="Maestría en Enseñanza de las Ciencias Exactas y Naturales",
+            direccion="matematicas",
+            nivel="posgrado",
+            alias=(
+                "maestria en ensenanza de las ciencias exactas y naturales",
+                "mecen",
             ),
         ),
         Programa(

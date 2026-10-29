@@ -91,6 +91,11 @@ entre comillas en "justificando que “…”". Cópialo carácter por carácter
 los números de línea, sin el saludo ni la firma, sin corregir ortografía ni \
 puntuación y sin unir ni cortar palabras. Si no puedes copiarlo exacto, déjalo \
 vacío.
+16. En posgrado (maestría), la inscripción del proyecto de tesis o trabajo \
+final es `proyecto_tesis`: registra en `proyecto` el título, el director, el \
+codirector y la línea tal como aparecen. Los cursos que pida inscribir o \
+cancelar van en `asignaturas`, y los jurados en `jurados`. No uses \
+`trabajo_grado` para posgrado.
 
 Tipos de solicitud (puede haber varios; el principal primero):
 {_TIPOS}
