@@ -15,7 +15,17 @@ Asistente de Telegram que ayuda a los admitidos a la FCEN a revisar su documenta
 
 ## Fuentes
 
-Todo el texto del listado y la guía va en el system prompt con prompt caching (sin RAG). Si un PDF es escaneado, se le hace OCR una sola vez (`ocrmypdf` con `tesseract-ocr-spa`) y el texto queda en `<nombre>.ocr.txt` junto al PDF, en la carpeta de insumos. En Railway hay que instalar `ocrmypdf` y `tesseract-ocr-spa` en la imagen, o subir ese `.ocr.txt` al volumen con el PDF.
+Todo el texto del listado y la guía va en el system prompt con prompt caching (sin RAG). Si un PDF es escaneado, se le hace OCR una sola vez (`ocrmypdf` con `tesseract-ocr-spa`) y el texto queda en `<nombre>.ocr.txt` junto al PDF.
+
+### Despliegue en Railway
+
+En Railway no existe `~/fcen_insumos/admision` y la imagen no trae `ocrmypdf`. Hay que:
+
+1. Generar el `.ocr.txt` en una máquina con OCR: basta con arrancar el servicio una vez con `ADMISION_INSUMOS_DIR` apuntando a la carpeta local (queda junto al PDF).
+2. Subir al volumen el PDF **y** su `.ocr.txt` (por ejemplo a `/data/admision/insumos`).
+3. Definir `ADMISION_INSUMOS_DIR=/data/admision/insumos`.
+
+Con el `.ocr.txt` presente no se llama a OCR, aunque el PDF tenga una fecha más reciente (subir ambos al volumen cambia las fechas). Si falta el `.ocr.txt` y no hay `ocrmypdf`, el bot responde que no puede consultar el listado. Los archivos de insumos nunca van al repositorio.
 
 ## Qué se edita sin tocar código
 
@@ -26,7 +36,7 @@ Todo el texto del listado y la guía va en el system prompt con prompt caching (
 
 - Los documentos se procesan en memoria y se descartan. No se usa `MEDIA_DIR`.
 - La base (`<DATA_DIR>/admision/fcen.db`) solo guarda el consentimiento por chat y contadores por día (preguntas, documentos revisados, tipos de error). Ningún texto ni archivo.
-- El bot filtra correos y contraseñas antes de llamar al modelo, no los guarda y avisa al estudiante.
+- El bot filtra antes de llamar al modelo: los correos, y todo lo que siga a «contraseña», «clave», «usuario» o similares hasta el fin de la línea (o hasta un nuevo «¿»). Ante la duda, bloquea. No guarda nada de eso y avisa al estudiante.
 
 ## Simulación
 

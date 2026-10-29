@@ -77,3 +77,23 @@ def test_pdf_escaneado_usa_ocr_y_lo_guarda_en_cache(
     fuentes.texto_fuentes(tmp_path)  # segunda lectura: sale de la caché
     assert llamadas == ["ESCANEADO.pdf"]
     assert (tmp_path / "ESCANEADO.ocr.txt").exists()
+
+
+def test_con_cache_ocr_presente_no_se_llama_al_ocr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    ruta = tmp_path / "LISTADO.pdf"
+    ruta.write_bytes(pdf(1))
+    cache = tmp_path / "LISTADO.ocr.txt"
+    cache.write_text("texto ya extraído", encoding="utf-8")
+    # El PDF es más reciente que la caché (pasa al subir ambos a un volumen).
+    os.utime(cache, (1, 1))
+
+    def no_debe_llamarse(_: Path) -> list[str]:
+        raise AssertionError("no debe hacer OCR")
+
+    monkeypatch.setattr(fuentes, "_ocr", no_debe_llamarse)
+    monkeypatch.setattr(fuentes.shutil, "which", lambda _: None)
+    assert "texto ya extraído" in fuentes.texto_fuentes(tmp_path)

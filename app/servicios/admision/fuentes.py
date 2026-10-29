@@ -75,7 +75,12 @@ def _ocr(ruta: Path) -> list[str]:
 
 def _leer_pdf(ruta: Path) -> list[str]:
     cache = ruta.with_suffix(".ocr.txt")
-    if cache.exists() and cache.stat().st_mtime >= ruta.stat().st_mtime:
+    # Si no hay ocrmypdf (p. ej. en Railway) la caché se acepta aunque el PDF
+    # sea más reciente: subir ambos al volumen cambia las fechas.
+    if cache.exists() and (
+        cache.stat().st_mtime >= ruta.stat().st_mtime
+        or shutil.which("ocrmypdf") is None
+    ):
         return cache.read_text(encoding="utf-8").split("\f")
     paginas = _texto_pdf(ruta)
     total = sum(len(p.strip()) for p in paginas)
