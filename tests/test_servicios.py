@@ -39,14 +39,15 @@ async def test_admision_start_responde_en_construccion(
     assert tg.mensajes[0]["chat_id"] == USUARIO_ID
 
 
-async def test_calidad_start_responde_en_construccion(
+async def test_calidad_start_sin_codigo_pide_invitacion(
     db: aiosqlite.Connection,
     tg: TelegramFalso,
 ) -> None:
     update = _mensaje_update("/start", update_id=102)
     await calidad.manejar_update(db, update)
 
-    assert tg.textos() == ["Servicio en construcción"]
+    assert len(tg.textos()) == 1
+    assert "código de invitación" in tg.textos()[0]
     assert tg.mensajes[0]["chat_id"] == USUARIO_ID
 
 
@@ -91,7 +92,7 @@ async def test_despachar_update_calidad(
     update = _mensaje_update("/start", update_id=106)
     await despachar_update(db, update)
 
-    assert tg.textos() == ["Servicio en construcción"]
+    assert "código de invitación" in tg.textos()[0]
 
 
 async def test_despachar_update_actas(
