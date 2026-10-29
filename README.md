@@ -2,9 +2,9 @@
 
 Agente de Telegram ([@fcenpregrado_bot](https://t.me/fcenpregrado_bot)) que ayuda a las administrativas de las direcciones de área curricular de la Facultad de Ciencias Exactas y Naturales (UNAL Manizales) a preparar los casos estudiantiles de los comités asesores.
 
-Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el caso, responde con una ficha que trae alertas y entrega cada día, por programa, dos documentos en .docx y PDF: el **oficio** al Consejo de Facultad, que lleva solo la decisión del comité, y el **acta** del comité, que además trae la sesión (fecha, hora, lugar, asistentes, orden del día) y el concepto de cada profesor. Todos los programas usan la misma plantilla membreteada.
+Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el caso, responde con una ficha que trae alertas y entrega cada día, por programa, dos documentos en .docx y PDF: el **oficio** al Consejo de Facultad, que lleva solo la recomendación del comité, y el **acta** del comité, que además trae la sesión (fecha, hora, lugar, asistentes, orden del día) y el concepto de cada profesor. Todos los programas usan la misma plantilla membreteada.
 
-**Principio:** el modelo lee y redacta; las reglas verifican; el comité decide. El sentido de cada recomendación (aprobar o no aprobar) nunca sale del modelo: lo registra la administrativa con un botón.
+**Principio:** el modelo lee y redacta; las reglas verifican; el comité recomienda y el Consejo de Facultad decide. El sentido de cada recomendación (aprobar o no aprobar) nunca sale del modelo: lo registra la administrativa con un botón.
 
 ## Flujo
 
@@ -12,9 +12,9 @@ Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el ca
 2. **Caso.** Pega el correo (en uno o varios mensajes) o envía el formato de solicitud diligenciado (PDF o Word), y los pantallazos. El formato se reconoce por su título («FORMATO DE …») y se lee sin el modelo; si es un PDF escaneado, un botón pregunta si es el formato y, si lo es, sus páginas entran como pantallazos. Los demás PDF (certificados, soportes médicos) solo se registran por nombre: no se guardan ni se envían al modelo.
 3. **Procesar.** Con el botón o con `/listo`, Claude lee el texto y las imágenes y devuelve datos estructurados. El bot responde la ficha: estudiante, documento, programa (reconocido por el código del plan en el pantallazo), tipo de solicitud, créditos, P.A.P.A., avance, normas base y alertas.
 4. **Corregir.** Basta responder a la ficha con el cambio, por ejemplo «el documento es 1053…». Solo se corrige lo que se pide.
-5. **Comité.** Botones: Aprobar, No aprobar, Pendiente, Nota y **Concepto**. Con Concepto se elige el profesor (los integrantes de cada comité están en `app/core/programas.py`, o «Otro miembro») y se responde con su concepto tal como lo envió; va al acta, nunca al oficio. Responder «borrar» lo quita.
+5. **Comité.** Botones: Recomendar aprobar, Recomendar no aprobar, Pendiente, Nota y **Concepto**. Con Concepto se elige el profesor (los integrantes de cada comité están en `app/core/programas.py`, o «Otro miembro») y se responde con su concepto tal como lo envió; va al acta, nunca al oficio. Responder «borrar» lo quita.
 6. **Borrador.** Cada día hábil a las 4:50 p. m. llegan el oficio y el acta de cada programa que haya cambiado. También se pueden pedir con `/acta`. Lo que el comité completa en Word (número de acta, hora, lugar, quórum, varios) y los casos pendientes (`[APROBAR / NO APROBAR]`) salen resaltados en amarillo.
-7. **Cierre.** `/cerrar_acta` saca del borrador los casos que ya tienen decisión del comité.
+7. **Cierre.** `/cerrar_acta` saca del borrador los casos que ya tienen recomendación del comité.
 
 ## Arquitectura
 
@@ -42,7 +42,7 @@ flowchart TB
 
     ADM -->|"correo + pantallazos"| WH
     FICHA -->|"ficha con botones"| ADM
-    ADM -->|"Aprobar / No aprobar / corrección"| BOT
+    ADM -->|"Recomendar aprobar / no aprobar / corrección"| BOT
     BOT --- DB
     DB --- BOR
     ADM -->|"/acta"| BOR
@@ -130,11 +130,11 @@ Ambos documentos usan la misma plantilla membreteada para los cinco programas y 
 | Orden del día | CC + Física | 1. Quórum · 2. Casos, con los estudiantes por sección (Física) · 3. Varios |
 | Caso | CC | «2.N NOMBRE identificado con DNI No. … mediante correo (o formato) del día …, solicita …, justificando que “…”», con la cita en el mismo párrafo |
 | ANÁLISIS | Física | Plan, convocatoria, créditos inscritos y después de la solicitud, disciplinares, P.A.P.A., avance, semana, anexos |
-| Pantallazos del SIA | Ambas | Después del análisis |
+| Pantallazos del SIA | — | No van en el .docx (§5.4): solo alimentan la extracción; el análisis escrito queda |
 | Conceptos (solo acta) | CC | «El profesor X expresa: “…”», texto literal |
 | Recomendación | Física | «El Comité Asesor recomienda al Consejo de Facultad APROBAR la solicitud de … a la estudiante …» |
-| Asignaturas | Física | Tabla: trámite, código, asignatura, créditos |
-| Normas | Física | Texto literal de cada norma, «Basados en la normativa» |
+| Asignaturas | §5.4 | Un párrafo por trámite («Inscribir/Cancelar las siguientes asignaturas:») y tabla Código, Asignatura, Grupo, Tipología, Créditos; sin grupo, celda en amarillo. ZAPC va en la frase de la recomendación |
+| Normas | Física | «Basados en la normativa»: el oficio cita nombre, número y artículo; el acta trae el texto literal |
 
 ## Documentos
 

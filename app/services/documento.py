@@ -1,6 +1,6 @@
 """Oficio al Consejo de Facultad y acta del comité, en .docx, con la plantilla única.
 
-El oficio lleva solo la decisión del comité. El acta lleva además el
+El oficio lleva solo la recomendación del comité. El acta lleva además el
 encabezado de la sesión (fecha, hora, lugar, asistentes, orden del día) y los
 conceptos de los integrantes del comité, copiados tal como los enviaron.
 
@@ -17,22 +17,31 @@ from __future__ import annotations
 import io
 import re
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from docx import Document
 from docx.document import Document as DocumentoDocx
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
+from docx.oxml import parse_xml
+from docx.oxml.ns import nsdecls
 from docx.shared import Cm, Pt, RGBColor
+from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
-from PIL import Image as PILImage
 
 from app.core.programas import Miembro, Programa
 from app.normativa.base import NormaCitada, normas_para
-from app.schemas.caso import TITULOS_TIPO, Caso, Concepto, ExtraccionCaso, Sentido
-from app.services.reglas import Analisis
+from app.schemas.caso import (
+    TITULOS_TIPO,
+    AsignaturaSolicitada,
+    Caso,
+    Concepto,
+    ExtraccionCaso,
+    Sentido,
+)
+from app.services.reglas import Analisis, lleva_zapc
 
 PLANTILLA = Path(__file__).resolve().parents[1] / "templates" / "oficio_base.docx"
 
@@ -99,17 +108,6 @@ def limpiar(texto: str) -> str:
     return _NO_XML.sub(" ", texto)
 
 
-def imagen_reducida(ruta: Path, lado_max: int = 1600) -> io.BytesIO:
-    """Pantallazo recomprimido para que el .docx no supere el límite de Telegram."""
-    with PILImage.open(ruta) as original:
-        im = original.convert("RGB")
-    im.thumbnail((lado_max, lado_max))
-    buf = io.BytesIO()
-    im.save(buf, format="JPEG", quality=85)
-    buf.seek(0)
-    return buf
-
-
 def _num(valor: float) -> str:
     return f"{valor:.1f}".replace(".", ",")
 
@@ -120,7 +118,6 @@ class CasoDocumento:
     extraccion: ExtraccionCaso
     analisis: Analisis
     cuerpo_correo: str
-    imagenes: list[Path] = field(default_factory=list)
     # «correo» o «formato»: por dónde llegó la solicitud.
     medio: str = "correo"
 
@@ -211,13 +208,6 @@ def _reemplazar_marcadores(doc: DocumentoDocx, valores: dict[str, str]) -> None:
                 if t.text and "{{" in t.text:
                     for clave, valor in valores.items():
                         t.text = t.text.replace("{{" + clave + "}}", valor)
-
-
-def _ancho_imagen(ruta: Path) -> Cm:
-    """Tamaño del pantallazo como en pantalla (96 ppp), sin pasar de 15 cm."""
-    with PILImage.open(ruta) as im:
-        ancho_px = im.width
-    return Cm(min(15.0, max(5.0, ancho_px * 2.54 / 96)))
 
 
 # ---------------------------------------------------------------------------
@@ -367,68 +357,96 @@ def texto_recomendacion(
     )
     nombre = (e.nombre_estudiante or "").title()
     final = f" {destinatario} {nombre}" if nombre else ""
+    zapc = (
+        " y, en consecuencia, la apertura del componente ZAPC" if lleva_zapc(e) else ""
+    )
     return (
         "El Comité Asesor recomienda al Consejo de Facultad ",
         sentido,
-        f" la solicitud de {objeto}{final}.",
+        f" la solicitud de {objeto}{final}{zapc}.",
     )
 
 
-_TRAMITE = {
-    "inscribir": "Inscripción",
-    "cancelar": "Cancelación",
-    "apertura": "Apertura",
-}
+def _resaltar_celda_amarillo(celda: _Cell) -> None:
+    """Resalta la celda en amarillo mediante sombreado XML."""
+    shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="FFFF00"/>')
+    celda._tc.get_or_add_tcPr().append(shd)
 
 
 def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
-    """Como en el acta de Física: una tabla con lo que el Consejo autoriza."""
-    asignaturas = item.extraccion.asignaturas
+    """Cuadro por trámite: párrafo introductorio + tabla Código | Asignatura | Grupo | Tipología | Créditos."""
+    # ZAPC no es una asignatura: va en la frase de la recomendación (§5.4).
+    asignaturas = [a for a in item.extraccion.asignaturas if a.accion != "apertura"]
     if not asignaturas:
         return
-    _p(doc, "FCEN Cuerpo", "Asignaturas de la solicitud:")
-    tabla = doc.add_table(rows=1, cols=4)
-    try:
-        tabla.style = doc.styles["Table Grid"]
-    except KeyError:
-        pass
-    for celda, titulo in zip(
-        tabla.rows[0].cells,
-        ("Trámite", "Código", "Asignatura", "Créditos"),
-        strict=True,
-    ):
-        celda.text = ""
-        _r(celda.paragraphs[0], titulo, negrita=True)
+    # Agrupar por acción (trámite).
+    por_accion: OrderedDict[str, list[AsignaturaSolicitada]] = OrderedDict()
     for asig in asignaturas:
-        fila = tabla.add_row().cells
-        valores = (
-            _TRAMITE[asig.accion],
-            asig.codigo or "",
-            asig.nombre,
-            "" if asig.creditos is None else str(asig.creditos),
-        )
-        for celda, valor in zip(fila, valores, strict=True):
+        por_accion.setdefault(asig.accion, []).append(asig)
+
+    _INTRO = {
+        "inscribir": "Inscribir las siguientes asignaturas:",
+        "cancelar": "Cancelar las siguientes asignaturas:",
+    }
+
+    for accion, grupo_asigs in por_accion.items():
+        _p(doc, "FCEN Cuerpo", _INTRO[accion])
+        tabla = doc.add_table(rows=1, cols=5)
+        try:
+            tabla.style = doc.styles["Table Grid"]
+        except KeyError:
+            pass
+        for celda, titulo in zip(
+            tabla.rows[0].cells,
+            ("Código", "Asignatura", "Grupo", "Tipología", "Créditos"),
+            strict=True,
+        ):
             celda.text = ""
-            _r(celda.paragraphs[0], valor)
-    anchos = (2.6, 2.4, 8.0, 2.0)
-    tabla.autofit = False
-    for columna, ancho_col in zip(tabla.columns, anchos, strict=True):
-        columna.width = Cm(ancho_col)
-    for fila in tabla.rows:
-        for celda, ancho in zip(fila.cells, anchos, strict=True):
-            celda.width = Cm(ancho)
-            for parrafo in celda.paragraphs:
-                for run in parrafo.runs:
-                    run.font.size = Pt(10)
-    _vacio(doc, "FCEN Cuerpo")
+            _r(celda.paragraphs[0], titulo, negrita=True)
+        for asig in grupo_asigs:
+            fila = tabla.add_row().cells
+            valores = (
+                asig.codigo or "",
+                asig.nombre,
+                asig.grupo or "",
+                asig.tipologia or "",
+                "" if asig.creditos is None else str(asig.creditos),
+            )
+            for celda, valor in zip(fila, valores, strict=True):
+                celda.text = ""
+                r = _r(celda.paragraphs[0], valor)
+                # Grupo faltante: resaltado en amarillo de la celda y del texto.
+                if celda is fila[2] and not valor:
+                    r.font.highlight_color = WD_COLOR_INDEX.YELLOW
+                    _resaltar_celda_amarillo(celda)
+        anchos = (2.2, 6.0, 1.5, 3.5, 1.8)
+        tabla.autofit = False
+        for columna, ancho_col in zip(tabla.columns, anchos, strict=True):
+            columna.width = Cm(ancho_col)
+        for fila_t in tabla.rows:
+            for celda, ancho in zip(fila_t.cells, anchos, strict=True):
+                celda.width = Cm(ancho)
+                for parrafo in celda.paragraphs:
+                    for run in parrafo.runs:
+                        run.font.size = Pt(10)
+        _vacio(doc, "FCEN Cuerpo")
 
 
-def _normas(doc: DocumentoDocx, normas: list[NormaCitada], borrador: bool) -> None:
+def _normas(
+    doc: DocumentoDocx,
+    normas: list[NormaCitada],
+    borrador: bool,
+    *,
+    solo_cita: bool = False,
+) -> None:
     if not normas:
         return
     _p(doc, "FCEN Cuerpo", "Basados en la normativa:")
     for norma in normas:
         _p(doc, "FCEN Norma", f"{norma.norma}, {norma.articulo}", negrita=True)
+        if solo_cita:
+            # En el oficio la norma se cita, no se transcribe (§5.4).
+            continue
         lineas = norma.texto.split("\n")
         for k, linea in enumerate(lineas):
             texto = (
@@ -522,15 +540,6 @@ def _caso(
             _p(doc, "FCEN Vineta", f"•\t{vineta}")
     _vacio(doc, "FCEN Cuerpo")
 
-    for ruta in item.imagenes:
-        try:
-            p_img = _p(doc, "FCEN Imagen")
-            p_img.add_run().add_picture(
-                imagen_reducida(ruta), width=_ancho_imagen(ruta)
-            )
-        except Exception:
-            _p(doc, "FCEN Cuerpo", f"[No se pudo insertar la imagen {ruta.name}]")
-
     if acta:
         _vacio(doc, "FCEN Cuerpo")
         _conceptos(doc, item.caso.conceptos, datos.borrador)
@@ -546,7 +555,12 @@ def _caso(
     _vacio(doc, "FCEN Cuerpo")
     _asignaturas(doc, item)
 
-    _normas(doc, normas_para(e.tipos, item.caso.programa), datos.borrador)
+    _normas(
+        doc,
+        normas_para(e.tipos, item.caso.programa),
+        datos.borrador,
+        solo_cita=not acta,
+    )
     _vacio(doc, "FCEN Cuerpo")
 
 
@@ -612,7 +626,7 @@ def _guardar(doc: DocumentoDocx) -> bytes:
 
 
 def construir_oficio(datos: DatosOficio, periodo: str) -> bytes:
-    """Oficio al Consejo de Facultad: solo la decisión, sin conceptos."""
+    """Oficio al Consejo de Facultad: solo la recomendación, sin conceptos."""
     doc = _documento(datos)
     _encabezado_oficio(doc, datos)
     _casos(doc, datos, periodo, acta=False)

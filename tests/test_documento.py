@@ -84,11 +84,22 @@ def test_cuerpo_del_oficio() -> None:
     assert texto.rstrip().count("a la estudiante Persona Ficticia Uno.") >= 1
     assert "tiene inscritos trece créditos (13 créditos)" in texto
     assert "Acuerdo 008 de 2008" in texto
+    assert "Cancelar las siguientes asignaturas:" in texto
+    # En el oficio la norma se cita, no se transcribe (§5.4)
+    assert "En cada período académico los estudiantes" not in texto
     [tabla] = doc.tables
+    assert [c.text for c in tabla.rows[0].cells] == [
+        "Código",
+        "Asignatura",
+        "Grupo",
+        "Tipología",
+        "Créditos",
+    ]
     assert [c.text for c in tabla.rows[1].cells] == [
-        "Cancelación",
         "4100849",
         "Termodinámica",
+        "",
+        "",
         "4",
     ]
     estilos = {p.style.name for p in doc.paragraphs if p.style is not None}
