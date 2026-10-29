@@ -111,8 +111,8 @@ def ficha(caso: Caso, analisis: Analisis) -> str:
 def botones_ficha(caso_id: int) -> list[list[dict[str, str]]]:
     return [
         [
-            {"text": "✅ Aprobar", "callback_data": f"s:{caso_id}:aprobar"},
-            {"text": "❌ No aprobar", "callback_data": f"s:{caso_id}:no_aprobar"},
+            {"text": "✅ Recomendar aprobar", "callback_data": f"s:{caso_id}:aprobar"},
+            {"text": "❌ Recomendar no aprobar", "callback_data": f"s:{caso_id}:no_aprobar"},
             {"text": "⏳ Pendiente", "callback_data": f"s:{caso_id}:pendiente"},
         ],
         [

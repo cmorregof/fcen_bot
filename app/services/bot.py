@@ -1,4 +1,4 @@
-"""Flujo de Telegram: registro, caso abierto, procesar, ficha y decisiones.
+"""Flujo de Telegram: registro, caso abierto, procesar, ficha y recomendaciones.
 
 Orden de precedencia para un mensaje: comando con "/", respuesta al pedido
 de una nota o de un concepto del comité, respuesta a una ficha (corrección) y,
@@ -49,7 +49,7 @@ AYUDA = """<b>Cómo funciona</b>
 2. Toca <b>Procesar</b> (o escribe /listo). Te respondo con la ficha del caso y las alertas.
 3. Si un dato está mal, <b>responde a la ficha</b> con la corrección.
 4. Con <b>Concepto</b> registras lo que opinó cada profesor del comité; va al acta, no al oficio.
-5. Después del comité, marca cada caso: Aprobar, No aprobar o Pendiente.
+5. Después del comité, marca cada caso: Recomendar aprobar, Recomendar no aprobar o Pendiente.
 6. Cada día hábil a las 4:50 p. m. te llegan, por programa, el oficio y el acta (.docx y PDF). También con /acta.
 
 <b>Comandos</b>
@@ -337,7 +337,7 @@ async def _ofrecer_cierre(
     con_sentido = [c for c in casos if c.sentido != Sentido.PENDIENTE and c.programa]
     if not con_sentido:
         await telegram.send_message(
-            chat_id, "No hay casos con decisión del comité para cerrar."
+            chat_id, "No hay casos con recomendación del comité para cerrar."
         )
         return
     programas = sorted({c.programa for c in con_sentido if c.programa})
@@ -347,8 +347,8 @@ async def _ofrecer_cierre(
     ]
     await telegram.send_message(
         chat_id,
-        "Cerrar saca del borrador los casos que ya tienen decisión del comité "
-        "(aprobar o no aprobar). Los pendientes siguen en curso.",
+        "Cerrar saca del borrador los casos que ya tienen recomendación del comité "
+        "(recomendar aprobar o no aprobar). Los pendientes siguen en curso.",
         botones=botones,
     )
 
