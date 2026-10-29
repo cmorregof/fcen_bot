@@ -26,7 +26,10 @@ async def test_tablero_del_programa(
     await _cargar(chat, servir_excel)
     texto = await chat.texto("/plan alfa")
     assert "<b>Plan de mejoramiento — Ejemplo Alfa (ficticio)</b>" in texto
-    assert "7 acciones · avance promedio 54 % · 5 tareas en el cronograma (2025, 2026)" in texto
+    assert (
+        "7 acciones · avance promedio 54 % · 5 tareas en el cronograma (2025, 2026)"
+        in texto
+    )
     assert "🔴 2 vencidas" in texto and "🟢 2 cumplidas" in texto
     assert "🔁 3 reprogramadas" in texto
     assert "Próximo corte: 2026-11-21 (estimado" in texto
@@ -70,7 +73,9 @@ async def test_evidencia_queda_por_revisar_y_no_cambia_el_avance(
 ) -> None:
     await _cargar(chat, servir_excel)
     respuesta = await chat.texto("/evidencia alfa 1.1.2 https://ejemplo.invalid/acta")
-    assert "Soporte de la acción 1.1.2 (Ejemplo Alfa (ficticio)) registrado" in respuesta
+    assert (
+        "Soporte de la acción 1.1.2 (Ejemplo Alfa (ficticio)) registrado" in respuesta
+    )
     assert "Queda por revisar" in respuesta
     guardado = await plan.cargar_plan(db, "Ejemplo Alfa (ficticio)")
     assert guardado is not None
@@ -78,7 +83,9 @@ async def test_evidencia_queda_por_revisar_y_no_cambia_el_avance(
     assert soporte.tipo == "enlace" and soporte.registrado_nombre == "Persona Ficticia"
     assert soporte.creado.startswith("2026-10-28T09:00")
     assert guardado.accion("1.1.2").avance == 50  # type: ignore[union-attr]
-    assert "Soportes registrados en el bot, por revisar: 1." in await chat.texto("/plan alfa")
+    assert "Soportes registrados en el bot, por revisar: 1." in await chat.texto(
+        "/plan alfa"
+    )
 
 
 async def test_evidencia_en_dos_pasos_con_archivo(
@@ -99,7 +106,9 @@ async def test_evidencia_rechaza_lo_que_no_sirve(
     await _cargar(chat, servir_excel)
     assert "Uso:" in await chat.texto("/evidencia alfa")
     assert "enlace" in await chat.texto("/evidencia alfa 1.1.1 listo")
-    assert "No hay una acción 9.9" in await chat.texto("/evidencia alfa 9.9 https://x.invalid")
+    assert "No hay una acción 9.9" in await chat.texto(
+        "/evidencia alfa 9.9 https://x.invalid"
+    )
     # Con dos programas cargados hay que decir cuál.
     assert "Uso:" in await chat.texto("/evidencia 1.1 https://x.invalid")
 
@@ -150,7 +159,9 @@ async def test_reporte_con_pestana_de_fuentes(
     await chat.texto("/reporte alfa")
     libro = load_workbook(io.BytesIO(tg.documentos[-1]["contenido"]))
     assert libro.sheetnames == ["estado", "acciones", "tareas", "cortes", "fuentes"]
-    cifras = {r[0]: r[1] for r in libro["estado"].iter_rows(min_row=2, values_only=True)}
+    cifras = {
+        r[0]: r[1] for r in libro["estado"].iter_rows(min_row=2, values_only=True)
+    }
     assert cifras["Acciones"] == 7 and cifras["Acciones vencidas"] == 2
     assert cifras["Acciones reprogramadas"] == 3
     assert cifras["Acciones con soportes por revisar"] == 1
@@ -162,6 +173,8 @@ async def test_reporte_con_pestana_de_fuentes(
     for nombre, valor in cifras.items():
         if nombre.startswith("Acciones"):
             assert len([f for f in fuentes if f[0] == nombre]) == valor
-    vencida = next(f for f in fuentes if f[0] == "Acciones vencidas" and f[1] == "1.1.2")
+    vencida = next(
+        f for f in fuentes if f[0] == "Acciones vencidas" and f[1] == "1.1.2"
+    )
     assert vencida[5] == "«2. Plan de Mejora» fila 10"  # origen en el plan
     assert vencida[4] == ALFA.name and vencida[9] == "https://ejemplo.invalid/acta"

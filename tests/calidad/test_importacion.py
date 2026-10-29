@@ -21,7 +21,10 @@ async def test_muestra_resumen_y_no_guarda_antes_de_confirmar(
     servir_excel(plantilla(ALFA))
     resumen = await chat.documento("plan_alfa.xlsx", caption="/importar_plan")
     assert "Programa: <b>Ejemplo Alfa (ficticio)</b> (nuevo)" in resumen
-    assert "Objetivos: 3 · acciones: 7 · tareas del cronograma: 5 (años: 2025, 2026)" in resumen
+    assert (
+        "Objetivos: 3 · acciones: 7 · tareas del cronograma: 5 (años: 2025, 2026)"
+        in resumen
+    )
     assert "Avance promedio de las acciones: 54 %" in resumen
     assert "Sin alertas de lectura." in resumen
     assert await plan.listar_programas(db) == []
@@ -123,7 +126,9 @@ async def test_reimportar_no_duplica_y_guarda_el_historial_de_cortes(
     ausente = guardado.accion("2.1.2")
     assert ausente is not None and plan.AUSENTE in ausente.marcas
     # El historial guarda el texto anterior del corte y el % anterior.
-    cur = await db.execute("SELECT tipo, cambios_json FROM cal_cambios WHERE tipo != 'creada'")
+    cur = await db.execute(
+        "SELECT tipo, cambios_json FROM cal_cambios WHERE tipo != 'creada'"
+    )
     cambios = {r[0]: r[1] for r in await cur.fetchall()}
     assert set(cambios) == {"actualizada", "corte_cambiado", "ausente"}
     assert "[50.0, 80.0]" in cambios["actualizada"]
@@ -142,4 +147,6 @@ async def test_programa_con_otra_escritura_es_el_mismo(
         libro["2. Plan de Mejora"]["C3"] = "  ejemplo ALFA (ficticio) "
 
     servir_excel(plantilla(ALFA, renombrar))
-    assert "ya estaba cargado" in await chat.documento("b.xlsx", caption="/importar_plan")
+    assert "ya estaba cargado" in await chat.documento(
+        "b.xlsx", caption="/importar_plan"
+    )

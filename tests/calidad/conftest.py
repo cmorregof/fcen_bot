@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import io
 from collections.abc import Callable
-from pathlib import Path
 from datetime import date, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import aiosqlite

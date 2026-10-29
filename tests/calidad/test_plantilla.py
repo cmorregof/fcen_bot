@@ -65,7 +65,15 @@ def test_alfa_encabezados_porcentajes_y_fechas() -> None:
     plan = leer(ALFA)
     assert plan.programa == "Ejemplo Alfa (ficticio)"
     acciones = {a.codigo: a for a in plan.acciones}
-    assert list(acciones) == ["1.1.1", "1.1.2", "1.1.3", "1.2.1", "1.2.2", "2.1.1", "2.1.2"]
+    assert list(acciones) == [
+        "1.1.1",
+        "1.1.2",
+        "1.1.3",
+        "1.2.1",
+        "1.2.2",
+        "2.1.1",
+        "2.1.2",
+    ]
     assert [o.codigo for o in plan.objetivos] == ["1.1", "1.2", "2.1"]
     # % en tres formatos: 0–1 con formato %, 0–100 General y el texto «100 %».
     assert acciones["1.1.1"].avance == 60
@@ -89,10 +97,18 @@ def test_alfa_cronogramas_por_anio() -> None:
     assert plan.cronogramas == [2025, 2026]  # « 3. Cronograma 2025» trae un espacio
     acciones = {a.codigo: a for a in plan.acciones}
     t2025, t2026 = acciones["1.1.1"].tareas
-    assert (t2025.anio, t2025.fecha_fin, t2025.avance, t2025.ok) == (2025, date(2025, 4, 30), 100, True)
+    assert (t2025.anio, t2025.fecha_fin, t2025.avance, t2025.ok) == (
+        2025,
+        date(2025, 4, 30),
+        100,
+        True,
+    )
     assert t2025.enlace.startswith("https://")
     # 2026: sin columnas de fecha; las fechas salen del Gantt semanal.
-    assert (t2026.fecha_inicio, t2026.fecha_fin) == (date(2026, 4, 1), date(2026, 9, 28))
+    assert (t2026.fecha_inicio, t2026.fecha_fin) == (
+        date(2026, 4, 1),
+        date(2026, 9, 28),
+    )
     assert t2026.estado_texto == "Tercera reprogramación" and t2026.reprogramada
     assert t2026.soporte == "Enlaces a las publicaciones"
     assert len(acciones["2.1.1"].tareas) == 2
@@ -139,7 +155,10 @@ def test_cronograma_con_accion_que_no_esta_en_el_plan() -> None:
 
     plan = P.leer_plantilla(plantilla(ALFA, agregar)).plan
     assert plan is not None
-    assert "«3. Cronograma 2026»: la acción 7.7 no está en el plan; sus tareas no se cargaron." in plan.alertas
+    assert (
+        "«3. Cronograma 2026»: la acción 7.7 no está en el plan; sus tareas no se cargaron."
+        in plan.alertas
+    )
 
 
 def test_archivo_que_no_es_un_plan() -> None:
