@@ -301,7 +301,9 @@ async def descargar(
     return Response(
         archivo.docx,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{archivo.ruta_docx.name}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{archivo.ruta_docx.name}"'
+        },
     )
 
 
