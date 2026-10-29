@@ -21,7 +21,7 @@ from app.core.programas import PROGRAMAS
 from app.db.session import connect
 from app.schemas.caso import Caso, EstadoCaso
 from app.services.documento import CasoDocumento, DatosOficio, construir_oficio
-from app.services.extraccion import cuerpo_del_correo, extraer_caso
+from app.services.extraccion import cita_del_caso, extraer_caso
 from app.services.ficha import ficha
 from app.services.reglas import analizar
 
@@ -75,18 +75,21 @@ async def main() -> None:
         programa,
         periodo_inicio=settings.periodo_inicio,
         hay_imagenes=bool(imagenes),
+        texto_original=texto,
+        jurados_minimo=settings.jurados_minimo,
     )
     print(re.sub(r"<[^>]+>", "", ficha(caso, analisis)))
     (carpeta / "_extraccion.json").write_text(
         salida.extraccion.model_dump_json(indent=2), encoding="utf-8"
     )
     if programa:
+        cita, verificada = cita_del_caso(texto, salida.extraccion)
         item = CasoDocumento(
             caso,
             salida.extraccion,
             analisis,
-            cuerpo_del_correo(texto, salida.extraccion),
-            [Path(i) for i in imagenes],
+            cita,
+            cita_verificada=verificada,
         )
         docx = construir_oficio(
             DatosOficio(programa=programa, fecha=date.today(), casos=[item]),
