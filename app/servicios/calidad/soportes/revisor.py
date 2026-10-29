@@ -45,6 +45,7 @@ TOKENS_FIJOS_DESCRIPCION = 1200  # sistema + herramienta + metadatos
 SALIDA_DESCRIPCION = 1200  # incluye razonamiento
 TOKENS_POR_DESCRIPCION_EN_CRUCE = 150
 SALIDA_CRUCE = 6000
+SALIDA_SUGERENCIAS = 4000
 
 
 @dataclass
@@ -96,6 +97,11 @@ def estimar(
         sal_c += SALIDA_CRUCE
     ent_c += 2500 + len(acciones) * 400  # resumen
     sal_c += SALIDA_CRUCE
+    # Sugerencias: una llamada; se supone que todas las acciones quedan sin
+    # evidencia (cota alta). Los cruces en caché no se descuentan: la clave
+    # depende de las descripciones, que aún no existen.
+    ent_c += 2500 + len(acciones) * (400 + 3 * TOKENS_POR_DESCRIPCION_EN_CRUCE)
+    sal_c += SALIDA_SUGERENCIAS
     return Estimacion(al_modelo, en_cache, (ent, sal), (ent_c, sal_c))
 
 
@@ -131,10 +137,13 @@ async def revisar(
     programa: str,
     concurrencia: int = 4,
     avisar: Callable[[str], None] | None = None,
+    preparado: tuple[list[Archivo], list[Accion]] | None = None,
 ) -> Informe:
+    """`preparado`: inventario y acciones ya leídos (el script los lee para
+    estimar el costo); así no se recorre y se hashea la carpeta dos veces."""
     inicio = time.monotonic()
     decir = avisar or (lambda _m: None)
-    archivos, acciones = preparar(carpeta, plan)
+    archivos, acciones = preparado or preparar(carpeta, plan)
     cache = Cache(salidas / ".cache")
     uso = Uso()
     decir(f"Inventario: {len(archivos)} archivos; plan: {len(acciones)} acciones.")

@@ -122,9 +122,13 @@ def texto_cruce(
         f"Acción: {accion.descripcion}",
         f"Indicador de cumplimiento (meta): {accion.indicador}",
         f"Periodo de ejecución: {accion.inicio} a {accion.fin}",
-        "",
-        f"Soportes en la carpeta de la acción ({len(soportes)}):",
     ]
+    if accion.tareas:
+        partes.append("Tareas del cronograma:")
+        partes += [f"- {t}" for t in accion.tareas]
+    if accion.marcas:
+        partes.append("Marcas en el plan: " + ", ".join(accion.marcas))
+    partes += ["", f"Soportes en la carpeta de la acción ({len(soportes)}):"]
     if soportes:
         partes += [linea_soporte(a, descripciones.get(a.id)) for a in soportes]
     else:

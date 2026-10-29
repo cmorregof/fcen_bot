@@ -31,8 +31,9 @@ logger = logging.getLogger(__name__)
 
 MODELO_DESCRIPCION = "claude-sonnet-5-5"
 VERSION_PROMPT = "desc-v1"
-# Los xlsx ahora llevan conteos por periodo: solo ellos se vuelven a describir.
-VERSION_XLSX = "xlsx-v2"
+# Los xlsx llevan conteos por periodo; si cambia cómo se cuentan, solo ellos se
+# vuelven a describir. v3: el año ya no sale de cédulas o teléfonos.
+VERSION_XLSX = "xlsx-v3"
 
 SISTEMA = """Eres asistente de la oficina de calidad académica de una facultad \
 universitaria. Describes soportes (evidencias) de un plan de mejoramiento de un \

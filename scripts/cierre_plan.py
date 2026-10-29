@@ -1,10 +1,8 @@
 """Revisa los soportes de un plan de mejoramiento y prepara el borrador de cierre.
 
-Uso:
-    uv run python scripts/cierre_plan.py --carpeta ~/fcen_insumos/calidad/MCMA_proceso1 \\
-        --plan "…/Plan de mejoramiento MCMA 2016.xlsx" \\
-        --salidas ~/fcen_insumos/calidad/salidas/MCMA_cierre \\
-        --programa "Maestría en Ciencias – Matemática Aplicada" [--estimar]
+Uso (ver docs/calidad/cierre.md):
+    uv run python scripts/cierre_plan.py --carpeta "$SOPORTES" --plan "$PLAN" \\
+        --salidas "$SALIDAS" --programa "Nombre del programa" [--estimar]
 
 Con --estimar solo calcula el costo, sin llamar al modelo. La API key se lee de
 ANTHROPIC_API_KEY o del archivo indicado con --env (nunca se imprime). Las
@@ -61,6 +59,17 @@ def main() -> int:
     if salidas.is_relative_to(RAIZ):
         print("Las salidas deben quedar fuera del repositorio.", file=sys.stderr)
         return 2
+    if carpeta.is_relative_to(RAIZ) and not carpeta.is_relative_to(
+        RAIZ / "casos_reales"
+    ):
+        print(
+            "Los soportes no pueden estar dentro del repositorio (salvo casos_reales/).",
+            file=sys.stderr,
+        )
+        return 2
+    if not carpeta.is_dir():
+        print(f"No existe la carpeta de soportes: {carpeta}", file=sys.stderr)
+        return 2
 
     archivos, acciones = preparar(carpeta, args.plan.expanduser())
     est = estimar(archivos, acciones, Cache(salidas / ".cache"))
@@ -94,6 +103,7 @@ def main() -> int:
             args.programa,
             args.concurrencia,
             avisar=print,
+            preparado=(archivos, acciones),
         )  # fmt: skip
     )
     print()

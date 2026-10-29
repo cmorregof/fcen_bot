@@ -35,7 +35,11 @@ class Archivo:
 
 @dataclass
 class Accion:
-    """Una acción del plan, con lo mínimo que necesita el cruce."""
+    """Vista mínima de una acción para el cruce.
+
+    Sale de `plantilla.Accion` (plantilla institucional) o del formato 2016;
+    ver `plan_acciones`. No lleva responsables.
+    """
 
     codigo: str  # "1.3"
     aspecto: str
@@ -44,6 +48,11 @@ class Accion:
     indicador: str
     inicio: str
     fin: str
+    tareas: list[str] = field(default_factory=list)  # cronograma (plantilla)
+    # Solo para la persona que revisa (xlsx); no se le manda al modelo para que
+    # el % propuesto salga de los soportes y no del plan.
+    avance_declarado: float | None = None
+    marcas: list[str] = field(default_factory=list)  # «NO FUNCIONÓ», etc.
 
 
 class DescripcionArchivo(BaseModel):

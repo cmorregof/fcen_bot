@@ -468,3 +468,182 @@ def test_conteos_xlsx_por_periodo_sin_nombres() -> None:
     assert PERSONA_FICTICIA not in conteos
     enviado = xlsx(salida.getvalue()).texto
     assert "2016-2S: 2" in enviado and PERSONA_FICTICIA not in enviado
+
+
+# --- Revisión: verificador estricto ---------------------------------------------
+
+
+def _cruce_con(veredicto: Veredicto, texto: str, citas: list[str]) -> Cruce:
+    accion = Accion("1.1", "A", "O", "Hacer", "Indicador", "2020", "2021")
+    return Cruce(
+        accion,
+        CruceAccion(
+            veredicto=veredicto,
+            justificacion=texto,
+            falta="",
+            avance_propuesto=50,
+            citas=citas,
+            parrafo_cierre=texto,
+        ),  # fmt: skip
+    )
+
+
+def test_citas_en_grupo_se_verifican() -> None:
+    from app.servicios.calidad.soportes.verificador import citas_en_texto
+
+    assert citas_en_texto("Ver [S001, S404] y [S002; S003].") == [
+        "S001", "S404", "S002", "S003",
+    ]  # fmt: skip
+    inventario = {"S001": _archivo("S001", "1.1")}
+    cruce = _cruce_con(Veredicto.PARCIAL, "Ver [S001, S404].", [])
+    verificar_cruce(cruce, inventario)
+    assert not {e.cita: e for e in cruce.verificacion}["S404"].valida
+    texto = citas_a_nombres("Ver [S001, S404].", inventario)
+    assert texto == "Ver [S001 · S001.pdf] [S404 ⚠ cita no verificada]."
+
+
+def test_cita_no_mostrada_o_sin_descripcion_no_es_evidencia() -> None:
+    inventario = {
+        "S001": _archivo("S001", "1.1"),
+        "S002": _archivo("S002", "3.1"),  # de otra acción: el modelo no lo vio
+        "S003": _archivo("S003", "1.1"),  # sin descripción
+    }
+    cruce = _cruce_con(Veredicto.SUFICIENTE, "Ver [S002] y [S003].", ["S002", "S003"])
+    verificar_cruce(
+        cruce, inventario, visibles={"S001", "S003"}, sin_contenido={"S003"}
+    )
+    assert cruce.citas_validas == set()
+    alertas = " ".join(cruce.alertas)
+    assert "no tenía para esta acción: S002" in alertas
+    assert "sin descripción" in alertas and "S003" in alertas
+    assert "ninguna cita válida" in alertas
+    # En el borrador, una cita que existe pero no pasó el verificador sale marcada.
+    assert "⚠" in citas_a_nombres("[S002]", inventario, cruce.citas_validas)
+
+
+# --- Revisión: plantilla institucional -------------------------------------------
+
+
+def test_plan_con_la_plantilla_institucional() -> None:
+    ruta = Path(__file__).parents[2] / "docs/calidad/plantilla_plan_mejoramiento.xlsx"
+    acciones = leer_acciones(ruta)
+    codigos = [a.codigo for a in acciones]
+    assert "1.1.1" in codigos and "2.1.1" in codigos
+    a = next(a for a in acciones if a.codigo == "1.1.1")
+    assert a.indicador and a.inicio and a.fin
+    assert a.tareas and a.avance_declarado is not None
+    # Los responsables no se leen.
+    assert all("ejemplo)" not in str(x.tareas) + x.objetivo for x in acciones)
+    assert accion_de_ruta("Soportes/ACCIÓN 1.1.1/acta.pdf") == "1.1.1"
+
+
+async def test_cruce_con_plantilla_manda_tareas_y_no_el_avance(
+    tmp_path: Path,
+) -> None:
+    from app.servicios.calidad.soportes.cruce import texto_cruce
+
+    accion = Accion(
+        "1.1.1", "Aspecto", "Objetivo", "Hacer", "Indicador", "2025", "2026",
+        tareas=["Diseñar la pieza (soporte esperado: Enlace)"],
+        avance_declarado=60.0, marcas=["NO FUNCIONÓ"],
+    )  # fmt: skip
+    texto = texto_cruce(accion, [], [], {})
+    assert "Diseñar la pieza" in texto and "NO FUNCIONÓ" in texto
+    assert "60" not in texto
+
+
+def test_plan_2016_objetivo_por_fila_y_hoja_de_instrucciones(tmp_path: Path) -> None:
+    libro = Workbook()
+    ws = libro.active
+    assert ws is not None
+    ws.title = "Instrucciones"
+    ws.append(["Este libro es ficticio"])
+    plan = libro.create_sheet("Plan")
+    plan.append(["Aspectos a mejorar", "Objetivo", "Acciones", "Fechas", None,
+                 "Indicadores de cumplimiento"])  # fmt: skip
+    plan.append(["Aspecto", "Objetivo A", "Acción uno", "2020", "2021", "I1"])
+    plan.append([None, "Objetivo B", "Acción dos", None, None, "I2"])
+    libro.save(tmp_path / "plan.xlsx")
+    acciones = leer_acciones(tmp_path / "plan.xlsx")
+    assert [(a.codigo, a.objetivo) for a in acciones] == [
+        ("1.1", "Objetivo A"), ("1.2", "Objetivo B"),
+    ]  # fmt: skip
+
+
+# --- Revisión: inventario --------------------------------------------------------
+
+
+def test_zip_de_accion_zip_anidado_y_enlaces(tmp_path: Path) -> None:
+    raiz = tmp_path / "plan"
+    raiz.mkdir()
+    with zipfile.ZipFile(raiz / "ACCION 2.1.zip", "w") as zf:
+        zf.writestr("acta.pdf", pdf_ficticio(1))
+        zf.writestr("viejo.zip", b"PK")
+    with zipfile.ZipFile(raiz / "general.zip", "w") as zf:
+        zf.writestr("ACCIÓN 1.2/foto.pdf", pdf_ficticio(1))
+    fuera = tmp_path / "fuera.pdf"
+    fuera.write_bytes(pdf_ficticio(1))
+    (raiz / "enlace.pdf").symlink_to(fuera)
+    nombres = {a.nombre: a for a in inventariar(raiz)}
+    assert "enlace.pdf" not in nombres
+    assert nombres["acta.pdf"].accion == "2.1"
+    assert nombres["foto.pdf"].accion == "1.2"
+    from app.servicios.calidad.soportes.describir import descripcion_zip
+
+    anidado = descripcion_zip(nombres["viejo.zip"])
+    assert anidado.ilegible_o_incompleto and "no se abrió" in anidado.que_es
+
+
+def test_periodo_no_sale_de_una_cedula() -> None:
+    from app.servicios.calidad.soportes.contenido import _periodo
+
+    assert _periodo("1053820045") is None
+    assert _periodo("20171") == "2017-1S"
+    assert _periodo("2016-12-05") == "2016-2S"
+    assert _periodo("2016 - 2S") == "2016-2S"
+
+
+# --- Revisión: salidas y costos --------------------------------------------------
+
+
+def test_salidas_sin_formulas_ni_caracteres_ilegales(tmp_path: Path) -> None:
+    from app.servicios.calidad.soportes.salidas import borrador_docx, celda, cruce_xlsx
+
+    assert celda("=HYPERLINK(1)").startswith("’")
+    assert celda("a\x0bb") == "ab"
+    accion = Accion("1.1", "A\x01", "O", "=Hacer", "Ind\x0b", "2020", "2021")
+    propuesta = CruceAccion(
+        veredicto=Veredicto.PARCIAL, justificacion="=1+1 \x0c", falta="",
+        avance_propuesto=50, citas=[], parrafo_cierre="Texto \x0b [S001].",
+    )  # fmt: skip
+    cruce = Cruce(accion, propuesta)
+    cruce_xlsx(tmp_path / "c.xlsx", [cruce])
+    borrador_docx(tmp_path / "b.docx", "P\x0b", [cruce], None, [], {})
+    hoja = load_workbook(tmp_path / "c.xlsx")["Cruce por acción"]
+    assert hoja.cell(row=2, column=3).value == "’=Hacer"
+
+
+async def test_corrida_detenida_no_cuenta_llamadas() -> None:
+    from app.servicios.calidad.soportes.modelos import Uso
+
+    uso = Uso()
+    uso.registrar("m", Respuesta(None, error="corrida detenida", llamada=False))
+    uso.registrar("m", Respuesta({}, 10, 5, modelo="claude-opus-5-5"))
+    assert "m" not in uso.por_modelo
+    assert uso.por_modelo["claude-opus-5-5"] == [10, 5, 1]
+
+
+def test_textos_respetan_la_regla_del_comite() -> None:
+    from app.servicios.calidad.soportes import cruce, salidas
+
+    for texto in (
+        salidas.ENCABEZADO_BORRADOR,
+        salidas.NOTA_PROPUESTA,
+        cruce.SISTEMA_CRUCE,
+        cruce.SISTEMA_RESUMEN,
+    ):
+        assert "Comité Asesor recomienda" in " ".join(texto.split()) or (
+            "recomendación del Comité Asesor" in texto
+        )
+        assert "Consejo de Facultad" in texto
+        assert "aprueban" not in texto

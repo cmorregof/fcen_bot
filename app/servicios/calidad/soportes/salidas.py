@@ -180,11 +180,11 @@ def cruce_xlsx(ruta: Path, cruces: list[Cruce]) -> None:
     ws.title = "Cruce por acción"
     encabezado = [
         "Acción", "Aspecto", "Descripción de la acción", "Indicador (meta)",
-        "Veredicto (propuesta)", "% de avance (propuesta)", "Justificación (propuesta)",
+        "Avance declarado en el plan (%)", "Marcas del plan", "Veredicto (propuesta)", "% de avance (propuesta)", "Justificación (propuesta)",
         "Lo que falta (propuesta)", "Citas", "Verificación de citas", "Alertas",
         "Sugerencia (no es evidencia)", "Revisado por calidad", "Ajuste",
     ]  # fmt: skip
-    anchos = [8, 30, 40, 40, 16, 10, 60, 45, 40, 30, 40, 60, 12, 40]
+    anchos = [8, 30, 40, 40, 12, 16, 16, 10, 60, 45, 40, 30, 40, 60, 12, 40]
     _hoja(ws, encabezado, anchos, humanas=2)
     for c in cruces:
         p = c.propuesta
@@ -206,6 +206,8 @@ def cruce_xlsx(ruta: Path, cruces: list[Cruce]) -> None:
                 c.accion.aspecto,
                 c.accion.descripcion,
                 c.accion.indicador,
+                c.accion.avance_declarado,
+                ", ".join(c.accion.marcas),
                 p.veredicto.value if p else f"sin propuesta: {c.error}",
                 p.avance_propuesto if p else "",
                 p.justificacion if p else "",
@@ -220,13 +222,16 @@ def cruce_xlsx(ruta: Path, cruces: list[Cruce]) -> None:
         )
     validacion = DataValidation(type="list", formula1='"Sí,No"', allow_blank=True)
     ws.add_data_validation(validacion)
-    validacion.add(f"M2:M{max(2, ws.max_row)}")
+    validacion.add(f"O2:O{max(2, ws.max_row)}")
     _ajustar(ws)
     _leeme(
         libro,
         "Cruce de acciones — propuesta de cierre del plan",
         [
             "Veredictos posibles: «evidencia suficiente», «parcial», «sin evidencia».",
+            "«Avance declarado en el plan» y «Marcas del plan» vienen del plan (solo "
+            "con la plantilla institucional) y no se le mostraron al modelo: sirven "
+            "para comparar el avance declarado con el que prueban los soportes.",
             "«Verificación de citas»: un programa comprueba que cada cita apunte a un "
             "archivo del inventario. Las que no, se marcan con ⚠ y no se borran.",
             "«Sugerencia» solo aparece en las acciones sin evidencia: dice dónde "
