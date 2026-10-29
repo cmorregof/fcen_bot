@@ -116,7 +116,7 @@ def test_oficio_y_acta_recomiendan_los_jurados_en_un_cuadro() -> None:
         doc = Document(io.BytesIO(contenido))
         parrafos = [p.text for p in doc.paragraphs]
         assert "Se recomiendan los siguientes jurados:" in parrafos
-        assert "SOLICITUD DE DESIGNACIÓN DE JURADOS DE TRABAJO DE GRADO" in parrafos
+        assert "SOLICITUD DE DESIGNACIÓN DE JURADOS" in parrafos
         [tabla] = doc.tables
         assert [c.text for c in tabla.rows[0].cells] == [
             "Nombre",

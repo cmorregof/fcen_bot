@@ -40,7 +40,7 @@ TITULOS_TIPO: dict[TipoSolicitud, str] = {
     TipoSolicitud.CARGA_MINIMA: "carga mínima",
     TipoSolicitud.CANCELACION: "cancelación de asignaturas",
     TipoSolicitud.TRABAJO_GRADO: "inscripción de trabajo de grado",
-    TipoSolicitud.DESIGNACION_JURADOS: "designación de jurados de trabajo de grado",
+    TipoSolicitud.DESIGNACION_JURADOS: "designación de jurados",
     TipoSolicitud.PROYECTO_TESIS: "inscripción de proyecto de tesis o trabajo final de maestría",
     TipoSolicitud.EXCEPCION_NORMA: "excepción a la norma",
     TipoSolicitud.PAE: "práctica académica especial (PAE)",
