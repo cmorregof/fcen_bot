@@ -14,6 +14,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Annotated
 
+import aiosqlite
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
@@ -273,6 +274,11 @@ async def subir_insumo(
 
 @router.get("/tablero")
 async def tablero(_: _Lectura, db: Db) -> dict[str, object]:
+    return await cifras_tablero(db)
+
+
+async def cifras_tablero(db: aiosqlite.Connection) -> dict[str, object]:
+    """Solo conteos; también lo pide actas por /internal/cifras."""
     await almacen.asegurar_tablas(db)
     m = await almacen.totales(db)
     claves = (

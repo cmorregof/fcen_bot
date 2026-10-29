@@ -26,6 +26,20 @@ class Settings(BaseSettings):
     # Rutas internas (cron de GitHub Actions)
     internal_cron_secret: str = ""
 
+    # Decanatura (Decana y vicedecanos): ids de Telegram, separados por comas.
+    # Solo ellos reciben /resumen y el resumen semanal.
+    decanatura_telegram_ids: str = ""
+    # El cron del lunes no envía nada si esto es false.
+    resumen_semanal_activo: bool = True
+    # Días sin movimiento a partir de los cuales un caso sale como alerta.
+    resumen_dias_sin_movimiento: int = 7
+    # Secreto compartido por los tres servicios para /internal/cifras; con él,
+    # actas pide a calidad y admisión sus conteos agregados (nunca su base).
+    resumen_secret: str = ""
+    # URL pública de los servicios de calidad y admisión (solo en actas).
+    resumen_calidad_url: str = ""
+    resumen_admision_url: str = ""
+
     # Claude
     anthropic_api_key: str = ""
     # Solo si la API key no pertenece a un workspace de la Console: el ID del
@@ -46,6 +60,10 @@ class Settings(BaseSettings):
     periodo_actual: str = "2026-2S"
     periodo_inicio: date | None = None
 
+    # Jurados de Trabajo de Grado que se presentan como mínimo. No es norma:
+    # es instrucción del Consejo de Facultad (reunión del 28-oct-2026).
+    jurados_minimo: int = 6
+
     # Almacenamiento. Si DB_PATH, MEDIA_DIR u OUTPUT_DIR no se definen, se
     # derivan de DATA_DIR por servicio: <DATA_DIR>/<servicio>/... En Docker,
     # DATA_DIR=/data (el volumen).
@@ -60,6 +78,11 @@ class Settings(BaseSettings):
 
     timezone: str = "America/Bogota"
     log_level: str = "INFO"
+
+    @property
+    def ids_decanatura(self) -> frozenset[int]:
+        ids = self.decanatura_telegram_ids.replace(";", ",").split(",")
+        return frozenset(int(i) for i in (x.strip() for x in ids) if i.isdigit())
 
     @field_validator("periodo_inicio", mode="before")
     @classmethod

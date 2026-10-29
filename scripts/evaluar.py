@@ -239,6 +239,8 @@ async def evaluar_caso(
             salida.programa,
             periodo_inicio=settings.periodo_inicio,
             hay_imagenes=bool(imagenes),
+            texto_original=texto,
+            jurados_minimo=settings.jurados_minimo,
         )
         r = comparar(
             caso_id,

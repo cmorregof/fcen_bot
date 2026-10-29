@@ -76,11 +76,12 @@ def test_cuerpo_del_oficio() -> None:
     texto = "\n".join(p.text for p in doc.paragraphs)
     assert "CONSEJO DE FACULTAD" in texto
     assert "SOLICITUD DE CARGA MÍNIMA Y CANCELACIÓN DE ASIGNATURAS" in texto
-    assert "2.1 PERSONA FICTICIA UNO identificada con DNI No. 1000000001" in texto
+    # En el oficio la recomendación va primero, con el número del caso.
     assert (
-        "RECOMENDACIÓN: El Comité Asesor recomienda al Consejo de Facultad APROBAR "
-        "la solicitud de cancelación" in texto
+        "2.1 RECOMENDACIÓN: El Comité Asesor recomienda al Consejo de Facultad "
+        "APROBAR la solicitud de cancelación" in texto
     )
+    assert "PERSONA FICTICIA UNO identificada con DNI No. 1000000001" in texto
     assert texto.rstrip().count("a la estudiante Persona Ficticia Uno.") >= 1
     assert "tiene inscritos trece créditos (13 créditos)" in texto
     assert "Acuerdo 008 de 2008" in texto

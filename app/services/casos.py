@@ -29,6 +29,8 @@ def analizar(caso: Caso) -> reglas.Analisis | None:
         PROGRAMAS.get(caso.programa or ""),
         periodo_inicio=settings.periodo_inicio,
         hay_imagenes=bool(caso.imagenes),
+        texto_original=caso.texto,
+        jurados_minimo=settings.jurados_minimo,
     )
 
 

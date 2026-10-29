@@ -61,6 +61,7 @@ El formato plano anterior (una fila por tarea) se retiró: ningún plan real lo 
 - `plantilla_plan_mejoramiento.xlsx` y `plantilla_plan_mejoramiento_beta.xlsx`: dos programas inventados con la misma estructura de cinco hojas y las variaciones de formato de los planes reales (`scripts/crear_plantilla_calidad.py` describe cuál trae cada una). Las pruebas y la simulación usan solo estos archivos.
 - `simulacion-AAAA-MM-DD.md`: salida de `scripts/simular_calidad.py`.
 - `siguientes-pasos.md`: revisión asistida de soportes, borrador de la descripción por corte y cierre del plan (sin implementar).
+- `cierre.md`: revisor de soportes para el cierre de un plan (script `scripts/cierre_plan.py`, aún sin exponer en la web ni en Telegram): cómo correrlo y cuánto cuesta.
 - `config/calidad/directorio.yaml`: directorio de ejemplo, todo PARA COMPLETAR.
 
 ## Planes reales

@@ -101,6 +101,11 @@ Configura las variables en la pestaña **Variables** de cada servicio en Railway
 | `INTERNAL_CRON_SECRET` | Secreto cron diario | No aplica | No aplica | Autenticación de `/internal/borrador-diario` |
 | `PERIODO_ACTUAL` | `2026-2S` | `2026-2S` | `2026-2S` | Periodo académico en curso |
 | `PERIODO_INICIO` | `AAAA-MM-DD` | No aplica | No aplica | Fecha de inicio de clases para cálculo de semanas |
+| `DECANATURA_TELEGRAM_IDS` | Ids de Telegram de la Decana y los vicedecanos, separados por comas | No aplica | No aplica | Únicas personas que pueden usar `/resumen` y que reciben el resumen semanal |
+| `RESUMEN_SEMANAL_ACTIVO` | `true` (por defecto) o `false` | No aplica | No aplica | `false` apaga el envío del lunes; `/resumen` sigue disponible |
+| `RESUMEN_DIAS_SIN_MOVIMIENTO` | `7` (por defecto) | No aplica | No aplica | Días sin movimiento a partir de los cuales un caso sale como alerta |
+| `RESUMEN_SECRET` | Secreto hex compartido | El mismo valor | El mismo valor | Protege `GET /internal/cifras`; sin él, la ruta responde 403 y el resumen no trae calidad ni admisión |
+| `RESUMEN_CALIDAD_URL`, `RESUMEN_ADMISION_URL` | URL pública de cada servicio | No aplica | No aplica | Actas pide ahí los conteos agregados de calidad y admisión (nunca lee su base) |
 
 > [!CAUTION]
 > Cada servicio de Railway tiene su propio volumen en `/data`. Si se define `DB_PATH` a mano, debe ser exclusiva del servicio: `admision` y `calidad` se niegan a arrancar si apuntan a la base de actas.
@@ -189,3 +194,14 @@ Debe mostrar `url` apuntando a `https://<app-name>.up.railway.app/webhook`, `has
      Servicio en construcción
      ```
    - Para el bot de actas (`@fcenpregrado_bot`), `/start <INVITE_CODE>` iniciará el registro administrativo usual.
+
+---
+
+## 7. Resumen para la decanatura
+
+El servicio de actas responde `/resumen` solo a los ids de `DECANATURA_TELEGRAM_IDS` y, cada lunes a las 7:30 a. m. (hora de Bogotá), el workflow `resumen-semanal.yml` llama a `POST /internal/resumen-semanal` con `INTERNAL_CRON_SECRET` para enviárselo. Usa los mismos secrets de GitHub Actions que el borrador diario (`APP_URL`, `INTERNAL_CRON_SECRET`).
+
+- Cada persona de la decanatura debe abrir el bot y enviar `/start` una vez: Telegram no deja que un bot le escriba primero a alguien. Su id numérico se puede consultar con [@userinfobot](https://t.me/userinfobot).
+- El mensaje trae solo cifras por programa y por estado, sin nombres ni documentos.
+- Ningún caso se cuenta como aprobado: lo que decide el Consejo de Facultad sale de su acta, y MemorIA todavía no la registra. Todo caso recomendado figura como «pendiente de acta del Consejo».
+- Para incluir calidad y admisión, define el mismo `RESUMEN_SECRET` en los tres servicios y, en actas, `RESUMEN_CALIDAD_URL` y `RESUMEN_ADMISION_URL`. Actas pide `GET /internal/cifras` (los mismos conteos del tablero web, sin nombres); si un servicio no responde, el resumen lo dice y sigue.

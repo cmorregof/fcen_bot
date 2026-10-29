@@ -6,6 +6,7 @@ alertas para la administrativa y datos para el ANÁLISIS del acta.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -22,6 +23,10 @@ CARGA_MINIMA = 10  # Acuerdo 008 de 2008 del CSU, art. 10
 SEMANA_LIMITE_ASIGNATURAS = 10  # Acuerdo 027 de 2024, art. 1 (num. 3)
 SEMANA_LIMITE_TDG_ACTIVIDADES = 13  # Acuerdo 027 de 2024, art. 1 (num. 3 y 4)
 SEMANA_LIMITE_TRASLADO = 7  # Acuerdo 089 de 2014, art. 2 (antes de la semana 7)
+# No es norma: instrucción del Consejo de Facultad (reunión del 28-oct-2026).
+# Se configura con JURADOS_MINIMO.
+JURADOS_MINIMO = 6
+INSTRUCCION_JURADOS = "instrucción del Consejo de Facultad, 28-oct-2026"
 
 _COLUMNAS = ("exigidos", "aprobados", "pendientes", "inscritos", "cursados")
 
@@ -182,6 +187,28 @@ def completar_tipos(extraccion: ExtraccionCaso) -> ExtraccionCaso:
     )
 
 
+def _normalizar_saltos(texto: str) -> str:
+    return texto.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def cita_literal(
+    cita: str, texto_original: str, cuerpo_transcrito: str | None = None
+) -> bool:
+    """La cita es una subcadena exacta del texto de donde sale: el correo o el
+    formato pegados o, si el correo llegó como imagen, su transcripción. Solo
+    se toleran los saltos de línea de Windows y los espacios de los extremos."""
+    fragmento = _normalizar_saltos(cita).strip()
+    if not fragmento:
+        return True
+    fuentes = [texto_original, cuerpo_transcrito or ""]
+    return any(fragmento in _normalizar_saltos(f) for f in fuentes if f.strip())
+
+
+# En el oficio y el acta los jurados se recomiendan; el estudiante no los
+# «propone» ni los «sugiere» (instrucción del Consejo de Facultad, 28-oct-2026).
+_PROPONE = re.compile(r"\b(propon|propues|propus|sugier|suger|sugir)\w*", re.IGNORECASE)
+
+
 def semana_del_periodo(fecha: str | None, inicio: date | None) -> int | None:
     if not fecha or not inicio:
         return None
@@ -206,7 +233,11 @@ def analizar(
     *,
     periodo_inicio: date | None,
     hay_imagenes: bool,
+    texto_original: str | None = None,
+    jurados_minimo: int = JURADOS_MINIMO,
 ) -> Analisis:
+    """`texto_original` es el texto pegado del caso; sin él no se verifica la
+    cita. `jurados_minimo` sale de la configuración (JURADOS_MINIMO)."""
     a = Analisis()
     tipos = set(extraccion.tipos)
 
@@ -260,6 +291,38 @@ def analizar(
             + ", ".join(sin_destino)
             + ".",
         )
+
+    # La cita del oficio tiene que estar tal cual en lo que escribió el estudiante.
+    cita = (extraccion.cita_textual or "").strip()
+    if (
+        cita
+        and texto_original is not None
+        and not cita_literal(cita, texto_original, extraccion.cuerpo_transcrito)
+    ):
+        muestra = cita if len(cita) <= 80 else cita[:80] + "…"
+        a.agregar(
+            "error",
+            f"La cita «{muestra}» no aparece tal cual en lo que escribió el "
+            "estudiante. No la corregí: en el borrador sale en amarillo. Responde "
+            "a la ficha con el fragmento exacto.",
+        )
+
+    # Jurados de Trabajo de Grado
+    if TipoSolicitud.DESIGNACION_JURADOS in tipos or extraccion.jurados:
+        n = len(extraccion.jurados)
+        if n < jurados_minimo:
+            a.agregar(
+                "aviso",
+                f"La solicitud trae {n} jurado{'' if n == 1 else 's'}; se presentan "
+                f"mínimo {jurados_minimo} ({INSTRUCCION_JURADOS}; no es norma).",
+            )
+        if _PROPONE.search(extraccion.objeto_solicitud):
+            a.agregar(
+                "aviso",
+                "La frase de la solicitud dice que el estudiante propone o sugiere "
+                "jurados. En el oficio los jurados se recomiendan "
+                f"({INSTRUCCION_JURADOS}): corrígela respondiendo a la ficha.",
+            )
 
     if any(a.accion == "apertura" for a in extraccion.asignaturas) and not lleva_zapc(
         extraccion
