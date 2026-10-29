@@ -21,7 +21,8 @@ from app.servicios.admision.config import config
 
 logger = logging.getLogger(__name__)
 
-_MIN_CARACTERES_POR_PAGINA = 80
+# Los PDF escaneados suelen traer solo el encabezado como texto (~100 caracteres).
+_MIN_CARACTERES_POR_PAGINA = 300
 _SUFIJOS = {".pdf", ".txt", ".md"}
 
 
