@@ -28,17 +28,6 @@ def _mensaje_update(texto: str = "/start", update_id: int = 1) -> Update:
     )
 
 
-async def test_admision_start_responde_en_construccion(
-    db: aiosqlite.Connection,
-    tg: TelegramFalso,
-) -> None:
-    update = _mensaje_update("/start", update_id=101)
-    await admision.manejar_update(db, update)
-
-    assert tg.textos() == ["Servicio en construcción"]
-    assert tg.mensajes[0]["chat_id"] == USUARIO_ID
-
-
 async def test_calidad_start_responde_en_construccion(
     db: aiosqlite.Connection,
     tg: TelegramFalso,
@@ -48,16 +37,6 @@ async def test_calidad_start_responde_en_construccion(
 
     assert tg.textos() == ["Servicio en construcción"]
     assert tg.mensajes[0]["chat_id"] == USUARIO_ID
-
-
-async def test_admision_otro_mensaje_no_responde(
-    db: aiosqlite.Connection,
-    tg: TelegramFalso,
-) -> None:
-    update = _mensaje_update("hola bot", update_id=103)
-    await admision.manejar_update(db, update)
-
-    assert tg.textos() == []
 
 
 async def test_calidad_otro_mensaje_no_responde(
@@ -79,7 +58,7 @@ async def test_despachar_update_admision(
     update = _mensaje_update("/start", update_id=105)
     await despachar_update(db, update)
 
-    assert tg.textos() == ["Servicio en construcción"]
+    assert "PENDIENTE DE AVAL" in tg.textos()[0]
 
 
 async def test_despachar_update_calidad(

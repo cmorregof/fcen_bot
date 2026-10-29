@@ -43,7 +43,9 @@ class AdmisionSettings(BaseSettings):
     @property
     def admins(self) -> frozenset[int]:
         return frozenset(
-            int(p) for p in self.admin_ids.replace(";", ",").split(",") if p.strip().isdigit()
+            int(p)
+            for p in self.admin_ids.replace(";", ",").split(",")
+            if p.strip().isdigit()
         )
 
 

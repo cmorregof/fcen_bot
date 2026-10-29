@@ -27,16 +27,11 @@ _ESQUEMA = (
     """,
 )
 
-_listas: set[int] = set()
-
 
 async def asegurar_tablas(db: aiosqlite.Connection) -> None:
-    if id(db) in _listas:
-        return
     for sentencia in _ESQUEMA:
         await db.execute(sentencia)
     await db.commit()
-    _listas.add(id(db))
 
 
 async def estado(db: aiosqlite.Connection, chat_id: int) -> dict[str, int | None]:
@@ -61,9 +56,7 @@ async def reiniciar(db: aiosqlite.Connection, chat_id: int) -> None:
     await db.commit()
 
 
-async def fijar(
-    db: aiosqlite.Connection, chat_id: int, campo: str, valor: int
-) -> None:
+async def fijar(db: aiosqlite.Connection, chat_id: int, campo: str, valor: int) -> None:
     if campo not in {"acepto", "menor", "acudiente"}:
         raise ValueError(campo)
     await db.execute(

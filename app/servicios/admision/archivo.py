@@ -36,7 +36,9 @@ def _revisar_pdf(datos: bytes) -> tuple[int, list[Problema]]:
     try:
         lector = PdfReader(io.BytesIO(datos))
         if lector.is_encrypted:
-            return 0, [Problema("formato", "El PDF tiene contraseña. Envíalo sin ella.")]
+            return 0, [
+                Problema("formato", "El PDF tiene contraseña. Envíalo sin ella.")
+            ]
         paginas = len(lector.pages)
     except (PyPdfError, ValueError, OSError):
         return 0, [Problema("formato", "No pude abrir el PDF; parece dañado.")]

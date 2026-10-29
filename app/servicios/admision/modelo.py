@@ -68,8 +68,9 @@ class RevisionDocumento(BaseModel):
 
 
 class Modelo(Protocol):
-    async def responder(self, fuentes: str, pregunta: str) -> RespuestaPregunta | None:
-        ...
+    async def responder(
+        self, fuentes: str, pregunta: str
+    ) -> RespuestaPregunta | None: ...
 
     async def revisar(
         self, fuentes: str, documento: Documento, archivo: Archivo
