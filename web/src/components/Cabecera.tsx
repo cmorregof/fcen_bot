@@ -10,7 +10,7 @@ export function Cabecera() {
   return (
     <header className="cabecera">
       <Link href="/" className="marca">
-        MemorIA <span>· FCEN</span>
+        Memor<em>IA</em> <span>· FCEN</span>
       </Link>
       {primera ? (
         <div className="usuario">

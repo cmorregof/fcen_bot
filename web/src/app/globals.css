@@ -1,19 +1,31 @@
 /* Letra grande, alto contraste y botones amplios: pensado para leer sin esfuerzo. */
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-Regular.ttf") format("truetype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-Light.ttf") format("truetype"); font-weight: 300; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-ExtraBold.ttf") format("truetype"); font-weight: 800; font-display: swap; }
+
+/* Paleta de la Facultad (la misma de la propuesta de MemorIA). */
 :root {
-  --texto: #111418;
-  --suave: #3d4450;
+  --marino: #1c3a5e;
+  --indigo: #1b1464;
+  --magenta: #c14e9e;
+  --lima: #8dc63f;
+  --texto: #1b1464;
+  --suave: #5b6573;
   --fondo: #ffffff;
-  --panel: #f3f5f8;
-  --borde: #8a94a3;
-  --accion: #0b3d91;
-  --accion-hover: #072b68;
+  --panel: #f3f5f9;
+  --borde: #c9d1dd;
+  --accion: #1c3a5e;
+  --accion-hover: #1b1464;
   --error: #9b1c1c;
   --error-fondo: #fdecec;
-  --exito: #14532d;
-  --exito-fondo: #e8f5ec;
+  --exito: #3f6b12;
+  --exito-fondo: #eef6e4;
   --aviso: #7a4b00;
   --aviso-fondo: #fff4dc;
-  --foco: #f59e0b;
+  --foco: #c14e9e;
 }
 
 * { box-sizing: border-box; }
@@ -24,14 +36,15 @@ body {
   margin: 0;
   background: var(--fondo);
   color: var(--texto);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: "Ancizar Serif", Georgia, "Times New Roman", serif;
   line-height: 1.6;
 }
 
 main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 
-h1 { font-size: 1.6rem; line-height: 1.25; margin: 0.5rem 0 1rem; }
-h2 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; }
+h1 { font-size: 1.7rem; line-height: 1.25; margin: 0.5rem 0 1rem; color: var(--marino); font-weight: 800; }
+h1::after { content: ""; display: block; width: 4rem; height: 3px; background: var(--lima); margin-top: 0.4rem; }
+h2 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; color: var(--marino); font-weight: 700; }
 h3 { font-size: 1.05rem; margin: 1rem 0 0.25rem; }
 p, li { max-width: 46rem; }
 a { color: var(--accion); }
@@ -41,9 +54,10 @@ small { color: var(--suave); }
 
 .cabecera {
   display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between;
-  padding: 0.75rem 1rem; border-bottom: 2px solid var(--borde); background: var(--panel);
+  padding: 0.75rem 1rem; border-bottom: 3px solid var(--lima); background: #fff;
 }
-.marca { font-size: 1.3rem; font-weight: 700; color: var(--texto); text-decoration: none; }
+.marca { font-size: 1.4rem; font-weight: 800; color: var(--marino); text-decoration: none; }
+.marca em, .ia { font-style: normal; color: var(--magenta); }
 .marca span { font-weight: 400; color: var(--suave); }
 .usuario { display: flex; gap: 1rem; align-items: center; }
 .usuario span { display: flex; flex-direction: column; line-height: 1.3; }
@@ -76,7 +90,7 @@ legend { font-weight: 600; padding: 0 0.25rem; }
 
 .alcance {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem;
-  background: var(--panel); border-left: 6px solid var(--accion); padding: 0.5rem 1rem; margin-bottom: 1.5rem;
+  background: var(--panel); border-left: 4px solid var(--magenta); border-radius: 0.4rem; padding: 0.5rem 1rem; margin-bottom: 1.5rem;
 }
 .alcance h2 { font-size: 1rem; margin: 0.5rem 0 0; }
 .alcance ul { margin: 0.25rem 0 0.5rem; padding-left: 1.2rem; }
@@ -92,11 +106,13 @@ legend { font-weight: 600; padding: 0 0.25rem; }
   color: var(--texto); text-decoration: none; background: #fff;
 }
 a.tarjeta:hover { border-color: var(--accion); background: var(--panel); }
-.tarjeta strong { display: block; font-size: 1.1rem; color: var(--accion); }
+.tarjeta strong { display: block; font-size: 1.1rem; color: var(--marino); }
+a.tarjeta { border-top: 4px solid var(--magenta); }
 
 table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
 th, td { text-align: left; padding: 0.6rem; border-bottom: 1px solid var(--borde); vertical-align: top; }
-th { background: var(--panel); }
+th { background: var(--marino); color: #fff; }
+tbody tr:nth-child(even) td { background: var(--panel); }
 .tabla { overflow-x: auto; }
 
 .cifra { font-size: 2rem; font-weight: 700; display: block; line-height: 1.1; }
@@ -107,3 +123,11 @@ th { background: var(--panel); }
 .estado.pendiente { color: var(--suave); background: var(--panel); }
 
 .aviso-datos { white-space: pre-wrap; background: var(--panel); padding: 1rem; border-radius: 0.4rem; }
+
+.portada { margin: -1.5rem calc(50% - 50vw) 1.5rem; background: var(--panel); padding-bottom: 1.5rem; }
+.portada img { display: block; width: 100%; height: auto; max-height: 22rem; object-fit: cover; }
+.portada-texto { max-width: 60rem; margin: 0 auto; padding: 0 1rem; }
+.portada .institucion { font-size: 0.8rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--suave); margin: 1rem 0 0; }
+.portada h1 { font-size: 2.8rem; margin: 0.25rem 0 0; }
+.portada .lema { font-size: 1.25rem; font-weight: 300; color: var(--indigo); margin: 0.25rem 0 0.75rem; }
+.portada .frase { font-size: 1.05rem; }

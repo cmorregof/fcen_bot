@@ -13,11 +13,21 @@ export default function Inicio() {
   if (!ingresado) {
     return (
       <section>
-        <h1>MemorIA</h1>
-        <p>
-          Herramientas de apoyo para la Facultad de Ciencias Exactas y Naturales. Ayudan a preparar y
-          revisar; las decisiones siempre las toman las personas y las instancias competentes.
-        </p>
+        <div className="portada">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/memoria.webp" alt="" />
+          <div className="portada-texto">
+            <p className="institucion">Universidad Nacional de Colombia · Sede Manizales · FCEN</p>
+            <h1>
+              Memor<span className="ia">IA</span>
+            </h1>
+            <p className="lema">La memoria de la Facultad, con inteligencia artificial</p>
+            <p className="frase">
+              La IA lee, organiza y redacta; las reglas verifican; las decisiones siempre las toman
+              las personas y las instancias competentes.
+            </p>
+          </div>
+        </div>
         <div className="tarjetas">
           <div className="tarjeta">
             <Ingreso />
