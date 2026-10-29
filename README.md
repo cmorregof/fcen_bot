@@ -102,6 +102,8 @@ Los casos en **Listo** son los que forman el borrador del día de su programa.
 | Traslado antes de la semana 7 | Acuerdo 089 de 2014, art. 2 |
 | Trabajo de Grado en Ing. Física: 46 créditos disciplinares aprobados | Res. CFCEN-060-2008, art. 5 |
 | Documento ausente, con caracteres raros o con un número inusual de dígitos | — |
+| Cita del oficio: el fragmento entre comillas tiene que ser una subcadena exacta del correo, del formato o de la transcripción; si no, error y la cita sale en amarillo | Texto original del estudiante |
+| Jurados de Trabajo de Grado: mínimo 6 (configurable con `JURADOS_MINIMO`), y la frase de la solicitud no dice que el estudiante los «propone» o «sugiere» | Instrucción del Consejo de Facultad, 28-oct-2026 (no es norma) |
 
 Las normas que se citan en el oficio están en `app/normativa/base.py`, con su texto literal. Las marcadas `verificada=False` se copiaron de como aparecen en un acta, porque el PDF de la norma todavía no está en la carpeta de reglamentación.
 
@@ -128,11 +130,13 @@ Ambos documentos usan la misma plantilla membreteada para los cinco programas y 
 |---|---|---|
 | Encabezado del acta | CC | Fecha, hora, lugar, asistentes con su cargo, invitados |
 | Orden del día | CC + Física | 1. Quórum · 2. Casos, con los estudiantes por sección (Física) · 3. Varios |
-| Caso | CC | «2.N NOMBRE identificado con DNI No. … mediante correo (o formato) del día …, solicita …, justificando que “…”», con la cita en el mismo párrafo |
+| Orden del caso | Consejo de Facultad (28-oct-2026) | Oficio: recomendación primero (con el número del caso), luego la solicitud, el análisis y las normas. Acta: solicitud, análisis, conceptos y recomendación, como transcurre la sesión |
+| Caso | CC | «NOMBRE identificado con DNI No. … mediante correo (o formato) del día …, solicita …, justificando que “…”», con la cita en el mismo párrafo. La cita es el fragmento literal de la justificación, verificado contra el texto original |
 | ANÁLISIS | Física | Plan, convocatoria, créditos inscritos y después de la solicitud, disciplinares, P.A.P.A., avance, semana, anexos |
 | Pantallazos del SIA | — | No van en el .docx (§5.4): solo alimentan la extracción; el análisis escrito queda |
 | Conceptos (solo acta) | CC | «El profesor X expresa: “…”», texto literal |
 | Recomendación | Física | «El Comité Asesor recomienda al Consejo de Facultad APROBAR la solicitud de … a la estudiante …» |
+| Jurados | Consejo de Facultad (28-oct-2026) | «Se recomiendan los siguientes jurados:» y tabla Nombre, Vinculación o institución, Correo, tal como los trae la solicitud |
 | Asignaturas | §5.4 | Un párrafo por trámite («Inscribir/Cancelar las siguientes asignaturas:») y tabla Código, Asignatura, Grupo, Tipología, Créditos; sin grupo, celda en amarillo. ZAPC va en la frase de la recomendación |
 | Normas | Física | «Basados en la normativa»: el oficio cita nombre, número y artículo; el acta trae el texto literal |
 
