@@ -129,12 +129,15 @@ def casos_ficticios(programa: str, img: Path) -> list[tuple[Caso, ExtraccionCaso
             AsignaturaSolicitada(
                 codigo="4101167",
                 nombre="Mecánica estadística avanzada",
+                grupo="1",
+                tipologia="DISCIPLINAR OPTATIVA",
                 creditos=4,
                 accion="inscribir",
             ),
             AsignaturaSolicitada(
                 codigo="4101189",
                 nombre="Fenómenos críticos y transiciones de fase",
+                tipologia="DISCIPLINAR OPTATIVA",
                 creditos=4,
                 accion="inscribir",
             ),
@@ -160,7 +163,12 @@ def casos_ficticios(programa: str, img: Path) -> list[tuple[Caso, ExtraccionCaso
         "autorización para cursar el periodo por debajo de la carga mínima",
         asignaturas=[
             AsignaturaSolicitada(
-                codigo="4100849", nombre="Termodinámica", creditos=4, accion="cancelar"
+                codigo="4100849",
+                nombre="Termodinámica",
+                grupo="2",
+                tipologia="DISCIPLINAR OBLIGATORIA",
+                creditos=4,
+                accion="cancelar",
             )
         ],
         cuerpo_desde_linea=1,
@@ -200,7 +208,7 @@ async def main() -> None:
         )
         for alerta in analisis.alertas:
             print(f"  caso {caso.id} [{alerta.nivel}] {alerta.mensaje}")
-        items.append(CasoDocumento(caso, extr, analisis, correo.strip(), [img]))
+        items.append(CasoDocumento(caso, extr, analisis, correo.strip()))
     # Un concepto ficticio en el primer caso, para ver cómo queda en el acta.
     if items and programa.miembros:
         m = programa.miembros[-1]

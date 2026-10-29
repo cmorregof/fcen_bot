@@ -42,7 +42,7 @@ class Archivo:
 @dataclass(frozen=True)
 class Borrador:
     """Los dos documentos de un programa: el oficio al Consejo de Facultad, con
-    la decisión, y el acta del comité, con los conceptos de sus integrantes."""
+    la recomendación, y el acta del comité, con los conceptos de sus integrantes."""
 
     programa: Programa
     caso_ids: list[int]
@@ -81,7 +81,6 @@ def caso_documento(caso: Caso, programa: Programa) -> CasoDocumento | None:
         extraccion=caso.extraccion,
         analisis=analisis,
         cuerpo_correo=cuerpo_del_correo(caso.texto, caso.extraccion),
-        imagenes=[Path(r) for r in caso.imagenes if Path(r).exists()],
         medio="formato" if caso.texto.startswith("--- Formato adjunto") else "correo",
     )
 
@@ -163,7 +162,7 @@ async def enviar_borradores(chat_id: int, borradores: list[Borrador]) -> None:
     for b in borradores:
         casos = ", ".join(f"#{i}" for i in b.caso_ids)
         for archivo, rotulo in (
-            (b.oficio, "Oficio al Consejo de Facultad (solo la decisión)"),
+            (b.oficio, "Oficio al Consejo de Facultad (solo la recomendación)"),
             (b.acta, "Acta del comité (con los conceptos)"),
         ):
             await telegram.send_document(
