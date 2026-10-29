@@ -11,10 +11,11 @@ from pydantic import BaseModel
 
 from app.api.web import auth
 from app.api.web.auth import Db, Usuario
-from app.servicios.calidad import directorio, operaciones, plan, reloj, reporte, textos
+from app.servicios.calidad import directorio, plan, plantilla, reloj, reporte
 from app.servicios.calidad.config import calidad_settings
 from app.servicios.calidad.db import init_calidad
-from app.servicios.calidad.plan import Estado, Tarea
+from app.servicios.calidad.plan import Estado, PlanGuardado
+from app.servicios.calidad.plantilla import Accion
 
 router = APIRouter(prefix="/calidad")
 
@@ -23,64 +24,91 @@ _Lectura = Annotated[Usuario, Depends(auth.requiere("calidad", "admin", "decanat
 _MAX_XLSX = 5_000_000
 
 
-def _tarea(t: Tarea, hoy: date) -> dict[str, object]:
+def _fecha(f: date | None) -> str | None:
+    return f.isoformat() if f else None
+
+
+def _accion(pg: PlanGuardado, a: Accion, hoy: date) -> dict[str, object]:
     return {
-        "id": t.id,
-        "programa": t.programa,
-        "codigo": t.codigo,
-        "tarea": t.tarea,
-        "responsable": textos.responsable(t),
-        "fecha_limite": t.fecha_limite.isoformat(),
-        "evidencia_esperada": t.evidencia_esperada,
-        "estado": t.estado(hoy).value,
-        "evidencias": [
+        "codigo": a.codigo,
+        "descripcion": a.descripcion,
+        "indicador": a.indicador,
+        "responsables": a.responsables,
+        "fecha_inicio": _fecha(a.fecha_inicio),
+        "fecha_fin": _fecha(a.fecha_fin),
+        "fechas_fin_anteriores": [f.isoformat() for f in a.fechas_fin_anteriores],
+        "avance": a.avance,
+        "estado": plan.calcular_estado(a, hoy).value,
+        "proxima": plan.proxima_a_vencer(a, hoy),
+        "reprogramada": a.reprogramada,
+        "marcas": a.marcas,
+        "evidencias": a.evidencias,
+        "tareas": len(a.tareas),
+        "soportes": [
             {
-                "tipo": e.tipo,
-                "valor": e.valor,
-                "por": e.registrado_nombre,
-                "fecha": e.creado,
+                "tipo": s.tipo,
+                "valor": s.valor,
+                "por": s.registrado_nombre,
+                "fecha": s.creado,
             }
-            for e in t.evidencias
+            for s in pg.soportes.get(a.codigo, [])
         ],
     }
 
 
-def _conteo(tareas: list[Tarea], hoy: date) -> dict[str, int]:
+def _resumen(pg: PlanGuardado, hoy: date) -> dict[str, object]:
+    """Cifras de un plan: solo conteos y porcentajes, sin nombres de personas."""
+    acciones = pg.plan.acciones
     conteo = {e.value: 0 for e in Estado}
-    for t in tareas:
-        conteo[t.estado(hoy).value] += 1
-    return conteo
+    for a in acciones:
+        conteo[plan.calcular_estado(a, hoy).value] += 1
+    corte = plan.proximo_corte(pg.plan, hoy)
+    return {
+        "programa": pg.programa,
+        "acciones": len(acciones),
+        "avance": pg.plan.avance_promedio(),
+        "conteo": conteo,
+        "reprogramadas": sum(a.reprogramada for a in acciones),
+        "proximo_corte": (
+            {"fecha": corte[0].isoformat(), "estimado": corte[1]} if corte else None
+        ),
+    }
+
+
+async def _cargar(db: Db, programa: str) -> PlanGuardado:
+    await init_calidad(db)
+    encontrado = await plan.buscar_programa(db, programa)
+    guardado = await plan.cargar_plan(db, encontrado) if encontrado else None
+    if guardado is None:
+        raise HTTPException(404, f"No encontré el programa «{programa}».")
+    return guardado
 
 
 @router.get("/programas")
 async def programas(_: _Calidad, db: Db) -> dict[str, object]:
     await init_calidad(db)
     hoy = reloj.hoy()
-    tareas = await plan.listar_tareas(db)
-    return {
-        "programas": [
-            {
-                "programa": p,
-                "conteo": _conteo([t for t in tareas if t.programa == p], hoy),
-            }
-            for p in await plan.listar_programas(db)
-        ]
-    }
+    return {"programas": [_resumen(pg, hoy) for pg in await plan.listar_planes(db)]}
 
 
 @router.get("/plan")
 async def ver_plan(programa: str, _: _Calidad, db: Db) -> dict[str, object]:
-    await init_calidad(db)
-    encontrado = await plan.buscar_programa(db, programa)
-    if encontrado is None:
-        raise HTTPException(404, f"No encontré el programa «{programa}».")
+    pg = await _cargar(db, programa)
     hoy = reloj.hoy()
-    tareas = await plan.listar_tareas(db, encontrado)
     return {
-        "programa": encontrado,
+        **_resumen(pg, hoy),
         "hoy": hoy.isoformat(),
-        "conteo": _conteo(tareas, hoy),
-        "tareas": [_tarea(t, hoy) for t in tareas],
+        "archivo": pg.archivo,
+        "alertas": pg.plan.alertas,
+        "objetivos": [
+            {
+                "codigo": o.codigo,
+                "texto": o.texto,
+                "meta": o.meta,
+                "acciones": [_accion(pg, a, hoy) for a in o.acciones],
+            }
+            for o in pg.plan.objetivos
+        ],
     }
 
 
@@ -95,37 +123,52 @@ async def _leer_xlsx(archivo: UploadFile) -> bytes:
 
 @router.post("/importar")
 async def importar(
-    _: _Calidad,
+    usuario: _Calidad,
     db: Db,
     archivo: Annotated[UploadFile, File()],
     confirmar: Annotated[bool, Form()] = False,
 ) -> dict[str, object]:
     """Sin `confirmar` solo muestra qué cambiaría. Con `confirmar` guarda."""
     await init_calidad(db)
-    vista = await operaciones.previsualizar(db, await _leer_xlsx(archivo))
-    if vista.resumen is None:
-        return {"guardado": False, "errores": vista.errores}
-    r = vista.resumen
-    datos: dict[str, object] = {
+    lectura = plantilla.leer_plantilla(await _leer_xlsx(archivo))
+    if lectura.errores or lectura.plan is None:
+        return {
+            "guardado": False,
+            "errores": lectura.errores or ["No pude leer el plan."],
+        }
+    if confirmar:
+        r = await plan.aplicar_importacion(
+            db,
+            lectura.plan,
+            archivo=archivo.filename or "plan.xlsx",
+            usuario_id=0,
+            creado=reloj.ahora().isoformat(),
+        )
+    else:
+        r = await plan.resumir(db, lectura.plan)
+    return {
+        "guardado": confirmar,
         "errores": [],
-        "nuevas": [f"{f.programa} · {f.codigo}" for f in r.nuevas],
-        "actualizadas": [
-            {"tarea": f"{f.programa} · {f.codigo}", "cambios": list(c)}
-            for f, c in r.actualizadas
-        ],
+        "programa": r.programa,
+        "plan_nuevo": r.plan_nuevo,
+        "objetivos": r.objetivos,
+        "acciones": r.acciones,
+        "tareas": r.tareas,
+        "avance": r.avance,
+        "cronogramas": r.cronogramas,
+        "alertas": r.alertas,
+        "nuevas": r.nuevas,
+        "actualizadas": [{"accion": a, "cambios": c} for a, c in r.actualizadas],
         "sin_cambios": r.sin_cambios,
-        "ausentes": [f"{p} · {c}" for p, c in r.ausentes],
+        "ausentes": r.ausentes,
+        "cortes_nuevos": r.cortes_nuevos,
+        "cortes_cambiados": r.cortes_cambiados,
     }
-    if not confirmar:
-        return {"guardado": False, **datos}
-    await operaciones.guardar_plan(
-        db, vista.filas, archivo=archivo.filename or "plan.xlsx", usuario_id=0
-    )
-    return {"guardado": True, **datos}
 
 
 class NuevaEvidencia(BaseModel):
-    tarea_id: int
+    programa: str
+    codigo: str
     enlace: str
 
 
@@ -133,16 +176,19 @@ class NuevaEvidencia(BaseModel):
 async def evidencia(
     cuerpo: NuevaEvidencia, usuario: _Calidad, db: Db
 ) -> dict[str, bool]:
-    await init_calidad(db)
-    if not operaciones.es_enlace(cuerpo.enlace):
+    """Queda pendiente de revisión: no cambia el % de avance."""
+    enlace = cuerpo.enlace.strip()
+    if not enlace.lower().startswith(("http://", "https://")):
         raise HTTPException(400, "El enlace debe empezar por http:// o https://.")
-    if not any(t.id == cuerpo.tarea_id for t in await plan.listar_tareas(db)):
-        raise HTTPException(404, "No encontré esa tarea.")
-    await plan.registrar_evidencia(
+    pg = await _cargar(db, cuerpo.programa)
+    accion = pg.accion(cuerpo.codigo)
+    if accion is None:
+        raise HTTPException(404, f"No hay una acción {cuerpo.codigo} en ese plan.")
+    await plan.registrar_soporte(
         db,
-        cuerpo.tarea_id,
+        pg.ids[accion.codigo],
         tipo="enlace",
-        valor=cuerpo.enlace.strip(),
+        valor=enlace,
         referencia=None,
         usuario_id=0,
         usuario_nombre=usuario.correo,
@@ -156,36 +202,24 @@ async def alertas(_: _Calidad, db: Db) -> dict[str, object]:
     """Vista previa: lo que recibiría cada programa. No envía nada."""
     await init_calidad(db)
     hoy = reloj.hoy()
-    tareas = await plan.listar_tareas(db)
-    return {
-        "envio_activo": calidad_settings.alertas_activas,
-        "programas": [
-            {
-                "programa": p,
-                "tareas": [
-                    _tarea(t, hoy)
-                    for t in tareas
-                    if t.programa == p
-                    and t.estado(hoy) in (Estado.VENCIDA, Estado.PROXIMA)
-                ],
-            }
-            for p in sorted({t.programa for t in tareas})
-        ],
-    }
+    salida = []
+    for pg in await plan.listar_planes(db):
+        acciones = [
+            _accion(pg, a, hoy)
+            for a in pg.plan.acciones
+            if plan.calcular_estado(a, hoy) in (Estado.VENCIDA, Estado.NO_FUNCIONO)
+            or plan.proxima_a_vencer(a, hoy)
+        ]
+        salida.append({"programa": pg.programa, "acciones": acciones})
+    return {"envio_activo": calidad_settings.alertas_activas, "programas": salida}
 
 
 @router.get("/reporte")
 async def descargar_reporte(programa: str, _: _Calidad, db: Db) -> Response:
-    await init_calidad(db)
-    encontrado = await plan.buscar_programa(db, programa)
-    if encontrado is None:
-        raise HTTPException(404, f"No encontré el programa «{programa}».")
+    pg = await _cargar(db, programa)
     hoy = reloj.hoy()
-    contenido = reporte.generar_reporte(
-        encontrado, await plan.listar_tareas(db, encontrado), hoy
-    )
     return Response(
-        contenido,
+        reporte.generar_reporte(pg, hoy),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f'attachment; filename="reporte-plan-{hoy.isoformat()}.xlsx"'
@@ -216,16 +250,24 @@ async def tablero(_: _Lectura, db: Db) -> dict[str, object]:
     """Cifras agregadas para la Decana: solo conteos, sin nombres."""
     await init_calidad(db)
     hoy = reloj.hoy()
-    tareas = await plan.listar_tareas(db)
+    planes = [_resumen(pg, hoy) for pg in await plan.listar_planes(db)]
+    total = {e.value: 0 for e in Estado}
+    for p in planes:
+        for k, v in p["conteo"].items():  # type: ignore[attr-defined]
+            total[k] += v
     return {
         "servicio": "calidad",
         "titulo": "Plan de mejoramiento",
-        "total": _conteo(tareas, hoy),
+        "total": total,
+        "reprogramadas": sum(int(p["reprogramadas"]) for p in planes),  # type: ignore[call-overload]
         "por_programa": [
             {
-                "nombre": p,
-                "conteo": _conteo([t for t in tareas if t.programa == p], hoy),
+                "nombre": p["programa"],
+                "conteo": p["conteo"],
+                "avance": p["avance"],
+                "acciones": p["acciones"],
+                "reprogramadas": p["reprogramadas"],
             }
-            for p in await plan.listar_programas(db)
+            for p in planes
         ],
     }

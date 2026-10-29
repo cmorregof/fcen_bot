@@ -17,7 +17,7 @@ from app.api.web.config import web_settings
 from app.core.config import settings
 from app.servicios import admision
 from app.servicios.admision.modelo import RespuestaPregunta
-from tests.calidad.conftest import fila, xlsx
+from tests.calidad.conftest import ALFA
 
 RAIZ = Path(__file__).resolve().parents[2]
 DIR = "fisica"  # cualquier clave válida de DIRECCIONES
@@ -371,10 +371,9 @@ async def test_admitido_con_consentimiento(
 async def test_calidad_importa_con_vista_previa(cliente: Cliente) -> None:
     c = cliente("calidad")
     cab = await _token("lili@unal.edu.co", "calidad")
-    contenido = xlsx([fila(), fila(codigo="UNO-02")])
-    archivo = {"archivo": ("plan.xlsx", contenido, "application/octet-stream")}
+    archivo = {"archivo": ("plan.xlsx", ALFA.read_bytes(), "application/octet-stream")}
     r = c.post("/api/web/calidad/importar", files=archivo, headers=cab)
-    assert r.json()["guardado"] is False and len(r.json()["nuevas"]) == 2
+    assert r.json()["guardado"] is False and r.json()["acciones"] == 7
     assert c.get("/api/web/calidad/programas", headers=cab).json()["programas"] == []
     r = c.post(
         "/api/web/calidad/importar",
@@ -383,20 +382,25 @@ async def test_calidad_importa_con_vista_previa(cliente: Cliente) -> None:
         headers=cab,
     )
     assert r.json()["guardado"] is True
-    plan = c.get("/api/web/calidad/plan?programa=uno", headers=cab).json()
-    assert len(plan["tareas"]) == 2
-    tarea = plan["tareas"][0]["id"]
-    r = c.post(
-        "/api/web/calidad/evidencia",
-        json={"tarea_id": tarea, "enlace": "ftp://x"},
-        headers=cab,
-    )
+    plan = c.get("/api/web/calidad/plan?programa=alfa", headers=cab).json()
+    assert plan["acciones"] == 7 and plan["conteo"]["vencida"] >= 1
+    assert plan["reprogramadas"] >= 1
+    codigo = plan["objetivos"][0]["acciones"][0]["codigo"]
+    pedido = {"programa": "alfa", "codigo": codigo, "enlace": "ftp://x"}
+    r = c.post("/api/web/calidad/evidencia", json=pedido, headers=cab)
     assert r.status_code == 400
+    pedido["enlace"] = "https://ejemplo.org/a"
+    r = c.post("/api/web/calidad/evidencia", json=pedido, headers=cab)
+    assert r.status_code == 200
     r = c.post(
         "/api/web/calidad/evidencia",
-        json={"tarea_id": tarea, "enlace": "https://ejemplo.org/a"},
+        json={**pedido, "codigo": "9.9.9"},
         headers=cab,
     )
-    assert r.status_code == 200
-    r = c.get("/api/web/calidad/reporte?programa=uno", headers=cab)
-    assert r.status_code == 200 and r.content[:2] == b"PK"
+    assert r.status_code == 404
+    plan = c.get("/api/web/calidad/plan?programa=alfa", headers=cab).json()
+    assert (
+        plan["objetivos"][0]["acciones"][0]["soportes"][0]["valor"] == pedido["enlace"]
+    )
+    tablero = c.get("/api/web/calidad/tablero", headers=cab).json()
+    assert tablero["por_programa"][0]["acciones"] == 7

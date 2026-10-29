@@ -98,20 +98,27 @@ async def _actas(db: object) -> None:
 async def _calidad(db: object) -> None:
     import aiosqlite
 
-    from app.servicios.calidad import operaciones
+    from app.servicios.calidad import plan, plantilla, reloj
     from app.servicios.calidad.db import init_calidad
 
     assert isinstance(db, aiosqlite.Connection)
     await init_calidad(db)
-    contenido = (
-        RAIZ / "docs" / "calidad" / "plantilla_plan_mejoramiento.xlsx"
-    ).read_bytes()
-    vista = await operaciones.previsualizar(db, contenido)
-    if vista.errores:
-        raise SystemExit("\n".join(vista.errores))
-    await operaciones.guardar_plan(
-        db, vista.filas, archivo="plantilla ficticia", usuario_id=0
-    )
+    for nombre in (
+        "plantilla_plan_mejoramiento.xlsx",
+        "plantilla_plan_mejoramiento_beta.xlsx",
+    ):
+        lectura = plantilla.leer_plantilla(
+            (RAIZ / "docs" / "calidad" / nombre).read_bytes()
+        )
+        if lectura.errores or lectura.plan is None:
+            raise SystemExit("\n".join(lectura.errores))
+        await plan.aplicar_importacion(
+            db,
+            lectura.plan,
+            archivo=nombre,
+            usuario_id=0,
+            creado=reloj.ahora().isoformat(),
+        )
 
 
 async def _admision(db: object) -> None:
