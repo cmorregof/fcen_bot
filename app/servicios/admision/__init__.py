@@ -16,9 +16,9 @@ import aiosqlite
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.telegram import CallbackQuery, Message, Update
-from app.servicios.admision import almacen, archivo, chequeo, filtro, fuentes
+from app.servicios.admision import almacen, chequeo, filtro, flujo
 from app.servicios.admision.config import config
-from app.servicios.admision.modelo import ClaudeModelo, Modelo, RevisionDocumento
+from app.servicios.admision.modelo import ClaudeModelo, Modelo
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,8 @@ def usar_modelo(modelo: Modelo | None) -> None:
     _MODELO = modelo
 
 
-def _modelo() -> Modelo:
+def modelo() -> Modelo:
+    """El modelo en uso; lo comparten Telegram y la web."""
     global _MODELO
     if _MODELO is None:
         _MODELO = ClaudeModelo()
@@ -202,8 +203,7 @@ async def _puede_revisar(db: aiosqlite.Connection, chat_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
-async def _avisar_credenciales(db: aiosqlite.Connection, chat_id: int) -> None:
-    await almacen.contar(db, "credenciales_bloqueadas")
+async def _avisar_credenciales(chat_id: int) -> None:
     await _decir(
         chat_id,
         "⚠️ Escribiste un correo o una contraseña. <b>No los compartas</b>: no "
@@ -212,34 +212,27 @@ async def _avisar_credenciales(db: aiosqlite.Connection, chat_id: int) -> None:
 
 
 async def _pregunta(db: aiosqlite.Connection, chat_id: int, texto: str) -> None:
-    filtrado = filtro.filtrar(texto)
-    if filtrado.credenciales:
-        await _avisar_credenciales(db, chat_id)
-        if not filtro.tiene_contenido(filtrado.texto):
+    if filtro.filtrar(texto).credenciales:
+        await _avisar_credenciales(chat_id)
+        if not filtro.tiene_contenido(filtro.filtrar(texto).texto):
+            await almacen.contar(db, "credenciales_bloqueadas")
             return
     if not await _puede_preguntar(db, chat_id):
         return
-    await almacen.contar(db, "preguntas")
-    try:
-        contexto = await fuentes.cargar()
-    except (OSError, RuntimeError):
-        logger.exception("No se pudieron leer las fuentes")
+    resp = await flujo.responder(db, modelo(), texto)
+    if resp.estado == "sin_fuentes":
         await _decir(chat_id, "No puedo consultar el listado ahora. Intenta más tarde.")
-        return
-    resp = await _modelo().responder(contexto, filtrado.texto)
-    if resp is None:
+    elif resp.estado == "error":
         await _decir(chat_id, "No pude responder ahora. Intenta de nuevo en un rato.")
-        return
-    if not resp.cubierta or not resp.citas:
-        await almacen.contar(db, "preguntas_sin_respuesta")
+    elif resp.estado == "sin_respuesta":
         await _decir(
             chat_id,
             "Eso no aparece en el listado ni en la guía, así que no te lo puedo "
             f"confirmar. Consúltalo con {html.escape(config.contacto)}.",
         )
-        return
-    citas = "; ".join(html.escape(c) for c in resp.citas)
-    await _decir(chat_id, f"{html.escape(resp.respuesta)}\n\n<b>Fuente:</b> {citas}")
+    elif resp.estado == "ok":
+        citas = "; ".join(html.escape(c) for c in resp.citas)
+        await _decir(chat_id, f"{html.escape(resp.texto)}\n\n<b>Fuente:</b> {citas}")
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +254,8 @@ async def _archivo(db: aiosqlite.Connection, msg: Message) -> None:
     chat_id = msg.chat.id
     leyenda = filtro.filtrar(msg.caption or "")
     if leyenda.credenciales:
-        await _avisar_credenciales(db, chat_id)
+        await almacen.contar(db, "credenciales_bloqueadas")
+        await _avisar_credenciales(chat_id)
     if not await _puede_revisar(db, chat_id):
         return
     if msg.document is not None:
@@ -306,8 +300,7 @@ async def _revisar_pendiente(
 async def _revisar(
     db: aiosqlite.Connection, chat_id: int, file_id: str, clave: str
 ) -> None:
-    doc = chequeo.cargar().buscar(clave)
-    if doc is None:
+    if chequeo.cargar().buscar(clave) is None:
         await _decir(chat_id, "No conozco ese tipo de documento.")
         return
     try:
@@ -316,64 +309,39 @@ async def _revisar(
         logger.warning("No se pudo descargar el archivo")
         await _decir(chat_id, "No pude descargar el archivo. Envíalo de nuevo.")
         return
-    revisado = archivo.revisar(datos)
+    resultado = await flujo.revisar(db, modelo(), datos, clave)
     del datos  # los bytes viven solo en memoria durante esta revisión
-    if revisado.problemas:
-        await almacen.contar(db, "documentos_revisados")
-        for p in revisado.problemas:
-            await almacen.contar(db, f"error_{p.tipo}")
-        lineas = "\n".join(f"• {html.escape(p.mensaje)}" for p in revisado.problemas)
+    if resultado.estado == "problemas":
+        lineas = "\n".join(f"• {html.escape(p)}" for p in resultado.problemas)
         await _decir(
             chat_id, f"No pude revisar el archivo:\n{lineas}\nCorrígelo y reenvíalo."
         )
-        return
-    try:
-        contexto = await fuentes.cargar()
-    except (OSError, RuntimeError):
-        logger.exception("No se pudieron leer las fuentes")
+    elif resultado.estado == "sin_fuentes":
         await _decir(chat_id, "No puedo revisar documentos ahora. Intenta más tarde.")
-        return
-    resultado = await _modelo().revisar(contexto, doc, revisado)
-    revisado.datos = b""
-    await almacen.contar(db, "documentos_revisados")
-    if resultado is None:
+    elif resultado.estado == "error":
         await _decir(chat_id, "No pude revisar el documento ahora. Intenta de nuevo.")
-        return
-    await _registrar_errores(db, resultado)
-    await _decir(chat_id, _informe(doc.nombre, resultado))
+    elif resultado.estado == "ok":
+        await _decir(chat_id, _informe(resultado))
 
 
-async def _registrar_errores(
-    db: aiosqlite.Connection, resultado: RevisionDocumento
-) -> None:
-    corregir = [i for i in resultado.items if i.estado != "ok"]
-    if corregir:
-        await almacen.contar(db, "documentos_con_errores")
-    for item in corregir:
-        await almacen.contar(db, f"error_{item.tipo_error or 'otro'}")
-
-
-def _informe(nombre: str, resultado: RevisionDocumento) -> str:
-    bien = [i for i in resultado.items if i.estado == "ok"]
-    mal = [i for i in resultado.items if i.estado != "ok"]
-    partes = [f"<b>{html.escape(nombre)}</b>"]
-    if bien:
+def _informe(resultado: flujo.Revision) -> str:
+    partes = [f"<b>{html.escape(resultado.nombre)}</b>"]
+    if resultado.bien:
         partes.append(
-            "✅ Bien:\n" + "\n".join(f"• {html.escape(i.punto)}" for i in bien)
+            "✅ Bien:\n"
+            + "\n".join(f"• {html.escape(i.punto)}" for i in resultado.bien)
         )
-    if mal:
+    if resultado.corregir:
         partes.append(
             "✏️ Por corregir:\n"
             + "\n".join(
-                f"• {html.escape(i.punto)}: {html.escape(i.detalle)}" for i in mal
+                f"• {html.escape(i.punto)}: {html.escape(i.detalle)}"
+                for i in resultado.corregir
             )
         )
     else:
         partes.append("No veo nada por corregir en estos puntos.")
-    partes.append(
-        "Esto es una revisión visual: no puedo decir si el documento es "
-        "auténtico ni válido. La revisión oficial es la de la Universidad."
-    )
+    partes.append(flujo.AVISO_REVISION)
     return "\n\n".join(partes)
 
 
@@ -395,4 +363,4 @@ async def _metricas(db: aiosqlite.Connection, msg: Message) -> None:
     await _decir(msg.chat.id, f"<b>Métricas (acumuladas)</b>\n{lineas}")
 
 
-__all__ = ["PROPOSITO", "manejar_update", "usar_modelo"]
+__all__ = ["PROPOSITO", "manejar_update", "modelo", "usar_modelo"]

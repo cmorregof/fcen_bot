@@ -1,0 +1,137 @@
+/* Letra grande, alto contraste y botones amplios: pensado para leer sin esfuerzo. */
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-Regular.ttf") format("truetype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-Light.ttf") format("truetype"); font-weight: 300; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Ancizar Serif"; src: url("/fuentes/AncizarSerif-ExtraBold.ttf") format("truetype"); font-weight: 800; font-display: swap; }
+
+/* Paleta de la Facultad (la misma de la propuesta de MemorIA). */
+:root {
+  --marino: #1c3a5e;
+  --indigo: #1b1464;
+  --magenta: #c14e9e;
+  --lima: #8dc63f;
+  --texto: #1b1464;
+  --suave: #5b6573;
+  --fondo: #ffffff;
+  --panel: #f3f5f9;
+  --borde: #c9d1dd;
+  --accion: #1c3a5e;
+  --accion-hover: #1b1464;
+  --error: #9b1c1c;
+  --error-fondo: #fdecec;
+  --exito: #3f6b12;
+  --exito-fondo: #eef6e4;
+  --aviso: #7a4b00;
+  --aviso-fondo: #fff4dc;
+  --foco: #c14e9e;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 125%; } /* 20 px */
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: "Ancizar Serif", Georgia, "Times New Roman", serif;
+  line-height: 1.6;
+}
+
+main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+
+h1 { font-size: 1.7rem; line-height: 1.25; margin: 0.5rem 0 1rem; color: var(--marino); font-weight: 800; }
+h1::after { content: ""; display: block; width: 4rem; height: 3px; background: var(--lima); margin-top: 0.4rem; }
+h2 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; color: var(--marino); font-weight: 700; }
+h3 { font-size: 1.05rem; margin: 1rem 0 0.25rem; }
+p, li { max-width: 46rem; }
+a { color: var(--accion); }
+small { color: var(--suave); }
+
+:focus-visible { outline: 4px solid var(--foco); outline-offset: 2px; }
+
+.cabecera {
+  display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1rem; border-bottom: 3px solid var(--lima); background: #fff;
+}
+.marca { font-size: 1.4rem; font-weight: 800; color: var(--marino); text-decoration: none; }
+.marca em, .ia { font-style: normal; color: var(--magenta); }
+.marca span { font-weight: 400; color: var(--suave); }
+.usuario { display: flex; gap: 1rem; align-items: center; }
+.usuario span { display: flex; flex-direction: column; line-height: 1.3; }
+
+.boton, button, input[type="submit"] {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 3rem; padding: 0.5rem 1.25rem; border-radius: 0.4rem;
+  border: 2px solid var(--accion); background: var(--accion); color: #fff;
+  font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.boton:hover, button:hover { background: var(--accion-hover); }
+.boton.secundario, button.secundario { background: #fff; color: var(--accion); }
+.boton.secundario:hover, button.secundario:hover { background: var(--panel); }
+button.peligro { background: var(--error); border-color: var(--error); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+.botones { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1rem 0; }
+
+label { display: block; font-weight: 600; margin: 1rem 0 0.35rem; }
+.ayuda { display: block; font-weight: 400; color: var(--suave); font-size: 0.9rem; }
+input[type="text"], input[type="email"], input[type="url"], textarea, select {
+  width: 100%; max-width: 46rem; font: inherit; padding: 0.6rem 0.75rem;
+  border: 2px solid var(--borde); border-radius: 0.4rem; background: #fff; color: var(--texto);
+}
+textarea { min-height: 8rem; }
+input[type="file"] { font: inherit; }
+fieldset { border: 2px solid var(--borde); border-radius: 0.4rem; padding: 0.75rem 1rem; margin: 1rem 0; }
+legend { font-weight: 600; padding: 0 0.25rem; }
+.opcion { display: flex; gap: 0.6rem; align-items: center; font-weight: 400; margin: 0.4rem 0; }
+.opcion input { width: 1.4rem; height: 1.4rem; }
+
+.alcance {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem;
+  background: var(--panel); border-left: 4px solid var(--magenta); border-radius: 0.4rem; padding: 0.5rem 1rem; margin-bottom: 1.5rem;
+}
+.alcance h2 { font-size: 1rem; margin: 0.5rem 0 0; }
+.alcance ul { margin: 0.25rem 0 0.5rem; padding-left: 1.2rem; }
+
+.mensaje { padding: 0.75rem 1rem; border-radius: 0.4rem; border-left: 6px solid; }
+.mensaje.error { background: var(--error-fondo); border-color: var(--error); color: var(--error); }
+.mensaje.exito { background: var(--exito-fondo); border-color: var(--exito); color: var(--exito); }
+.mensaje.info { background: var(--aviso-fondo); border-color: var(--aviso); color: var(--aviso); }
+
+.tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+.tarjeta {
+  display: block; border: 2px solid var(--borde); border-radius: 0.5rem; padding: 1rem;
+  color: var(--texto); text-decoration: none; background: #fff;
+}
+a.tarjeta:hover { border-color: var(--accion); background: var(--panel); }
+.tarjeta strong { display: block; font-size: 1.1rem; color: var(--marino); }
+a.tarjeta { border-top: 4px solid var(--magenta); }
+
+table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+th, td { text-align: left; padding: 0.6rem; border-bottom: 1px solid var(--borde); vertical-align: top; }
+th { background: var(--marino); color: #fff; }
+tbody tr:nth-child(even) td { background: var(--panel); }
+.tabla { overflow-x: auto; }
+
+.cifra { font-size: 2rem; font-weight: 700; display: block; line-height: 1.1; }
+.estado { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 0.3rem; font-weight: 600; font-size: 0.9rem; border: 2px solid; }
+.estado.vencida { color: var(--error); background: var(--error-fondo); }
+.estado.proxima { color: var(--aviso); background: var(--aviso-fondo); }
+.estado.cumplida { color: var(--exito); background: var(--exito-fondo); }
+.estado.pendiente { color: var(--suave); background: var(--panel); }
+
+.aviso-datos { white-space: pre-wrap; background: var(--panel); padding: 1rem; border-radius: 0.4rem; }
+
+.portada { margin: -1.5rem calc(50% - 50vw) 1.5rem; background: var(--panel); padding-bottom: 1.5rem; }
+.portada img { display: block; width: 100%; height: auto; max-height: 22rem; object-fit: cover; }
+.portada-texto { max-width: 60rem; margin: 0 auto; padding: 0 1rem; }
+.portada .institucion { font-size: 0.8rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--suave); margin: 1rem 0 0; }
+.portada h1 { font-size: 2.8rem; margin: 0.25rem 0 0; }
+.portada .lema { font-size: 1.25rem; font-weight: 300; color: var(--indigo); margin: 0.25rem 0 0.75rem; }
+.portada .frase { font-size: 1.05rem; }
+.estado.nofunciono { color: #fff; background: var(--error); border-color: var(--error); }
+.estado.reprogramada { color: var(--indigo); background: #efeaf7; }
+.barra { display: inline-block; width: 6rem; height: 0.7rem; background: var(--panel); border: 1px solid var(--borde); border-radius: 1rem; vertical-align: middle; margin-right: 0.4rem; overflow: hidden; }
+.barra > span { display: block; height: 100%; background: var(--lima); }

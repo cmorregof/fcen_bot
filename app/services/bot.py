@@ -23,7 +23,7 @@ from app.db import repo
 from app.integrations import telegram
 from app.schemas.caso import Caso, EstadoCaso, Sentido
 from app.schemas.telegram import CallbackQuery, Document, Message, Update
-from app.services import borrador, extraccion, ficha, formatos, reglas
+from app.services import borrador, casos, ficha, formatos
 
 logger = logging.getLogger(__name__)
 
@@ -161,10 +161,7 @@ async def _guardar_concepto(
             return
         miembro = nombre
     else:
-        programa = PROGRAMAS.get(caso.programa or "")
-        for m_ in programa.miembros if programa else ():
-            if m_.nombre == miembro:
-                tratamiento = m_.tratamiento
+        tratamiento = casos.tratamiento_de(caso, miembro)
     if _normalizar(texto) == "borrar":
         borrado = await repo.borrar_concepto(db, caso.id, miembro)
         await telegram.send_message(
@@ -504,33 +501,19 @@ async def _procesar(
     if not caso.texto.strip() and not caso.imagenes:
         await telegram.send_message(chat_id, f"El caso #{caso.id} está vacío.")
         return
-    await repo.set_estado_caso(db, caso.id, EstadoCaso.PROCESANDO)
     await telegram.send_message(chat_id, f"Leyendo el caso #{caso.id}…")
-    try:
-        salida = await extraccion.extraer_caso(db, caso)
-    except Exception as exc:
-        logger.exception("Falló la extracción del caso %s", caso.id)
-        salida = extraccion.SalidaExtraccion(None, None, f"error inesperado ({exc})")
-    if salida.extraccion is None:
-        await repo.set_estado_caso(db, caso.id, EstadoCaso.ABIERTO, error=salida.error)
+    resultado = await casos.procesar(db, caso)
+    if resultado.error is not None:
         await telegram.send_message(
             chat_id,
-            f"No pude procesar el caso #{caso.id}: {escape(salida.error or '')}\n"
+            f"No pude procesar el caso #{caso.id}: {escape(resultado.error)}\n"
             "El caso sigue abierto; puedes agregar algo y volver a intentar con /listo.",
         )
         return
-    await repo.guardar_extraccion(
-        db,
-        caso.id,
-        salida.extraccion,
-        salida.programa.clave if salida.programa else None,
-    )
     estado = await repo.get_estado(db, chat_id)
     if estado.caso_abierto_id == caso.id:
         await repo.set_estado(db, chat_id, caso_abierto_id=None)
-    actualizado = await repo.get_caso(db, caso.id)
-    assert actualizado is not None
-    await _enviar_ficha(chat_id, actualizado)
+    await _enviar_ficha(chat_id, resultado.caso)
 
 
 async def _corregir(
@@ -550,17 +533,13 @@ async def _corregir(
         )
         return
     await telegram.send_message(chat_id, f"Corrigiendo el caso #{caso.id}…")
-    salida = await extraccion.corregir_caso(db, caso, texto)
-    if salida.extraccion is None:
+    resultado = await casos.corregir(db, caso, texto)
+    if resultado.error is not None:
         await telegram.send_message(
-            chat_id, f"No pude aplicar la corrección: {escape(salida.error or '')}"
+            chat_id, f"No pude aplicar la corrección: {escape(resultado.error)}"
         )
         return
-    programa = salida.programa.clave if salida.programa else caso.programa
-    await repo.actualizar_extraccion(db, caso.id, salida.extraccion, programa)
-    actualizado = await repo.get_caso(db, caso.id)
-    assert actualizado is not None
-    await _enviar_ficha(chat_id, actualizado)
+    await _enviar_ficha(chat_id, resultado.caso)
 
 
 async def _enviar_ficha(chat_id: int, caso: Caso) -> None:
@@ -570,12 +549,8 @@ async def _enviar_ficha(chat_id: int, caso: Caso) -> None:
         )
         return
     programa = PROGRAMAS.get(caso.programa or "")
-    analisis = reglas.analizar(
-        caso.extraccion,
-        programa,
-        periodo_inicio=settings.periodo_inicio,
-        hay_imagenes=bool(caso.imagenes),
-    )
+    analisis = casos.analizar(caso)
+    assert analisis is not None
     await telegram.send_message(
         chat_id, ficha.ficha(caso, analisis), botones=ficha.botones_ficha(caso.id)
     )

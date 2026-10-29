@@ -5,8 +5,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.api.web import crear_router
+from app.api.web.config import web_settings
 from app.core.config import settings
 from app.db import repo
 from app.db.session import connect
@@ -29,3 +32,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="fcen_bot", lifespan=lifespan)
 app.include_router(router)
+app.include_router(crear_router(settings.bot_servicio))
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=web_settings.lista_origins,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)

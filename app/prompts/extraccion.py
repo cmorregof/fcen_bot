@@ -68,6 +68,14 @@ principal sea otro (p. ej., `excepcion_norma`).
 12. `dudas` es solo para lo que se ve pero es ilegible o contradictorio y afecta \
 el acta (máximo 3). No anotes datos que simplemente no aparecen (documento, \
 correo, tipología): el sistema ya revisa lo que falta.
+13. Si la solicitud trae un cuadro comparativo de asignaturas (formato de \
+homologación, convalidación o equivalencia, o el cuadro de un traslado o de \
+una doble titulación), regístralo en `equivalencias`: un cuadro por cada uno \
+que venga diligenciado, con cada fila tal como la escribió el estudiante \
+(asignatura cursada a la izquierda, asignatura que se reconoce a la derecha). \
+Copia la nota como aparece. No emparejes asignaturas que el estudiante no \
+emparejó ni completes celdas vacías. Estas asignaturas NO van en \
+`asignaturas`.
 
 Tipos de solicitud (puede haber varios; el principal primero):
 {_TIPOS}

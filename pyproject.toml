@@ -17,6 +17,8 @@ dependencies = [
     "pypdf>=6.21.4",
     "openpyxl>=3.1.5",
     "pyyaml>=6.0.3",
+    "google-auth[requests]>=2.30",
+    "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]
