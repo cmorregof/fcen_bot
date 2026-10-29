@@ -333,3 +333,41 @@ def test_fuentes_marcan_el_origen_para_citar() -> None:
 def test_fuentes_sin_carpeta_falla_claro(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         fuentes.leer_fuentes(tmp_path / "no-existe")
+
+
+@pytest.mark.parametrize(
+    ("texto", "secreto"),
+    [
+        ("la contraseña de mi cuenta es perro2026", "perro2026"),
+        ("mi contraseña es la 12345", "12345"),
+        ("mi usuario es jperez y la clave Abc!2026", "jperez"),
+        ("mi usuario es jperez y la clave Abc!2026", "Abc!2026"),
+        ("password: hunter2 hunter3", "hunter3"),
+        ("mi clave Zeta9981 otra cosa", "Zeta9981"),
+        ("usuario jperez\ncontraseña perro 2026", "perro"),
+    ],
+)
+def test_filtro_omite_todo_lo_que_sigue_a_la_palabra_clave(
+    texto: str, secreto: str
+) -> None:
+    f = filtro.filtrar(texto)
+    assert f.credenciales
+    assert secreto not in f.texto
+
+
+def test_filtro_conserva_la_pregunta_posterior_y_no_marca_menciones() -> None:
+    f = filtro.filtrar("mi clave es Abc12345, ¿qué documentos debo subir?")
+    assert f.credenciales and "Abc12345" not in f.texto
+    assert "¿qué documentos debo subir?" in f.texto
+    assert not filtro.filtrar("¿Cuál es la contraseña de la plataforma?").credenciales
+    assert not filtro.filtrar("olvidé mi contraseña").credenciales
+
+
+async def test_mensaje_solo_con_credenciales_no_llega_al_modelo(
+    bot: Chatbot, tg: TelegramFalso, modelo: ModeloFalso
+) -> None:
+    await bot.registrar_adulto()
+    await bot.texto("la contraseña de mi cuenta es perro2026")
+    assert modelo.preguntas == []
+    assert "No los compartas" in tg.textos()[-1]
+    assert "perro2026" not in await volcado(bot.db)

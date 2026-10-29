@@ -10,11 +10,24 @@ import re
 from dataclasses import dataclass
 
 _CORREO = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-_CLAVE = re.compile(
-    r"(?i)\b(contrase[nñ]a|clave|password|passwd|pwd|pass)\b"
-    r"(\s*(?:es|era|:|=|-)?\s*)(\S+)"
+_PALABRA = re.compile(
+    r"(?i)\b(contrase[nñ]a|clave|password|passwd|pwd|pass|usuario|user|login)\b"
 )
-_RELLENO = {"de", "del", "la", "el", "mi", "para", "en", "que", "no", "es", "es:"}
+_CONECTOR = re.compile(r"(?i)(?:\b(?:es|era|son|ser[ií]a)\b|[:=])")
+_OMITIDO = "[omitido]"
+
+
+def _parece_secreto(resto: str) -> bool:
+    """¿Lo que sigue a la palabra clave trae un valor? Ante la duda, sí."""
+    if _CONECTOR.search(resto):
+        return True
+    return any(re.search(r"[\d\W_]", t.strip("?,.;")) for t in resto.split())
+
+
+def _fin_del_tramo(texto: str, desde: int) -> int:
+    """Hasta el fin de la línea o hasta una nueva pregunta (¿)."""
+    cortes = [c for c in (texto.find("\n", desde), texto.find("¿", desde)) if c != -1]
+    return min(cortes) if cortes else len(texto)
 
 
 @dataclass(frozen=True)
@@ -23,24 +36,31 @@ class Filtrado:
     credenciales: bool
 
 
-def _reemplazar_clave(m: re.Match[str]) -> str:
-    if m.group(3).lower().strip(".,;:") in _RELLENO and not m.group(2).strip():
-        # «la contraseña de la plataforma»: se menciona, no se entrega
-        return m.group(0)
-    return f"{m.group(1)}{m.group(2)}[omitida]"
-
-
 def filtrar(texto: str) -> Filtrado:
-    sin_correo, n_correos = _CORREO.subn("[correo omitido]", texto)
-    sin_clave = _CLAVE.sub(_reemplazar_clave, sin_correo)
-    return Filtrado(sin_clave, n_correos > 0 or sin_clave != sin_correo)
+    """Omite correos y todo lo que siga a «contraseña», «clave» o «usuario»."""
+    texto, n_correos = _CORREO.subn("[correo omitido]", texto)
+    salida: list[str] = []
+    pos = 0
+    omitio = False
+    while (m := _PALABRA.search(texto, pos)) is not None:
+        fin = _fin_del_tramo(texto, m.end())
+        resto = texto[m.end() : fin]
+        if _parece_secreto(resto):
+            salida.append(texto[pos : m.end()] + " " + _OMITIDO + " ")
+            pos = fin
+            omitio = True
+        else:
+            salida.append(texto[pos : m.end()])
+            pos = m.end()
+    salida.append(texto[pos:])
+    return Filtrado("".join(salida).strip(), n_correos > 0 or omitio)
 
 
 def tiene_contenido(texto: str) -> bool:
     """True si, tras filtrar, queda algo que valga la pena preguntar al modelo."""
-    limpio = re.sub(r"\[(?:correo omitido|omitida)\]", " ", texto)
+    limpio = re.sub(r"\[(?:correo omitido|omitido)\]", " ", texto)
     limpio = re.sub(
-        r"(?i)\b(contrase[nñ]a|clave|password|passwd|pwd|pass|es|mi|correo|usuario)\b",
+        r"(?i)\b(contrase[nñ]a|clave|password|passwd|pwd|pass|es|mi|la|correo|usuario|user|login)\b",
         " ",
         limpio,
     )
