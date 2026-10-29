@@ -464,3 +464,18 @@ async def test_calidad_importa_con_vista_previa(cliente: Cliente) -> None:
     )
     tablero = c.get("/api/web/calidad/tablero", headers=cab).json()
     assert tablero["por_programa"][0]["acciones"] == 7
+
+
+def test_token_de_google_invalido_responde_401_no_500(
+    cliente: Cliente, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ejecuta el transporte real de google-auth (antes faltaba `requests`)."""
+    from google.oauth2 import id_token
+
+    def _invalido(*a: Any, **kw: Any) -> dict[str, Any]:
+        raise ValueError("token inválido")
+
+    monkeypatch.setattr(web_settings, "google_client_id", "cliente.apps.example")
+    monkeypatch.setattr(id_token, "verify_oauth2_token", _invalido)
+    r = cliente("calidad").post("/api/web/sesion", json={"credencial": "falso"})
+    assert r.status_code == 401
