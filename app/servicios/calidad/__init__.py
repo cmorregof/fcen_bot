@@ -11,7 +11,15 @@ import aiosqlite
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.telegram import Message, Update
-from app.servicios.calidad import alertas, directorio, plan, reloj, reporte, textos
+from app.servicios.calidad import (
+    alertas,
+    directorio,
+    operaciones,
+    plan,
+    reloj,
+    reporte,
+    textos,
+)
 from app.servicios.calidad.config import calidad_settings
 from app.servicios.calidad.db import init_calidad
 
@@ -112,22 +120,22 @@ async def _importar(db: aiosqlite.Connection, msg: Message, uid: int) -> None:
     except Exception:
         await telegram.send_message(msg.chat.id, "No pude descargar el archivo.")
         return
-    lectura = plan.leer_plan(contenido)
-    if lectura.errores:
-        lista = "\n".join(f"• {escape(e)}" for e in lectura.errores[:15])
-        extra = len(lectura.errores) - 15
+    vista = await operaciones.previsualizar(db, contenido)
+    if vista.resumen is None:
+        lista = "\n".join(f"• {escape(e)}" for e in vista.errores[:15])
+        extra = len(vista.errores) - 15
         if extra > 0:
             lista += f"\n… y {extra} más"
         await telegram.send_message(
             msg.chat.id, f"No guardé nada. Corrige el archivo:\n{lista}"
         )
         return
-    resumen = await plan.resumir(db, lectura.filas)
+    resumen = vista.resumen
     await _esperar(
         db,
         msg.chat.id,
         "confirmar_plan",
-        json.dumps({"archivo": nombre, "filas": plan.filas_a_json(lectura.filas)}),
+        json.dumps({"archivo": nombre, "filas": plan.filas_a_json(vista.filas)}),
     )
     await telegram.send_message(
         msg.chat.id,
@@ -147,19 +155,10 @@ async def _confirmar_importacion(
         return "Importación cancelada. No se guardó nada."
     datos = json.loads(estado[1])
     filas = plan.filas_de_json(datos["filas"])
-    resumen = await plan.resumir(db, filas)
-    await plan.aplicar_importacion(
-        db,
-        filas,
-        archivo=datos["archivo"],
-        usuario_id=uid,
-        creado=reloj.ahora().isoformat(),
+    resumen = await operaciones.guardar_plan(
+        db, filas, archivo=datos["archivo"], usuario_id=uid
     )
-    return (
-        f"Plan guardado: {len(resumen.nuevas)} nuevas, "
-        f"{len(resumen.actualizadas)} actualizadas, {resumen.sin_cambios} sin cambios. "
-        "El historial conserva lo que cambió."
-    )
+    return operaciones.mensaje_guardado(resumen)
 
 
 async def _cmd_plan(db: aiosqlite.Connection, chat_id: int, arg: str) -> None:
@@ -232,7 +231,7 @@ async def _guardar_evidencia(
     if msg.document is not None:
         tipo, valor = "archivo", msg.document.file_name or "archivo sin nombre"
         referencia: str | None = msg.document.file_id
-    elif enlace.lower().startswith(("http://", "https://")):
+    elif operaciones.es_enlace(enlace):
         tipo, valor, referencia = "enlace", enlace, None
     else:
         await telegram.send_message(
