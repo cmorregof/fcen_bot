@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 
@@ -8,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 from app.core.config import settings
 from app.db.session import connect
 from app.schemas.telegram import Update
-from app.services import borrador
+from app.services import borrador, resumen
 from app.servicios import despachar_update
 from app.servicios.calidad import alertas as alertas_calidad
 from app.servicios.calidad import reloj as reloj_calidad
@@ -81,6 +82,50 @@ async def alerta_quincenal(
     finally:
         await db.close()
     return {"ok": True, **resultado}
+
+
+@router.post("/internal/resumen-semanal")
+async def resumen_semanal(
+    x_cron_secret: str | None = Header(None),
+) -> dict[str, object]:
+    if (
+        not settings.internal_cron_secret
+        or x_cron_secret != settings.internal_cron_secret
+    ):
+        raise HTTPException(status_code=403, detail="secreto inválido")
+    if settings.bot_servicio != "actas":
+        raise HTTPException(status_code=404, detail="no aplica a este servicio")
+    db = await connect()
+    try:
+        resultado = await resumen.enviar_semanal(db)
+    finally:
+        await db.close()
+    return {"ok": True, **resultado}
+
+
+@router.get("/internal/cifras")
+async def cifras(
+    x_resumen_secret: str | None = Header(None),
+) -> dict[str, object]:
+    """Conteos agregados de calidad o admisión para el resumen de actas.
+
+    Lo mismo que muestra /tablero, sin nombres; actas nunca lee otra base.
+    """
+    if not settings.resumen_secret or not hmac.compare_digest(
+        (x_resumen_secret or "").encode(), settings.resumen_secret.encode()
+    ):
+        raise HTTPException(status_code=403, detail="secreto inválido")
+    db = await connect()
+    try:
+        if settings.bot_servicio == "calidad":
+            from app.api.web.calidad import cifras_tablero
+        elif settings.bot_servicio == "admision":
+            from app.api.web.admision import cifras_tablero
+        else:
+            raise HTTPException(status_code=404, detail="no aplica a este servicio")
+        return await cifras_tablero(db)
+    finally:
+        await db.close()
 
 
 @router.get("/health")
