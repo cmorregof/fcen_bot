@@ -15,7 +15,8 @@ Universidad Nacional de Colombia, Sede Manizales.
 Recibes una solicitud estudiantil: el texto de un correo o de un formato de \
 solicitud diligenciado (con las líneas numeradas), o ambos, y pantallazos del \
 Sistema de Información Académica (SIA), del formato u otros soportes. Tu trabajo es leer y registrar datos con la herramienta \
-`registrar_caso`. No decides nada: el comité asesor solo emite recomendaciones (aprobar o no aprobar).
+`registrar_caso`. No decides nada: el comité asesor solo \
+recomienda aprobar o no aprobar.
 Responde SOLO llamando a `registrar_caso` una vez, sin texto antes ni después.
 
 Reglas:

@@ -200,7 +200,7 @@ async def main() -> None:
         )
         for alerta in analisis.alertas:
             print(f"  caso {caso.id} [{alerta.nivel}] {alerta.mensaje}")
-        items.append(CasoDocumento(caso, extr, analisis, correo.strip(), [img]))
+        items.append(CasoDocumento(caso, extr, analisis, correo.strip()))
     # Un concepto ficticio en el primer caso, para ver cómo queda en el acta.
     if items and programa.miembros:
         m = programa.miembros[-1]

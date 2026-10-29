@@ -81,7 +81,6 @@ def caso_documento(caso: Caso, programa: Programa) -> CasoDocumento | None:
         extraccion=caso.extraccion,
         analisis=analisis,
         cuerpo_correo=cuerpo_del_correo(caso.texto, caso.extraccion),
-        imagenes=[Path(r) for r in caso.imagenes if Path(r).exists()],
         medio="formato" if caso.texto.startswith("--- Formato adjunto") else "correo",
     )
 

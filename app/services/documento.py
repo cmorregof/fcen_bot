@@ -17,7 +17,7 @@ from __future__ import annotations
 import io
 import re
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -108,17 +108,6 @@ def limpiar(texto: str) -> str:
     return _NO_XML.sub(" ", texto)
 
 
-def imagen_reducida(ruta: Path, lado_max: int = 1600) -> io.BytesIO:
-    """Pantallazo recomprimido para que el .docx no supere el límite de Telegram."""
-    with PILImage.open(ruta) as original:
-        im = original.convert("RGB")
-    im.thumbnail((lado_max, lado_max))
-    buf = io.BytesIO()
-    im.save(buf, format="JPEG", quality=85)
-    buf.seek(0)
-    return buf
-
-
 def _num(valor: float) -> str:
     return f"{valor:.1f}".replace(".", ",")
 
@@ -129,7 +118,6 @@ class CasoDocumento:
     extraccion: ExtraccionCaso
     analisis: Analisis
     cuerpo_correo: str
-    imagenes: list[Path] = field(default_factory=list)
     # «correo» o «formato»: por dónde llegó la solicitud.
     medio: str = "correo"
 
@@ -220,13 +208,6 @@ def _reemplazar_marcadores(doc: DocumentoDocx, valores: dict[str, str]) -> None:
                 if t.text and "{{" in t.text:
                     for clave, valor in valores.items():
                         t.text = t.text.replace("{{" + clave + "}}", valor)
-
-
-def _ancho_imagen(ruta: Path) -> Cm:
-    """Tamaño del pantallazo como en pantalla (96 ppp), sin pasar de 15 cm."""
-    with PILImage.open(ruta) as im:
-        ancho_px = im.width
-    return Cm(min(15.0, max(5.0, ancho_px * 2.54 / 96)))
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +341,13 @@ def _bullets_analisis(item: CasoDocumento, periodo: str) -> list[str]:
     return vinetas
 
 
+def _lleva_zapc(e: ExtraccionCaso) -> bool:
+    """ZAPC solo se abre con asignaturas de posgrado (§5.4)."""
+    return "posgrado" in (e.modalidad_trabajo_grado or "").lower() and any(
+        a.accion == "apertura" for a in e.asignaturas
+    )
+
+
 def texto_recomendacion(
     programa: Programa, item: CasoDocumento
 ) -> tuple[str, str, str]:
@@ -376,10 +364,13 @@ def texto_recomendacion(
     )
     nombre = (e.nombre_estudiante or "").title()
     final = f" {destinatario} {nombre}" if nombre else ""
+    zapc = (
+        " y, en consecuencia, la apertura del componente ZAPC" if _lleva_zapc(e) else ""
+    )
     return (
         "El Comité Asesor recomienda al Consejo de Facultad ",
         sentido,
-        f" la solicitud de {objeto}{final}.",
+        f" la solicitud de {objeto}{final}{zapc}.",
     )
 
 
@@ -391,7 +382,8 @@ def _resaltar_celda_amarillo(celda: _Cell) -> None:
 
 def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
     """Cuadro por trámite: párrafo introductorio + tabla Código | Asignatura | Grupo | Tipología | Créditos."""
-    asignaturas = item.extraccion.asignaturas
+    # ZAPC no es una asignatura: va en la frase de la recomendación (§5.4).
+    asignaturas = [a for a in item.extraccion.asignaturas if a.accion != "apertura"]
     if not asignaturas:
         return
     # Agrupar por acción (trámite).
@@ -402,11 +394,10 @@ def _asignaturas(doc: DocumentoDocx, item: CasoDocumento) -> None:
     _INTRO = {
         "inscribir": "Inscribir las siguientes asignaturas:",
         "cancelar": "Cancelar las siguientes asignaturas:",
-        "apertura": "Apertura de los siguientes componentes:",
     }
 
     for accion, grupo_asigs in por_accion.items():
-        _p(doc, "FCEN Cuerpo", _INTRO.get(accion, f"{accion.capitalize()} las siguientes asignaturas:"))
+        _p(doc, "FCEN Cuerpo", _INTRO[accion])
         tabla = doc.add_table(rows=1, cols=5)
         try:
             tabla.style = doc.styles["Table Grid"]
@@ -642,7 +633,7 @@ def _guardar(doc: DocumentoDocx) -> bytes:
 
 
 def construir_oficio(datos: DatosOficio, periodo: str) -> bytes:
-    """Oficio al Consejo de Facultad: solo la decisión, sin conceptos."""
+    """Oficio al Consejo de Facultad: solo la recomendación, sin conceptos."""
     doc = _documento(datos)
     _encabezado_oficio(doc, datos)
     _casos(doc, datos, periodo, acta=False)

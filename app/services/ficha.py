@@ -49,7 +49,8 @@ def ficha(caso: Caso, analisis: Analisis) -> str:
     for asig in e.asignaturas:
         cred = f", {asig.creditos} cr." if asig.creditos is not None else ""
         cod = f"{asig.codigo} " if asig.codigo else ""
-        lineas.append(f"  · {asig.accion}: {escape(cod + asig.nombre)}{cred}")
+        grupo = f", grupo {escape(asig.grupo)}" if asig.grupo else ""
+        lineas.append(f"  · {asig.accion}: {escape(cod + asig.nombre)}{grupo}{cred}")
 
     datos: list[str] = []
     if analisis.creditos_inscritos is not None:
@@ -112,7 +113,10 @@ def botones_ficha(caso_id: int) -> list[list[dict[str, str]]]:
     return [
         [
             {"text": "✅ Recomendar aprobar", "callback_data": f"s:{caso_id}:aprobar"},
-            {"text": "❌ Recomendar no aprobar", "callback_data": f"s:{caso_id}:no_aprobar"},
+            {
+                "text": "❌ Recomendar no aprobar",
+                "callback_data": f"s:{caso_id}:no_aprobar",
+            },
             {"text": "⏳ Pendiente", "callback_data": f"s:{caso_id}:pendiente"},
         ],
         [

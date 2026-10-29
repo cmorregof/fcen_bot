@@ -221,6 +221,14 @@ def analizar(
     if not extraccion.tipos:
         a.agregar("aviso", "No identifiqué el tipo de solicitud.")
 
+    for asig in extraccion.asignaturas:
+        if asig.accion != "apertura" and not (asig.grupo or "").strip():
+            a.agregar(
+                "aviso",
+                f"Falta el grupo de {asig.nombre}: el cuadro del oficio lo exige. "
+                "Responde a la ficha con el grupo.",
+            )
+
     # Historia académica
     sia = extraccion.sia
     if sia is None or not sia.resumen_creditos:
