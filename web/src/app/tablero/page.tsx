@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { SERVICIOS, Servicio, llamar } from "@/lib/api";
+import { porcentaje } from "@/lib/calidad";
 import { useSesion } from "@/lib/sesion";
 
 type Tablero = {
   servicio: string;
   titulo: string;
   total: Record<string, number>;
-  por_programa: { nombre: string; conteo: Record<string, number> }[];
+  reprogramadas?: number;
+  por_programa: { nombre: string; conteo: Record<string, number>; avance?: number | null; reprogramadas?: number }[];
 };
 
 const ETIQUETAS: Record<string, string> = {
@@ -17,9 +19,10 @@ const ETIQUETAS: Record<string, string> = {
   en_curso: "En curso",
   recomendar_aprobar: "Recomendar aprobar",
   recomendar_no_aprobar: "Recomendar no aprobar",
-  vencida: "Tareas vencidas",
-  "próxima a vencer": "Próximas a vencer",
-  pendiente: "Pendientes",
+  "no funcionó": "Acciones «NO FUNCIONÓ»",
+  vencida: "Acciones vencidas",
+  "en curso": "En curso",
+  "por iniciar": "Por iniciar",
   cumplida: "Cumplidas",
   consentimientos: "Personas atendidas",
   preguntas: "Preguntas",
@@ -78,6 +81,11 @@ export default function PaginaTablero() {
                 {ETIQUETAS[k] ?? k}
               </div>
             ))}
+            {t.reprogramadas !== undefined ? (
+              <div className="tarjeta">
+                <span className="cifra">{t.reprogramadas}</span>Reprogramadas
+              </div>
+            ) : null}
           </div>
           {t.por_programa.length > 0 ? (
             <div className="tabla">
@@ -88,6 +96,12 @@ export default function PaginaTablero() {
                     {Object.keys(t.por_programa[0].conteo).map((k) => (
                       <th key={k}>{ETIQUETAS[k] ?? k}</th>
                     ))}
+                    {t.servicio === "calidad" ? (
+                      <>
+                        <th>Avance</th>
+                        <th>Reprogramadas</th>
+                      </>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -97,6 +111,12 @@ export default function PaginaTablero() {
                       {Object.values(p.conteo).map((v, i) => (
                         <td key={i}>{v}</td>
                       ))}
+                      {t.servicio === "calidad" ? (
+                        <>
+                          <td>{porcentaje(p.avance)}</td>
+                          <td>{p.reprogramadas ?? 0}</td>
+                        </>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>

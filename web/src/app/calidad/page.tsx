@@ -4,25 +4,46 @@ import { useCallback, useEffect, useState } from "react";
 import { Estado } from "@/components/Estado";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { guardarArchivo, llamar } from "@/lib/api";
+import { Accion, PlanCompleto, ResumenPlan, porcentaje } from "@/lib/calidad";
 import { useSesion } from "@/lib/sesion";
 
-type Conteo = Record<string, number>;
-type Tarea = {
-  id: number;
-  codigo: string;
-  tarea: string;
-  responsable: string;
-  fecha_limite: string;
-  evidencia_esperada: string;
-  estado: string;
-  evidencias: { tipo: string; valor: string; por: string | null; fecha: string }[];
-};
-type Plan = { programa: string; conteo: Conteo; tareas: Tarea[] };
+const ORDEN = ["no funcionó", "vencida", "en curso", "por iniciar", "cumplida"];
 
-function EvidenciaForm({ tarea, alGuardar }: { tarea: Tarea; alGuardar: () => void }) {
+function Avance({ valor }: { valor: number | null }) {
+  return (
+    <span>
+      <span className="barra" aria-hidden="true">
+        <span style={{ width: `${Math.min(100, valor ?? 0)}%` }} />
+      </span>
+      {porcentaje(valor)}
+    </span>
+  );
+}
+
+function Cifras({ r }: { r: ResumenPlan }) {
+  return (
+    <div className="tarjetas">
+      <div className="tarjeta">
+        <span className="cifra">{porcentaje(r.avance)}</span>Avance promedio de {r.acciones} acciones
+      </div>
+      {ORDEN.map((e) => (
+        <div key={e} className="tarjeta">
+          <span className="cifra">{r.conteo[e] ?? 0}</span>
+          <Estado valor={e} />
+        </div>
+      ))}
+      <div className="tarjeta">
+        <span className="cifra">{r.reprogramadas}</span>Reprogramadas
+      </div>
+    </div>
+  );
+}
+
+function SoporteForm({ programa, accion, alGuardar }: { programa: string; accion: Accion; alGuardar: () => void }) {
   const { token } = useSesion();
   const [enlace, setEnlace] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const id = `sop-${accion.codigo}`;
   return (
     <form
       onSubmit={async (e) => {
@@ -31,7 +52,7 @@ function EvidenciaForm({ tarea, alGuardar }: { tarea: Tarea; alGuardar: () => vo
         try {
           await llamar("calidad", "/calidad/evidencia", {
             token: token("calidad"),
-            json: { tarea_id: tarea.id, enlace },
+            json: { programa, codigo: accion.codigo, enlace },
           });
           setEnlace("");
           alGuardar();
@@ -40,13 +61,13 @@ function EvidenciaForm({ tarea, alGuardar }: { tarea: Tarea; alGuardar: () => vo
         }
       }}
     >
-      <label htmlFor={`ev-${tarea.id}`}>
-        Enlace de la evidencia de {tarea.codigo}
-        <span className="ayuda">Se espera: {tarea.evidencia_esperada}. Al guardar, la tarea queda cumplida.</span>
+      <label htmlFor={id}>
+        Enlace del soporte de la acción {accion.codigo}
+        <span className="ayuda">Queda pendiente de revisión. No cambia el % de avance, que solo viene del plan.</span>
       </label>
-      <input id={`ev-${tarea.id}`} type="url" value={enlace} onChange={(e) => setEnlace(e.target.value)} required />
+      <input id={id} type="url" value={enlace} onChange={(e) => setEnlace(e.target.value)} required />
       <div className="botones">
-        <button type="submit">Guardar evidencia</button>
+        <button type="submit">Guardar soporte</button>
       </div>
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
     </form>
@@ -55,15 +76,15 @@ function EvidenciaForm({ tarea, alGuardar }: { tarea: Tarea; alGuardar: () => vo
 
 export default function EstadoPlan() {
   const { token } = useSesion();
-  const [programas, setProgramas] = useState<{ programa: string; conteo: Conteo }[] | null>(null);
-  const [plan, setPlan] = useState<Plan | null>(null);
-  const [abierta, setAbierta] = useState<number | null>(null);
+  const [programas, setProgramas] = useState<ResumenPlan[] | null>(null);
+  const [plan, setPlan] = useState<PlanCompleto | null>(null);
+  const [abierta, setAbierta] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const t = token("calidad");
 
   useEffect(() => {
     if (!t) return;
-    llamar<{ programas: { programa: string; conteo: Conteo }[] }>("calidad", "/calidad/programas", { token: t })
+    llamar<{ programas: ResumenPlan[] }>("calidad", "/calidad/programas", { token: t })
       .then((d) => setProgramas(d.programas))
       .catch((e: Error) => setError(e.message));
   }, [t]);
@@ -72,7 +93,7 @@ export default function EstadoPlan() {
     async (programa: string) => {
       setError(null);
       try {
-        setPlan(await llamar<Plan>("calidad", `/calidad/plan?programa=${encodeURIComponent(programa)}`, { token: t }));
+        setPlan(await llamar<PlanCompleto>("calidad", `/calidad/plan?programa=${encodeURIComponent(programa)}`, { token: t }));
       } catch (e) {
         setError((e as Error).message);
       }
@@ -90,18 +111,21 @@ export default function EstadoPlan() {
     }
   };
 
+  const reprogramadas = plan?.objetivos.flatMap((o) => o.acciones).filter((a) => a.reprogramada) ?? [];
+
   return (
     <Pantalla
       titulo="Estado del plan de mejoramiento"
       servicio="calidad"
       roles={["calidad", "admin"]}
       hace={[
-        "Muestra las tareas de cada programa: vencidas, próximas a vencer, pendientes y cumplidas.",
-        "Permite registrar el enlace de una evidencia y descargar el reporte en Excel.",
+        "Muestra cada programa por objetivos y acciones, con su % de avance y su estado.",
+        "Señala las vencidas, las reprogramadas y las marcadas «NO FUNCIONÓ».",
+        "Permite registrar el enlace de un soporte y descargar el reporte en Excel.",
       ]}
       noHace={[
-        "No envía avisos a nadie.",
-        "No reemplaza el seguimiento oficial ni las decisiones de los comités.",
+        "No cambia el % de avance: ese dato solo viene del plan cargado.",
+        "No envía avisos a nadie ni reemplaza el seguimiento oficial.",
       ]}
     >
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
@@ -115,7 +139,10 @@ export default function EstadoPlan() {
               <button key={p.programa} type="button" className="tarjeta secundario" onClick={() => abrir(p.programa)}>
                 <span style={{ textAlign: "left" }}>
                   <strong>{p.programa}</strong>
-                  {p.conteo["vencida"]} vencidas · {p.conteo["próxima a vencer"]} próximas · {p.conteo["cumplida"]} cumplidas
+                  {p.acciones} acciones · avance {porcentaje(p.avance)}
+                  <br />
+                  {p.conteo["vencida"] ?? 0} vencidas · {p.reprogramadas} reprogramadas · {p.conteo["no funcionó"] ?? 0} «NO
+                  FUNCIONÓ»
                 </span>
               </button>
             ))}
@@ -133,58 +160,110 @@ export default function EstadoPlan() {
             </button>
           </div>
           <h2>{plan.programa}</h2>
-          <div className="tabla">
-            <table>
-              <thead>
-                <tr>
-                  <th>Código</th>
-                  <th>Tarea</th>
-                  <th>Responsable</th>
-                  <th>Fecha límite</th>
-                  <th>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.tareas.map((tarea) => (
-                  <tr key={tarea.id}>
-                    <td>{tarea.codigo}</td>
-                    <td>
-                      {tarea.tarea}
-                      {tarea.evidencias.map((e) => (
-                        <div key={e.fecha + e.valor}>
-                          <small>
-                            Evidencia: {e.tipo === "enlace" ? <a href={e.valor}>{e.valor}</a> : e.valor}
-                          </small>
-                        </div>
-                      ))}
-                      {tarea.estado !== "cumplida" ? (
-                        abierta === tarea.id ? (
-                          <EvidenciaForm
-                            tarea={tarea}
-                            alGuardar={() => {
-                              setAbierta(null);
-                              abrir(plan.programa);
-                            }}
-                          />
-                        ) : (
-                          <div>
-                            <button type="button" className="secundario" onClick={() => setAbierta(tarea.id)}>
-                              Registrar evidencia
-                            </button>
-                          </div>
-                        )
-                      ) : null}
-                    </td>
-                    <td>{tarea.responsable}</td>
-                    <td>{tarea.fecha_limite}</td>
-                    <td>
-                      <Estado valor={tarea.estado} />
-                    </td>
-                  </tr>
+          <p>
+            <small>
+              Archivo: {plan.archivo}
+              {plan.proximo_corte
+                ? ` · Próximo corte: ${plan.proximo_corte.fecha}${plan.proximo_corte.estimado ? " (estimado)" : ""}`
+                : ""}
+            </small>
+          </p>
+          <Cifras r={plan} />
+          {plan.objetivos.map((o) => (
+            <div key={o.codigo}>
+              <h3>Objetivo {o.texto.startsWith(o.codigo) ? o.texto : `${o.codigo} ${o.texto}`}</h3>
+              <div className="tabla">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Acción</th>
+                      <th>Responsables</th>
+                      <th>Fin</th>
+                      <th>Avance</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {o.acciones.map((a) => (
+                      <tr key={a.codigo}>
+                        <td>
+                          <strong>{a.codigo}</strong> {a.descripcion}
+                          {a.soportes.map((s) => (
+                            <div key={s.fecha + s.valor}>
+                              <small>
+                                Soporte ({s.por ?? "sin nombre"}):{" "}
+                                {s.tipo === "enlace" ? <a href={s.valor}>{s.valor}</a> : s.valor}
+                              </small>
+                            </div>
+                          ))}
+                          {abierta === a.codigo ? (
+                            <SoporteForm
+                              programa={plan.programa}
+                              accion={a}
+                              alGuardar={() => {
+                                setAbierta(null);
+                                abrir(plan.programa);
+                              }}
+                            />
+                          ) : (
+                            <div>
+                              <button type="button" className="secundario" onClick={() => setAbierta(a.codigo)}>
+                                Registrar soporte
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                        <td>{a.responsables}</td>
+                        <td>
+                          {a.fecha_fin ?? "sin fecha"}
+                          {a.fechas_fin_anteriores.length > 0 ? (
+                            <div>
+                              <small>antes: {a.fechas_fin_anteriores.join(", ")}</small>
+                            </div>
+                          ) : null}
+                        </td>
+                        <td>
+                          <Avance valor={a.avance} />
+                        </td>
+                        <td>
+                          <Estado valor={a.estado} />
+                          {a.reprogramada ? (
+                            <div>
+                              <span className="estado reprogramada">reprogramada</span>
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+          {reprogramadas.length > 0 ? (
+            <>
+              <h3>Reprogramadas ({reprogramadas.length})</h3>
+              <ul>
+                {reprogramadas.map((a) => (
+                  <li key={a.codigo}>
+                    <strong>{a.codigo}</strong>
+                    {a.fechas_fin_anteriores.length > 0 ? ` fin anterior ${a.fechas_fin_anteriores.join(", ")}` : ""}
+                    {a.marcas.length > 0 ? ` · «${a.marcas.join("», «")}»` : ""}
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </ul>
+            </>
+          ) : null}
+          {plan.alertas.length > 0 ? (
+            <Mensaje tipo="info">
+              Al leer el archivo:
+              <ul>
+                {plan.alertas.map((x) => (
+                  <li key={x}>{x}</li>
+                ))}
+              </ul>
+            </Mensaje>
+          ) : null}
         </>
       ) : null}
     </Pantalla>

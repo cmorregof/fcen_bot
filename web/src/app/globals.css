@@ -131,3 +131,7 @@ tbody tr:nth-child(even) td { background: var(--panel); }
 .portada h1 { font-size: 2.8rem; margin: 0.25rem 0 0; }
 .portada .lema { font-size: 1.25rem; font-weight: 300; color: var(--indigo); margin: 0.25rem 0 0.75rem; }
 .portada .frase { font-size: 1.05rem; }
+.estado.nofunciono { color: #fff; background: var(--error); border-color: var(--error); }
+.estado.reprogramada { color: var(--indigo); background: #efeaf7; }
+.barra { display: inline-block; width: 6rem; height: 0.7rem; background: var(--panel); border: 1px solid var(--borde); border-radius: 1rem; vertical-align: middle; margin-right: 0.4rem; overflow: hidden; }
+.barra > span { display: block; height: 100%; background: var(--lima); }

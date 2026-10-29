@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { Estado } from "@/components/Estado";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { llamar } from "@/lib/api";
+import { Accion, porcentaje } from "@/lib/calidad";
 import { useSesion } from "@/lib/sesion";
 
 type Datos = {
   envio_activo: boolean;
-  programas: { programa: string; tareas: { id: number; codigo: string; tarea: string; responsable: string; fecha_limite: string; estado: string }[] }[];
+  programas: { programa: string; acciones: Accion[] }[];
 };
 
 export default function Alertas() {
@@ -26,7 +27,7 @@ export default function Alertas() {
       titulo="Alertas del plan"
       servicio="calidad"
       roles={["calidad", "admin"]}
-      hace={["Muestra, por programa, las tareas vencidas y las que vencen en las próximas 4 semanas."]}
+      hace={["Muestra, por programa, las acciones vencidas, las marcadas «NO FUNCIONÓ» y las que vencen pronto."]}
       noHace={["No envía esta alerta a nadie: es solo una vista previa."]}
     >
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
@@ -38,13 +39,15 @@ export default function Alertas() {
       {datos?.programas.map((p) => (
         <div key={p.programa}>
           <h2>{p.programa}</h2>
-          {p.tareas.length === 0 ? (
-            <p>Sin tareas vencidas ni próximas a vencer.</p>
+          {p.acciones.length === 0 ? (
+            <p>Sin acciones vencidas ni próximas a vencer.</p>
           ) : (
             <ul>
-              {p.tareas.map((t) => (
-                <li key={t.id}>
-                  <Estado valor={t.estado} /> {t.codigo}: {t.tarea}. Responsable: {t.responsable}. Fecha límite: {t.fecha_limite}.
+              {p.acciones.map((a) => (
+                <li key={a.codigo}>
+                  <Estado valor={a.estado} /> {a.proxima ? "(vence pronto) " : ""}
+                  {a.codigo}: {a.descripcion}. Avance {porcentaje(a.avance)}. Responsables: {a.responsables || "sin dato"}.
+                  Fin: {a.fecha_fin ?? "sin fecha"}.
                 </li>
               ))}
             </ul>

@@ -35,7 +35,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     ruta: "/calidad",
     titulo: "Estado del plan",
-    descripcion: "Ver las tareas del plan de mejoramiento por programa.",
+    descripcion: "Ver objetivos, acciones y % de avance del plan por programa.",
     servicio: "calidad",
     roles: ["calidad", "admin"],
   },
@@ -49,7 +49,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     ruta: "/calidad/alertas",
     titulo: "Alertas",
-    descripcion: "Ver qué tareas están vencidas o por vencer.",
+    descripcion: "Ver qué acciones están vencidas, por vencer o «NO FUNCIONÓ».",
     servicio: "calidad",
     roles: ["calidad", "admin"],
   },
