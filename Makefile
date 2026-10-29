@@ -1,4 +1,4 @@
-.PHONY: install dev test lint typecheck demo
+.PHONY: install dev test lint typecheck demo web-local
 
 install:
 	uv sync --group dev
@@ -17,3 +17,6 @@ typecheck:
 
 demo:
 	uv run python scripts/demo_borrador.py
+
+web-local:
+	./scripts/web_local.sh
