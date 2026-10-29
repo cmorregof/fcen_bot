@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
+import aiosqlite
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -248,6 +249,11 @@ async def a_quien(q: str, _: _Calidad) -> dict[str, object]:
 @router.get("/tablero")
 async def tablero(_: _Lectura, db: Db) -> dict[str, object]:
     """Cifras agregadas para la Decana: solo conteos, sin nombres."""
+    return await cifras_tablero(db)
+
+
+async def cifras_tablero(db: aiosqlite.Connection) -> dict[str, object]:
+    """Lo mismo que /tablero; también lo pide actas por /internal/cifras."""
     await init_calidad(db)
     hoy = reloj.hoy()
     planes = [_resumen(pg, hoy) for pg in await plan.listar_planes(db)]

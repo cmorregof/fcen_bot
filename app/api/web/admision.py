@@ -10,6 +10,7 @@ import time
 from collections import defaultdict, deque
 from typing import Annotated
 
+import aiosqlite
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
@@ -185,6 +186,11 @@ async def lista_chequeo(_: _Responsable) -> dict[str, object]:
 
 @router.get("/tablero")
 async def tablero(_: _Lectura, db: Db) -> dict[str, object]:
+    return await cifras_tablero(db)
+
+
+async def cifras_tablero(db: aiosqlite.Connection) -> dict[str, object]:
+    """Solo conteos; también lo pide actas por /internal/cifras."""
     await almacen.asegurar_tablas(db)
     m = await almacen.totales(db)
     claves = (

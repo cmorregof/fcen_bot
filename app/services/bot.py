@@ -23,7 +23,7 @@ from app.db import repo
 from app.integrations import telegram
 from app.schemas.caso import Caso, EstadoCaso, Sentido
 from app.schemas.telegram import CallbackQuery, Document, Message, Update
-from app.services import borrador, casos, ficha, formatos
+from app.services import borrador, casos, ficha, formatos, resumen
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,15 @@ async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
     chat_id = msg.chat.id
     texto = (msg.text or "").strip()
     usuario = await repo.get_usuario(db, msg.from_.id)
+
+    # Decanatura: solo el resumen, de lectura. Para los demás /resumen no existe.
+    if resumen.es_decanatura(msg.from_.id):
+        if texto.split("@")[0].split(" ")[0].lower() == "/resumen":
+            await telegram.send_message(chat_id, await resumen.armar(db))
+            return
+        if usuario is None:
+            await telegram.send_message(chat_id, resumen.AYUDA)
+            return
 
     if usuario is None:
         await _registro(db, msg, texto)
