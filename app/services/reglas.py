@@ -236,6 +236,31 @@ def analizar(
                 "Responde a la ficha con el grupo.",
             )
 
+    # Cuadro comparativo: sin él no se puede ejecutar el reconocimiento.
+    filas = [f for c in extraccion.equivalencias for f in c.filas]
+    if not filas and tipos & {
+        TipoSolicitud.TRASLADO,
+        TipoSolicitud.DOBLE_TITULACION,
+        TipoSolicitud.HOMOLOGACION,
+    }:
+        a.agregar(
+            "info",
+            "La solicitud no trae cuadro de equivalencias. Si el trámite lo "
+            "requiere, pídelo al estudiante o agrégalo con una corrección.",
+        )
+    sin_destino = [
+        f.origen.nombre or f.origen.codigo or "?"
+        for f in filas
+        if not (f.destino.codigo and f.destino.nombre)
+    ]
+    if sin_destino:
+        a.agregar(
+            "aviso",
+            "En el cuadro de equivalencias falta el código o el nombre de destino de: "
+            + ", ".join(sin_destino)
+            + ".",
+        )
+
     if any(a.accion == "apertura" for a in extraccion.asignaturas) and not lleva_zapc(
         extraccion
     ):

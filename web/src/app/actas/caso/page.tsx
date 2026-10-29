@@ -22,6 +22,7 @@ type Detalle = {
     justificacion_breve?: string;
     dudas?: string[];
     asignaturas?: { codigo: string | null; nombre: string; grupo: string | null; accion: string }[];
+    equivalencias?: Cuadro[];
   } | null;
   alertas: { nivel: string; mensaje: string }[];
   cifras: Record<string, number | null> | null;
@@ -32,6 +33,30 @@ type Detalle = {
   imagenes: number;
   anexos: string[];
 };
+
+type LadoCuadro = {
+  codigo: string | null;
+  nombre: string | null;
+  tipologia: string | null;
+  creditos: number | null;
+  nota: string | null;
+};
+type Cuadro = {
+  figura: string;
+  origen: string | null;
+  destino: string | null;
+  filas: { origen: LadoCuadro; destino: LadoCuadro }[];
+};
+
+const FIGURA: Record<string, string> = {
+  equivalencia: "Cuadro de equivalencias",
+  homologacion: "Cuadro de homologaciones",
+  convalidacion: "Cuadro de convalidaciones",
+};
+
+function celdas(l: LadoCuadro) {
+  return [l.codigo, l.nombre, l.tipologia, l.creditos, l.nota].map((v, i) => <td key={i}>{v ?? ""}</td>);
+}
 
 const NIVEL: Record<string, "error" | "info" | "exito"> = { error: "error", aviso: "info", info: "exito" };
 const CIFRAS: Record<string, string> = {
@@ -142,6 +167,36 @@ function Ficha() {
               </ul>
             </>
           ) : null}
+          {(caso.extraccion.equivalencias ?? [])
+            .filter((c) => c.filas.length > 0)
+            .map((c, n) => (
+              <div key={n} className="tabla">
+                <h3>{FIGURA[c.figura] ?? "Cuadro"}</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th colSpan={5}>Cursada{c.origen ? ` en ${c.origen}` : ""}</th>
+                      <th colSpan={5}>Se reconoce{c.destino ? ` en ${c.destino}` : ""}</th>
+                    </tr>
+                    <tr>
+                      {["Código", "Asignatura", "Tipología", "Créditos", "Nota", "Código", "Asignatura", "Tipología", "Créditos", "Nota"].map(
+                        (t, i) => (
+                          <th key={i}>{t}</th>
+                        ),
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {c.filas.map((f, i) => (
+                      <tr key={i}>
+                        {celdas(f.origen)}
+                        {celdas(f.destino)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           {caso.cifras ? (
             <div className="tarjetas">
               {Object.entries(caso.cifras)
