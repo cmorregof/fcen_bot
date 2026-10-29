@@ -115,7 +115,9 @@ async def sugerir(
     texto = reporte + "\nPropón las sugerencias para cada acción del reporte."
     clave = (
         "sug-"
-        + hashlib.sha256(f"{modelo}|{VERSION_PROMPT}|{texto}".encode()).hexdigest()[:32]
+        + hashlib.sha256(
+            f"{modelo}|{VERSION_PROMPT}|{SISTEMA_SUGERENCIAS}|{texto}".encode()
+        ).hexdigest()[:32]
     )
     datos: SugerenciasCierre | None = None
     guardado = cache.leer(clave)
@@ -135,7 +137,7 @@ async def sugerir(
             esfuerzo="medium",
             max_tokens=12000,
         )
-        uso.sumar(modelo, resp.tokens_entrada, resp.tokens_salida)
+        uso.registrar(modelo, resp)
         if resp.entrada is None:
             return resp.error
         try:

@@ -24,6 +24,10 @@ class Respuesta:
     tokens_entrada: int = 0
     tokens_salida: int = 0
     error: str = ""
+    # False si la petición no llegó a la API (corrida detenida o error de red):
+    # no se cobra y no cuenta como llamada.
+    llamada: bool = True
+    modelo: str = ""  # el que respondió (puede ser el de respaldo)
 
 
 class ClienteModelo(Protocol):
@@ -51,6 +55,16 @@ def herramienta(salida: type[BaseModel], nombre: str) -> dict[str, Any]:
 
 
 def es_fatal(exc: Exception) -> bool:
+    """Errores que se repetirían en todas las llamadas: clave, permisos, modelo."""
+    import anthropic
+
+    if isinstance(
+        exc,
+        anthropic.AuthenticationError
+        | anthropic.PermissionDeniedError
+        | anthropic.NotFoundError,
+    ):
+        return True
     texto = str(exc).lower()
     return any(
         marca in texto
@@ -94,7 +108,7 @@ class ClienteAnthropic:
         max_tokens: int,
     ) -> Respuesta:
         if self.detenido:
-            return Respuesta(None, error=self.detenido)
+            return Respuesta(None, error=self.detenido, llamada=False)
         contenido = [*bloques, {"type": "text", "text": texto}]
         try:
             crear: Any = self._cliente.beta.messages.create
@@ -116,18 +130,23 @@ class ClienteAnthropic:
             if es_fatal(exc):
                 self.detenido = f"corrida detenida: {error}"
             logger.warning("Falló la llamada al modelo: %s", error)
-            return Respuesta(None, error=error)
+            return Respuesta(None, error=error, llamada=False)
 
         uso = resp.usage
         ent = int(getattr(uso, "input_tokens", 0) or 0)
         ent += int(getattr(uso, "cache_creation_input_tokens", 0) or 0)
         ent += int(getattr(uso, "cache_read_input_tokens", 0) or 0)
         sal = int(getattr(uso, "output_tokens", 0) or 0)
+        servido = str(getattr(resp, "model", "") or modelo)
         motivo = getattr(resp, "stop_reason", None)
         if motivo == "max_tokens":
-            return Respuesta(None, ent, sal, "la respuesta quedó cortada")
+            return Respuesta(
+                None, ent, sal, "la respuesta quedó cortada", modelo=servido
+            )
         if motivo == "refusal":
-            return Respuesta(None, ent, sal, "el modelo se negó a responder")
+            return Respuesta(
+                None, ent, sal, "el modelo se negó a responder", modelo=servido
+            )
         entrada: Any = None
         for bloque in resp.content:
             if getattr(bloque, "type", None) == "tool_use":
@@ -141,5 +160,7 @@ class ClienteAnthropic:
             )
             entrada = json_del_texto(texto_resp)
         if not isinstance(entrada, dict):
-            return Respuesta(None, ent, sal, "el modelo no usó la herramienta")
-        return Respuesta(entrada, ent, sal)
+            return Respuesta(
+                None, ent, sal, "el modelo no usó la herramienta", modelo=servido
+            )
+        return Respuesta(entrada, ent, sal, modelo=servido)

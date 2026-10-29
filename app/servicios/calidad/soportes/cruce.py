@@ -2,7 +2,8 @@
 
 El modelo PROPONE un veredicto, una justificación, lo que falta y un % de
 avance, con citas [ID] a los archivos. Nada de eso es una decisión: la oficina
-de calidad lo aprueba o lo ajusta en `cruce_acciones.xlsx`.
+de calidad lo revisa o lo ajusta en `cruce_acciones.xlsx`; después el Comité
+Asesor recomienda y el Consejo de Facultad decide.
 """
 
 from __future__ import annotations
@@ -36,8 +37,9 @@ VERSION_PROMPT = "cruce-v2"
 SISTEMA_CRUCE = """Eres asistente de la oficina de calidad académica de una \
 facultad universitaria. Preparas una PROPUESTA de cierre de una acción de un plan \
 de mejoramiento: comparas el indicador de la acción con los soportes que hay en \
-su carpeta. La propuesta la revisan y aprueban la oficina de calidad, el Comité \
-Asesor y el Consejo de Facultad; tú no decides.
+su carpeta. La propuesta la revisa la oficina de calidad, el Comité Asesor \
+recomienda aprobar o no aprobar el cierre y el Consejo de Facultad decide; tú no \
+decides.
 
 Reglas:
 - Usa solo las descripciones de soportes que se te dan. No supongas que existe \
@@ -65,8 +67,8 @@ Registra tu propuesta con la herramienta `registrar_cruce`."""
 SISTEMA_RESUMEN = """Eres asistente de la oficina de calidad académica de una \
 facultad universitaria. Redactas un BORRADOR de resumen general del cierre de un \
 plan de mejoramiento para el informe de autoevaluación del programa, a partir de \
-las propuestas por acción. No decides: el borrador lo aprueban la oficina de \
-calidad, el Comité Asesor y el Consejo de Facultad.
+las propuestas por acción. No decides: el borrador lo revisa la oficina de \
+calidad, el Comité Asesor recomienda y el Consejo de Facultad decide.
 
 Reglas:
 - Dos a cuatro párrafos, tercera persona, tono institucional.
@@ -137,11 +139,10 @@ def texto_cruce(
     return "\n".join(partes)
 
 
-def _clave(modelo: str, version: str, texto: str) -> str:
-    return (
-        "cruce-"
-        + hashlib.sha256(f"{modelo}|{version}|{texto}".encode()).hexdigest()[:32]
-    )
+def _clave(modelo: str, version: str, texto: str, sistema: str) -> str:
+    """Si cambia el prompt del sistema, la caché vieja deja de servir sola."""
+    base = f"{modelo}|{version}|{sistema}|{texto}"
+    return "cruce-" + hashlib.sha256(base.encode()).hexdigest()[:32]
 
 
 async def cruzar_accion(
@@ -156,7 +157,7 @@ async def cruzar_accion(
     soportes = [a for a in inventario if a.accion == accion.codigo]
     generales = [a for a in inventario if not a.accion and a.tipo != "zip"]
     texto = texto_cruce(accion, soportes, generales, descripciones)
-    clave = _clave(modelo, VERSION_PROMPT, texto)
+    clave = _clave(modelo, VERSION_PROMPT, texto, SISTEMA_CRUCE)
     indice = {a.id: a for a in inventario}
 
     propuesta: CruceAccion | None = None
@@ -178,7 +179,7 @@ async def cruzar_accion(
             esfuerzo="high",
             max_tokens=16000,
         )
-        uso.sumar(modelo, resp.tokens_entrada, resp.tokens_salida)
+        uso.registrar(modelo, resp)
         if resp.entrada is None:
             error = resp.error
         else:
@@ -188,7 +189,13 @@ async def cruzar_accion(
             except ValidationError:
                 error = "el modelo devolvió datos no válidos"
     cruce = Cruce(accion, propuesta, error)
-    verificar_cruce(cruce, indice)
+    visibles = {a.id for a in (*soportes, *generales)}
+    sin_contenido = {
+        i
+        for i in visibles
+        if descripciones.get(i) is None or not descripciones[i].datos
+    }
+    verificar_cruce(cruce, indice, visibles, sin_contenido)
     return cruce
 
 
@@ -247,7 +254,7 @@ async def resumir(
 ) -> tuple[ResumenCierre | None, str, list[str]]:
     """Devuelve (resumen, error, alertas de citas)."""
     texto = texto_resumen(cruces)
-    clave = _clave(modelo, VERSION_PROMPT + "-resumen", texto)
+    clave = _clave(modelo, VERSION_PROMPT + "-resumen", texto, SISTEMA_RESUMEN)
     resumen: ResumenCierre | None = None
     guardado = cache.leer(clave)
     if guardado and guardado.get("datos"):
@@ -267,7 +274,7 @@ async def resumir(
             esfuerzo="medium",
             max_tokens=12000,
         )
-        uso.sumar(modelo, resp.tokens_entrada, resp.tokens_salida)
+        uso.registrar(modelo, resp)
         if resp.entrada is None:
             return None, resp.error, []
         try:
@@ -275,8 +282,15 @@ async def resumir(
             cache.guardar(clave, {"datos": resumen.model_dump(mode="json")})
         except ValidationError:
             return None, "el modelo devolvió datos no válidos", []
+    # El resumen solo ve las justificaciones: sus citas valen si alguna acción
+    # las citó de forma válida.
+    validas = set().union(*(c.citas_validas for c in cruces))
     estados = verificar_citas(
-        citas_en_texto(resumen.resumen), {a.id: a for a in inventario}
+        citas_en_texto(resumen.resumen), {a.id: a for a in inventario}, None, validas
     )
-    alertas = [f"Cita {e.cita}: {e.nota}" for e in estados if not e.valida]
+    alertas = [
+        f"Cita {e.cita}: {'no verificada en ninguna acción' if e.archivo else e.nota}"
+        for e in estados
+        if not e.valida
+    ]
     return resumen, error, alertas

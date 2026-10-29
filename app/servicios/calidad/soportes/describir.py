@@ -114,6 +114,14 @@ def texto_para_modelo(
 
 def descripcion_zip(archivo: Archivo) -> DescripcionArchivo:
     """Los zip no se mandan al modelo: se describen por su lista de archivos."""
+    if archivo.dentro_de_zip:
+        return DescripcionArchivo(
+            que_es="Archivo comprimido dentro de otro comprimido; no se abrió.",
+            fecha_documento="",
+            que_prueba="",
+            ilegible_o_incompleto=True,
+            observacion="Descomprímalo en la carpeta de la acción para revisarlo.",
+        )
     return DescripcionArchivo(
         que_es=f"Archivo comprimido con {len(archivo.miembros)} archivos; cada uno "
         "se describe aparte en este inventario.",
@@ -159,7 +167,7 @@ async def describir_uno(
         esfuerzo="low",
         max_tokens=4000,
     )
-    uso.sumar(modelo, resp.tokens_entrada, resp.tokens_salida)
+    uso.registrar(modelo, resp)
     if resp.entrada is None:
         return Descripcion(archivo.id, None, resp.error)
     try:

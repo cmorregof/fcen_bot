@@ -368,7 +368,7 @@ async def test_corrida_completa_cache_y_salidas(carpeta: Path, tmp_path: Path) -
     assert inv.max_row == len(informe.archivos) + 1
     cru = load_workbook(informe.salidas["cruce"])["Cruce por acción"]
     encabezado = [c.value for c in cru[1]]
-    assert "Aprobado" in encabezado and "Ajuste" in encabezado
+    assert "Revisado por calidad" in encabezado and "Ajuste" in encabezado
     assert cru.max_row == 4
     doc = Document(str(informe.salidas["borrador"]))
     texto = "\n".join(p.text for p in doc.paragraphs)

@@ -10,6 +10,7 @@ Flujo:
    (determinista). Lo que no cumple se marca, no se borra.
 5. `salidas`: hojas y borrador para revisión humana.
 
-El modelo no decide: todo lo que produce es una propuesta que aprueban la
-oficina de calidad, el Comité Asesor y el Consejo de Facultad.
+El modelo no decide: todo lo que produce es una propuesta. La oficina de
+calidad la revisa, el Comité Asesor recomienda aprobar o no aprobar el cierre y
+el Consejo de Facultad decide.
 """

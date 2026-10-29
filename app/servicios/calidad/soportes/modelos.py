@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+if TYPE_CHECKING:
+    from app.servicios.calidad.soportes.cliente import Respuesta
 
 
 @dataclass
@@ -72,7 +76,7 @@ class Veredicto(StrEnum):
 
 
 class CruceAccion(BaseModel):
-    """Propuesta del modelo para una acción. Una persona la aprueba o la ajusta."""
+    """Propuesta del modelo para una acción. Una persona la revisa o la ajusta."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -154,6 +158,11 @@ class Cruce:
     alertas: list[str] = field(default_factory=list)
     sugerencia: SugerenciaAccion | None = None
 
+    @property
+    def citas_validas(self) -> set[str]:
+        """IDs que pasaron el verificador: lo único que cuenta como evidencia."""
+        return {e.cita for e in self.verificacion if e.valida}
+
 
 @dataclass
 class Uso:
@@ -166,6 +175,11 @@ class Uso:
         fila[0] += entrada
         fila[1] += salida
         fila[2] += 1
+
+    def registrar(self, modelo: str, resp: Respuesta) -> None:
+        """Suma una respuesta del cliente; las que no llegaron a la API no cuentan."""
+        if resp.llamada:
+            self.sumar(resp.modelo or modelo, resp.tokens_entrada, resp.tokens_salida)
 
     def costo(self) -> float:
         total = 0.0

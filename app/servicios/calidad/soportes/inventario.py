@@ -18,7 +18,8 @@ from pathlib import Path, PurePosixPath
 
 from app.servicios.calidad.soportes.modelos import Archivo
 
-PATRON_ACCION = re.compile(r"^\s*ACCI[OÓ]N\s*(\d+\.\d+)\b", re.IGNORECASE)
+# «ACCION 1.3» (plan 2016) o «ACCIÓN 1.2.1» (plantilla institucional).
+PATRON_ACCION = re.compile(r"^\s*ACCI[OÓ]N\s*(\d+(?:\.\d+)+)", re.IGNORECASE)
 
 # Archivos de sistema que no son soportes.
 NOMBRES_OMITIDOS = {"desktop.ini", "thumbs.db", ".ds_store", "icon\r"}
@@ -157,7 +158,11 @@ def _completar_metadatos(archivo: Archivo, datos: bytes) -> None:
 
 
 def _recorrer(carpeta: Path) -> Iterator[Path]:
+    # Los enlaces simbólicos no se siguen (rglob tampoco entra en carpetas
+    # enlazadas): podrían traer archivos de fuera del plan y mandarlos al modelo.
     for ruta in sorted(carpeta.rglob("*"), key=lambda p: nfc(str(p))):
+        if ruta.is_symlink():
+            continue
         if ruta.is_file() and not omitido(ruta.name):
             yield ruta
 
@@ -208,13 +213,19 @@ def inventariar(carpeta: Path) -> list[Archivo]:
                     id=nuevo_id(),
                     ruta=f"{relativa}!/{nombre_m}",
                     nombre=base,
-                    accion=archivo.accion,
+                    # Dentro del zip también cuentan las carpetas «ACCION n.n», y
+                    # un zip llamado «ACCION 1.3.zip» es la carpeta de esa acción.
+                    accion=archivo.accion
+                    or accion_de_ruta(nombre_m)
+                    or accion_de_ruta(f"{Path(archivo.nombre).stem}/{nombre_m}"),
                     tipo=tipo_m,
                     extension=ext_m,
                     tamano=len(datos_m),
                     dentro_de_zip=archivo.id,
                 )
                 _completar_metadatos(miembro, datos_m)
+                if tipo_m == "zip":
+                    miembro.nota = "zip dentro de un zip: no se abre"
                 archivos.append(miembro)
     return archivos
 

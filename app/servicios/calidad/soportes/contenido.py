@@ -131,15 +131,24 @@ def resumen_xlsx(datos: bytes) -> str:
 PALABRAS_PERIODO = ("periodo", "semestre", "año", "anio", "ingreso", "fecha")
 # Columnas de fecha que no dicen cuándo pasó el hecho.
 FECHAS_QUE_NO = ("bienestar", "terminac", "renovac", "nacimiento", "vencim")
-PATRON_PERIODO = re.compile(r"((?:19|20)\d{2})(?:\s*[-/ ]\s*0?([12])\s*[sS]?\b)?")
+# El año no puede ser parte de un número más largo (cédula, teléfono, código):
+# «1053820045» no es 2004. Acepta «2016-2S», «2016 - 2», «2016/1» y «20161».
+PATRON_PERIODO = re.compile(
+    r"(?<!\d)((?:19|20)\d{2})(?:\s*[-/ ]?\s*0?([12])\s*[sS]?)?(?![\d])"
+)
 
 
 def _periodo(valor: Any) -> str | None:
     """2017-2S, 2017 o None. Nunca devuelve el texto original de la celda."""
     from datetime import date, datetime
 
+    from app.servicios.calidad.plantilla import fechas_en_texto
+
     if isinstance(valor, datetime | date):
         return f"{valor.year}-{1 if valor.month <= 6 else 2}S"
+    fechas = fechas_en_texto(str(valor))  # «2016-12-05», «05/12/2016»…
+    if fechas:
+        return f"{fechas[0].year}-{1 if fechas[0].month <= 6 else 2}S"
     m = PATRON_PERIODO.search(str(valor))
     if not m:
         return None
