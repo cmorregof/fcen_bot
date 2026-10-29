@@ -249,6 +249,66 @@ async def test_ingreso_dev_solo_en_local(
     )
 
 
+@pytest.mark.parametrize(
+    "variable",
+    ["RAILWAY_ENVIRONMENT_NAME", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID"],
+)
+async def test_ingreso_dev_bloqueado_con_cualquier_variable_de_railway(
+    variable: str, cliente: Cliente, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for v in (
+        "RAILWAY_ENVIRONMENT",
+        "RAILWAY_ENVIRONMENT_NAME",
+        "RAILWAY_ENVIRONMENT_ID",
+        "RAILWAY_PROJECT_ID",
+        "RAILWAY_SERVICE_ID",
+    ):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setattr(web_settings, "auth_dev", True)
+    monkeypatch.setenv(variable, "x")
+    c = cliente("calidad")
+    await _autorizar("ana@unal.edu.co", "calidad")
+    assert (
+        c.post("/api/web/sesion/dev", json={"correo": "ana@unal.edu.co"}).status_code
+        == 404
+    )
+
+
+async def test_admitidos_tienen_limite_por_hora(
+    cliente: Cliente, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.web import admision as web_admision
+    from app.servicios.admision import fuentes
+
+    async def _fuentes(*a: Any) -> str:
+        return "Listado ficticio"
+
+    monkeypatch.setattr(fuentes, "cargar", _fuentes)
+    monkeypatch.setitem(web_admision.LIMITES_POR_HORA, "preguntar", 2)
+    web_admision.reiniciar_limites()
+    admision.usar_modelo(ModeloFalso())  # type: ignore[arg-type]
+    try:
+        c = cliente("admision")
+        r = c.post(
+            "/api/web/admision/consentimiento", json={"acepto": True, "menor": False}
+        )
+        cab = {"Authorization": f"Bearer {r.json()['token']}"}
+        ip_a = {**cab, "X-Forwarded-For": "203.0.113.7, 10.0.0.1"}
+        ip_b = {**cab, "X-Forwarded-For": "198.51.100.9"}
+        pregunta = {"texto": "¿Cómo subo la cédula?"}
+        for _ in range(2):
+            ok = c.post("/api/web/admision/preguntar", json=pregunta, headers=ip_a)
+            assert ok.status_code == 200
+        r = c.post("/api/web/admision/preguntar", json=pregunta, headers=ip_a)
+        assert r.status_code == 429
+        # Otra IP no queda bloqueada por la primera.
+        r = c.post("/api/web/admision/preguntar", json=pregunta, headers=ip_b)
+        assert r.status_code == 200
+    finally:
+        admision.usar_modelo(None)
+        web_admision.reiniciar_limites()
+
+
 async def test_admin_solo_autoriza_correos_institucionales(cliente: Cliente) -> None:
     c = cliente("actas")
     cab = await _token("admin@unal.edu.co", "admin")

@@ -41,7 +41,19 @@ class WebSettings(BaseSettings):
 
     @property
     def dev_permitido(self) -> bool:
-        return self.auth_dev and not os.environ.get("RAILWAY_ENVIRONMENT")
+        # Cualquier variable de Railway basta para negarla: en producción nunca
+        # hay entrada sin Google, aunque alguien defina WEB_AUTH_DEV por error.
+        en_railway = any(
+            os.environ.get(v)
+            for v in (
+                "RAILWAY_ENVIRONMENT",
+                "RAILWAY_ENVIRONMENT_NAME",
+                "RAILWAY_ENVIRONMENT_ID",
+                "RAILWAY_PROJECT_ID",
+                "RAILWAY_SERVICE_ID",
+            )
+        )
+        return self.auth_dev and not en_railway
 
 
 web_settings = WebSettings()

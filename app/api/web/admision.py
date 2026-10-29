@@ -6,9 +6,11 @@ anónima. Los documentos se revisan en memoria; solo se cuentan métricas.
 
 from __future__ import annotations
 
+import time
+from collections import defaultdict, deque
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from app.api.web import auth
@@ -27,6 +29,39 @@ _AdmitidoDep = Annotated[Admitido, Depends(auth.admitido_actual)]
 
 def _lista() -> list[dict[str, object]]:
     return [d.model_dump() for d in chequeo.cargar().documentos]
+
+
+# ---------------------------------------------------------------------------
+# Límite de uso de la parte pública (cada pregunta o revisión llama al modelo)
+# ---------------------------------------------------------------------------
+
+LIMITES_POR_HORA = {"consentimiento": 30, "preguntar": 20, "revisar": 10}
+_usos: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+
+
+def _ip(request: Request) -> str:
+    # En Railway la petición llega por un proxy: la IP real es la primera.
+    reenviada = request.headers.get("x-forwarded-for", "")
+    if reenviada.strip():
+        return reenviada.split(",")[0].strip()
+    return request.client.host if request.client else "desconocida"
+
+
+def limitar(accion: str, request: Request) -> None:
+    """Corta con 429 si una IP supera el límite por hora de esa acción."""
+    ahora = time.monotonic()
+    usos = _usos[(accion, _ip(request))]
+    while usos and ahora - usos[0] > 3600:
+        usos.popleft()
+    if len(usos) >= LIMITES_POR_HORA[accion]:
+        raise HTTPException(
+            429, "Hizo muchas consultas seguidas. Intente de nuevo en un rato."
+        )
+    usos.append(ahora)
+
+
+def reiniciar_limites() -> None:
+    _usos.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +89,10 @@ class Consentimiento(BaseModel):
 
 
 @router.post("/consentimiento")
-async def consentimiento(cuerpo: Consentimiento, db: Db) -> dict[str, object]:
+async def consentimiento(
+    cuerpo: Consentimiento, db: Db, request: Request
+) -> dict[str, object]:
+    limitar("consentimiento", request)
     await almacen.asegurar_tablas(db)
     if not cuerpo.acepto:
         await almacen.contar(db, "rechazos")
@@ -74,11 +112,14 @@ class Pregunta(BaseModel):
 
 
 @router.post("/preguntar")
-async def preguntar(cuerpo: Pregunta, _: _AdmitidoDep, db: Db) -> dict[str, object]:
+async def preguntar(
+    cuerpo: Pregunta, _: _AdmitidoDep, db: Db, request: Request
+) -> dict[str, object]:
     await almacen.asegurar_tablas(db)
     texto = cuerpo.texto.strip()[:2000]
     if not texto:
         raise HTTPException(400, "Escriba su pregunta.")
+    limitar("preguntar", request)
     resp = await flujo.responder(db, admision.modelo(), texto)
     return {
         "estado": resp.estado,
@@ -95,12 +136,14 @@ async def revisar(
     db: Db,
     clave: Annotated[str, Form()],
     archivo: Annotated[UploadFile, File()],
+    request: Request,
 ) -> dict[str, object]:
     await almacen.asegurar_tablas(db)
     if admitido.menor and not admitido.acudiente:
         raise HTTPException(
             403, "Para revisar documentos se necesita la aceptación de su acudiente."
         )
+    limitar("revisar", request)
     datos = await archivo.read(config.max_bytes + 1)
     if len(datos) > config.max_bytes:
         await almacen.contar(db, "error_peso")
