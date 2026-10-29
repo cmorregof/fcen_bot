@@ -114,6 +114,10 @@ def main() -> int:
         print("Volver a correr retoma desde la caché: solo se pagan los que faltan.")
     alertas = sum(len(c.alertas) for c in informe.cruces)
     print(f"Alertas del verificador: {alertas}")
+    sugeridas = sum(1 for c in informe.cruces if c.sugerencia)
+    print(f"Sugerencias para acciones sin evidencia: {sugeridas}")
+    if informe.error_sugerencias:
+        print(f"Sugerencias: {informe.error_sugerencias}")
     for nombre, ruta in informe.salidas.items():
         print(f"{nombre}: {ruta}")
     return 0

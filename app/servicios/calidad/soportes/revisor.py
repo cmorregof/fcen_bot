@@ -36,6 +36,7 @@ from app.servicios.calidad.soportes.salidas import (
     cruce_xlsx,
     inventario_xlsx,
 )
+from app.servicios.calidad.soportes.sugerencias import reporte_md, sugerir
 
 # Supuestos de la estimación (tokens). Son holgados a propósito.
 TOKENS_POR_PAGINA_PDF = 2500
@@ -109,6 +110,7 @@ class Informe:
     salidas: dict[str, Path] = field(default_factory=dict)
     alertas_resumen: list[str] = field(default_factory=list)
     error_resumen: str = ""
+    error_sugerencias: str = ""
 
     def veredictos(self) -> Counter[str]:
         return Counter(
@@ -162,12 +164,16 @@ async def revisar(
     resumen, error_resumen, alertas_resumen = await resumir(
         cruces, archivos, cliente, cache, uso
     )
+    reporte = reporte_md(cruces, archivos, descripciones, programa)
+    error_sugerencias = await sugerir(cruces, reporte, cliente, cache, uso)
     indice = {a.id: a for a in archivos}
     rutas = {
+        "reporte_sin_evidencia": salidas / "reporte_sin_evidencia.md",
         "inventario": salidas / "inventario_soportes.xlsx",
         "cruce": salidas / "cruce_acciones.xlsx",
         "borrador": salidas / "borrador_cierre.docx",
     }
+    rutas["reporte_sin_evidencia"].write_text(reporte, encoding="utf-8")
     inventario_xlsx(rutas["inventario"], archivos, descripciones)
     cruce_xlsx(rutas["cruce"], cruces)
     borrador_docx(rutas["borrador"], programa, cruces, resumen, alertas_resumen, indice)
@@ -181,4 +187,5 @@ async def revisar(
         rutas,
         alertas_resumen,
         error_resumen,
+        error_sugerencias,
     )

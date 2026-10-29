@@ -31,7 +31,7 @@ from app.servicios.calidad.soportes.verificador import (
 )
 
 MODELO_CRUCE = "claude-opus-5-5"
-VERSION_PROMPT = "cruce-v1"
+VERSION_PROMPT = "cruce-v2"
 
 SISTEMA_CRUCE = """Eres asistente de la oficina de calidad académica de una \
 facultad universitaria. Preparas una PROPUESTA de cierre de una acción de un plan \
@@ -47,6 +47,13 @@ justificación y en el párrafo de cierre. Cita solo IDs de la lista.
 - Veredicto: «evidencia suficiente» si los soportes prueban el indicador en el \
 periodo; «parcial» si prueban una parte (algunos semestres, sin cifras, sin \
 fecha, solo intención); «sin evidencia» si no hay soportes pertinentes.
+- Fechas: lo que cuenta es la fecha de los hechos que registra el soporte, no \
+la fecha en que se creó el archivo. Un listado armado en 2025 con visitas de \
+2016 a 2018 sí prueba esas visitas. La «fecha en metadatos» casi siempre es la \
+de la copia o la compilación: no la uses para descartar un soporte.
+- Si un soporte trae «Registros por periodo (contados por el sistema)», usa \
+esos números para ver qué semestres del periodo de ejecución están cubiertos y \
+cuáles no. Son conteos exactos hechos por el sistema.
 - El % de avance propuesto refleja lo que prueban los soportes, no lo que \
 declara el plan.
 - «falta» dice en concreto qué soporte haría falta para probar el indicador.
@@ -79,6 +86,10 @@ def linea_soporte(archivo: Archivo, desc: Descripcion | None) -> str:
     if archivo.dentro_de_zip:
         meta.append(f"dentro de {archivo.dentro_de_zip}")
     cabeza = f"[{archivo.id}] {archivo.nombre} ({', '.join(meta)})"
+    if archivo.conteos:
+        cabeza += "\n    Registros por periodo (contados por el sistema): " + (
+            archivo.conteos.replace("\n", " | ")
+        )
     if desc is None or desc.datos is None:
         motivo = desc.error if desc else "sin descripción"
         return f"{cabeza}\n    Sin descripción del modelo: {motivo}."

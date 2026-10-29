@@ -14,6 +14,7 @@ Las aprueban la oficina de calidad, el Comité Asesor y el Consejo de Facultad.
 | Inventario | código | Recorre la carpeta y asigna cada archivo a su acción por la carpeta `ACCION n.n`. Registra tipo, tamaño, páginas y fecha de metadatos. Lista los zip por dentro y omite `.ini` y archivos de sistema. |
 | Descripción | Sonnet 5.5 | Por archivo: qué es, fecha, qué podría probar, si se ve ilegible o incompleto. |
 | Cruce | Opus 5.5 | Por acción: veredicto («evidencia suficiente», «parcial», «sin evidencia»), justificación, lo que falta, % de avance y párrafo de cierre, con citas `[S012]`. |
+| Sugerencias | Opus 5.5 (esfuerzo medio) | Solo para las acciones «sin evidencia»: con un reporte en Markdown de lo que describió Sonnet, una sola llamada propone dónde buscar soportes y qué acción poner en el próximo plan. Va aparte y no cambia el veredicto. |
 | Verificador | código | Cada cita debe existir en el inventario. Marca (no borra) las que no, y las incoherencias (p. ej. «suficiente» con menos de 100 %). |
 | Salidas | código | `inventario_soportes.xlsx`, `cruce_acciones.xlsx`, `borrador_cierre.docx`. |
 
@@ -21,7 +22,7 @@ Las aprueban la oficina de calidad, el Comité Asesor y el Consejo de Facultad.
 
 - PDF: las primeras 4 páginas y hasta 6000 caracteres del texto extraído.
 - Imágenes: reducidas a 1568 px por el lado mayor.
-- xlsx: solo los nombres de las hojas, los encabezados y el número de filas. Nunca las filas.
+- xlsx: los nombres de las hojas, los encabezados y cuántos registros hay por semestre o año, contados por el programa. Nunca las filas ni los nombres.
 - docx: el texto de los primeros párrafos.
 - Los correos electrónicos se reemplazan por `[correo]`.
 - Del plan no se lee la columna de responsables.
@@ -51,11 +52,11 @@ uv run python scripts/cierre_plan.py \
 ## Límites conocidos
 
 - De un PDF largo el modelo ve solo las primeras páginas: la descripción lo dice.
-- De un xlsx el modelo no ve el contenido: no puede confirmar cifras.
+- De un xlsx el modelo ve solo los conteos por periodo, no los registros.
 - La fecha de metadatos suele ser la de la copia del archivo, no la del documento.
-- De un xlsx el modelo solo sabe cuántas filas tiene: no puede verificar si los registros caen en el periodo del plan.
+- Lo que cuenta es la fecha de los hechos, no la de creación del archivo: el prompt del cruce lo dice explícitamente.
 
 ## Referencia de costo
 
-Piloto de MCMA (153 archivos, 19 acciones): 5,91 USD en total y unos 7 minutos.
+Piloto de MCMA (153 archivos, 19 acciones): 5,91 USD la primera corrida completa (unos 7 minutos). Rehacer los xlsx, los cruces y las sugerencias costó 1,87 USD (3 minutos).
 Sonnet describió los archivos por unos 4,3 USD y Opus hizo los cruces y el resumen por unos 1,6 USD.

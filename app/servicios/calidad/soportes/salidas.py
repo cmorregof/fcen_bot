@@ -138,6 +138,15 @@ def _citas_legibles(estados_validos: list[str], estados_invalidos: list[str]) ->
     return "; ".join(partes)
 
 
+def _sugerencia_texto(c: Cruce) -> str:
+    if c.sugerencia is None:
+        return ""
+    return (
+        f"Dónde buscar: {c.sugerencia.donde_buscar}\n\n"
+        f"Para el próximo plan: {c.sugerencia.accion_proximo_plan}"
+    )
+
+
 def cruce_xlsx(ruta: Path, cruces: list[Cruce]) -> None:
     libro = Workbook()
     ws = libro.active
@@ -147,9 +156,9 @@ def cruce_xlsx(ruta: Path, cruces: list[Cruce]) -> None:
         "Acción", "Aspecto", "Descripción de la acción", "Indicador (meta)",
         "Veredicto (propuesta)", "% de avance (propuesta)", "Justificación (propuesta)",
         "Lo que falta (propuesta)", "Citas", "Verificación de citas", "Alertas",
-        "Aprobado", "Ajuste",
+        "Sugerencia (no es evidencia)", "Aprobado", "Ajuste",
     ]  # fmt: skip
-    anchos = [8, 30, 40, 40, 16, 10, 60, 45, 40, 30, 40, 12, 40]
+    anchos = [8, 30, 40, 40, 16, 10, 60, 45, 40, 30, 40, 60, 12, 40]
     _hoja(ws, encabezado, anchos, humanas=2)
     for c in cruces:
         p = c.propuesta
@@ -177,13 +186,14 @@ def cruce_xlsx(ruta: Path, cruces: list[Cruce]) -> None:
                 _citas_legibles(validas, invalidas),
                 verif,
                 "\n".join(c.alertas),
+                _sugerencia_texto(c),
                 "",
                 "",
             ]
         )
     validacion = DataValidation(type="list", formula1='"Sí,No"', allow_blank=True)
     ws.add_data_validation(validacion)
-    validacion.add(f"L2:L{max(2, ws.max_row)}")
+    validacion.add(f"M2:M{max(2, ws.max_row)}")
     _ajustar(ws)
     _leeme(
         libro,
@@ -192,6 +202,9 @@ def cruce_xlsx(ruta: Path, cruces: list[Cruce]) -> None:
             "Veredictos posibles: «evidencia suficiente», «parcial», «sin evidencia».",
             "«Verificación de citas»: un programa comprueba que cada cita apunte a un "
             "archivo del inventario. Las que no, se marcan con ⚠ y no se borran.",
+            "«Sugerencia» solo aparece en las acciones sin evidencia: dice dónde "
+            "buscar el soporte y qué acción poner en el próximo plan. No es "
+            "evidencia y no cambia el veredicto.",
             "Llene «Aprobado» (Sí/No) y, si hace falta, el veredicto o el % correcto "
             "en «Ajuste».",
         ],
@@ -311,5 +324,23 @@ def borrador_docx(
                     parrafo_con_formato(doc, citas_a_nombres(parrafo, inventario))
         for alerta in c.alertas:
             doc.add_paragraph(f"⚠ {alerta}")
+
+    con_sugerencia = [c for c in cruces if c.sugerencia]
+    if con_sugerencia:
+        doc.add_heading("Sugerencias para las acciones sin evidencia", level=2)
+        doc.add_paragraph(
+            "No son evidencia ni forman parte del cierre. Indican dónde buscar "
+            "soportes de la época y qué acción podría ir en el próximo plan."
+        )
+        for c in con_sugerencia:
+            s = c.sugerencia
+            assert s is not None
+            doc.add_heading(f"Acción {c.accion.codigo}", level=3)
+            buscar = doc.add_paragraph()
+            buscar.add_run("Dónde buscar: ").bold = True
+            buscar.add_run(s.donde_buscar)
+            plan = doc.add_paragraph()
+            plan.add_run("Para el próximo plan: ").bold = True
+            plan.add_run(s.accion_proximo_plan)
     ruta.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(ruta))

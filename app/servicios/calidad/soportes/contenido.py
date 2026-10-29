@@ -128,8 +128,84 @@ def resumen_xlsx(datos: bytes) -> str:
     return "\n".join(lineas)
 
 
+PALABRAS_PERIODO = ("periodo", "semestre", "año", "anio", "ingreso", "fecha")
+# Columnas de fecha que no dicen cuándo pasó el hecho.
+FECHAS_QUE_NO = ("bienestar", "terminac", "renovac", "nacimiento", "vencim")
+PATRON_PERIODO = re.compile(r"((?:19|20)\d{2})(?:\s*[-/ ]\s*0?([12])\s*[sS]?\b)?")
+
+
+def _periodo(valor: Any) -> str | None:
+    """2017-2S, 2017 o None. Nunca devuelve el texto original de la celda."""
+    from datetime import date, datetime
+
+    if isinstance(valor, datetime | date):
+        return f"{valor.year}-{1 if valor.month <= 6 else 2}S"
+    m = PATRON_PERIODO.search(str(valor))
+    if not m:
+        return None
+    return f"{m.group(1)}-{m.group(2)}S" if m.group(2) else m.group(1)
+
+
+def _columna_periodo(encabezado: list[str]) -> int | None:
+    normal = [str(c or "").strip().lower() for c in encabezado]
+    for palabra in PALABRAS_PERIODO:
+        for i, c in enumerate(normal):
+            if palabra in c and not any(n in c for n in FECHAS_QUE_NO):
+                return i
+    return None
+
+
+def conteos_xlsx(datos: bytes) -> str:
+    """Registros por periodo en cada hoja, contados aquí.
+
+    Solo salen números y periodos: así el modelo puede ver si los registros
+    caen en el periodo del plan sin ver ninguna fila con personas.
+    """
+    from collections import Counter
+
+    from openpyxl import load_workbook
+
+    libro = load_workbook(io.BytesIO(datos), read_only=True, data_only=True)
+    lineas: list[str] = []
+    for hoja in libro.worksheets:
+        columna: int | None = None
+        nombre_columna = ""
+        conteo: Counter[str] = Counter()
+        sin_periodo = 0
+        for fila in hoja.iter_rows(values_only=True):
+            if not any(c is not None and str(c).strip() for c in fila):
+                continue
+            if columna is None:
+                celdas = [c for c in fila if c is not None and str(c).strip()]
+                if len(celdas) < 2:
+                    continue
+                columna = _columna_periodo([str(c or "") for c in fila])
+                if columna is None:
+                    break
+                nombre_columna = str(fila[columna]).strip()[:40]
+                continue
+            valor = fila[columna] if columna < len(fila) else None
+            periodo = _periodo(valor) if valor is not None else None
+            if periodo:
+                conteo[periodo] += 1
+            else:
+                sin_periodo += 1
+        if conteo:
+            partes = ", ".join(f"{k}: {v}" for k, v in sorted(conteo.items()))
+            extra = f"; {sin_periodo} sin periodo" if sin_periodo else ""
+            lineas.append(
+                f"Hoja «{hoja.title}», registros por «{nombre_columna}»: "
+                f"{partes}{extra}."
+            )
+    libro.close()
+    return "\n".join(lineas)
+
+
 def xlsx(datos: bytes) -> Contenido:
     texto = resumen_xlsx(datos)
+    conteos = conteos_xlsx(datos)
+    if conteos:
+        texto += "\nRegistros por periodo (contados sin leer nombres):\n" + conteos
     return Contenido(
         [], texto, 0, "Hoja de cálculo: solo hojas, encabezados y número de filas."
     )

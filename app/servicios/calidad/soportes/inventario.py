@@ -147,6 +147,13 @@ def _completar_metadatos(archivo: Archivo, datos: bytes) -> None:
         fecha = _fecha_office(datos, archivo.tipo)
         if fecha:
             archivo.fecha, archivo.fuente_fecha = fecha, "propiedades del documento"
+        if archivo.tipo == "xlsx":
+            from app.servicios.calidad.soportes.contenido import conteos_xlsx
+
+            try:
+                archivo.conteos = conteos_xlsx(datos)
+            except Exception:
+                archivo.conteos = ""
 
 
 def _recorrer(carpeta: Path) -> Iterator[Path]:

@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 MODELO_DESCRIPCION = "claude-sonnet-5-5"
 VERSION_PROMPT = "desc-v1"
+# Los xlsx ahora llevan conteos por periodo: solo ellos se vuelven a describir.
+VERSION_XLSX = "xlsx-v2"
 
 SISTEMA = """Eres asistente de la oficina de calidad académica de una facultad \
 universitaria. Describes soportes (evidencias) de un plan de mejoramiento de un \
@@ -72,7 +74,10 @@ class Cache:
 
 
 def clave_descripcion(archivo: Archivo, modelo: str) -> str:
-    base = f"{archivo.sha256}|{modelo}|{VERSION_PROMPT}|{archivo.accion}"
+    version = VERSION_PROMPT
+    if archivo.tipo == "xlsx":
+        version += "|" + VERSION_XLSX
+    base = f"{archivo.sha256}|{modelo}|{version}|{archivo.accion}"
     return "desc-" + hashlib.sha256(base.encode()).hexdigest()[:32]
 
 

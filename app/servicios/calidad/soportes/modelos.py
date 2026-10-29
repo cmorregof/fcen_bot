@@ -26,6 +26,7 @@ class Archivo:
     miembros: list[str] = field(default_factory=list)  # solo para zip
     sha256: str = ""
     nota: str = ""
+    conteos: str = ""  # xlsx: registros por periodo, contados aquí (sin nombres)
 
 
 @dataclass
@@ -95,6 +96,28 @@ class CruceAccion(BaseModel):
         return max(0, min(100, valor))
 
 
+class SugerenciaAccion(BaseModel):
+    """Sugerencia para una acción sin evidencia. No es evidencia ni decisión."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    accion: str = Field(description="Código de la acción, p. ej. «1.2».")
+    donde_buscar: str = Field(
+        description="Qué soportes de la época podrían existir y dónde buscarlos "
+        "(actas, correos, afiches, sistemas de la universidad)."
+    )
+    accion_proximo_plan: str = Field(
+        description="Si la acción de verdad no se hizo: una acción concreta y "
+        "medible para el próximo plan de mejoramiento."
+    )
+
+
+class SugerenciasCierre(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sugerencias: list[SugerenciaAccion]
+
+
 class ResumenCierre(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -129,6 +152,7 @@ class Cruce:
     error: str = ""
     verificacion: list[EstadoCita] = field(default_factory=list)
     alertas: list[str] = field(default_factory=list)
+    sugerencia: SugerenciaAccion | None = None
 
 
 @dataclass

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -190,6 +191,22 @@ class ModeloFalso:
                 3000,
                 800,
             )
+        if nombre_herramienta == "registrar_sugerencias":
+            codigos = re.findall(r"^## Acción (\d+\.\d+)\.", texto, re.MULTILINE)
+            return Respuesta(
+                {
+                    "sugerencias": [
+                        {
+                            "accion": c,
+                            "donde_buscar": "Actas del comité de esos semestres.",
+                            "accion_proximo_plan": "Registrar cada seminario en acta.",
+                        }
+                        for c in codigos
+                    ]
+                },
+                2000,
+                400,
+            )
         return Respuesta({"resumen": "Resumen ficticio [S001]."}, 2000, 400)
 
 
@@ -358,6 +375,14 @@ async def test_corrida_completa_cache_y_salidas(carpeta: Path, tmp_path: Path) -
     assert ENCABEZADO_BORRADOR in texto
     assert "Citas que no están en el inventario: S999" in texto
     assert "Acción 1.1" in texto and "Acción 2.1" in texto
+    # Sugerencias: una sola llamada, solo para las acciones sin evidencia.
+    sug = [c for c in modelo.llamadas if c["herramienta"] == "registrar_sugerencias"]
+    assert len(sug) == 1 and "## Acción 2.1." in sug[0]["texto"]
+    assert "## Acción 1.1." not in sug[0]["texto"]
+    c21 = next(c for c in informe.cruces if c.accion.codigo == "2.1")
+    assert c21.sugerencia is not None
+    assert "Sugerencias para las acciones sin evidencia" in texto
+    assert informe.salidas["reporte_sin_evidencia"].exists()
     assert doc.sections[0].header.paragraphs[0].text == ENCABEZADO_BORRADOR
 
     # Repetir la corrida no llama al modelo: todo sale de la caché.
@@ -422,3 +447,24 @@ def test_parrafo_con_formato_quita_marcas_markdown() -> None:
     assert p.text == "Becas (2.3): listado [S001]."
     assert p.style.name == "List Bullet"
     assert p.runs[0].bold and p.runs[0].text == "Becas (2.3):"
+
+
+def test_conteos_xlsx_por_periodo_sin_nombres() -> None:
+    from openpyxl import Workbook
+
+    from app.servicios.calidad.soportes.contenido import conteos_xlsx, xlsx
+
+    libro = Workbook()
+    ws = libro.active
+    assert ws is not None
+    ws.append(["Periodo Académico", "Nombre", "Fecha terminación"])
+    ws.append(["2016 - 2S", PERSONA_FICTICIA, "2030-01-01"])
+    ws.append(["2016 - 2S", "Otra Persona Ficticia", "2030-01-01"])
+    ws.append(["2017-1S", "Tercera Persona Ficticia", "2030-01-01"])
+    salida = io.BytesIO()
+    libro.save(salida)
+    conteos = conteos_xlsx(salida.getvalue())
+    assert "2016-2S: 2" in conteos and "2017-1S: 1" in conteos
+    assert PERSONA_FICTICIA not in conteos
+    enviado = xlsx(salida.getvalue()).texto
+    assert "2016-2S: 2" in enviado and PERSONA_FICTICIA not in enviado
