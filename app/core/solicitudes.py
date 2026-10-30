@@ -73,7 +73,8 @@ class Umbral(_Estricto):
     def cita(self) -> str:
         """De dónde sale el umbral, para citarlo en la alerta."""
         if self.norma:
-            return NORMAS[self.norma].norma
+            n = NORMAS[self.norma]
+            return f"{n.norma}, {n.articulo}"
         return self.fuente or ""
 
 
@@ -196,6 +197,14 @@ def jurados_minimo() -> int:
     if settings.jurados_minimo is not None:
         return settings.jurados_minimo
     return actual().umbrales.jurados_minimo.valor
+
+
+def cita_jurados_minimo(valor: int) -> str:
+    """De dónde sale el mínimo de jurados que usa la alerta."""
+    if settings.jurados_minimo is not None and valor == settings.jurados_minimo:
+        return "variable de entorno JURADOS_MINIMO; no es norma"
+    umbral = actual().umbrales.jurados_minimo
+    return umbral.cita + ("" if umbral.norma else "; no es norma")
 
 
 def decisores(

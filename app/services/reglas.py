@@ -343,9 +343,8 @@ def analizar(
             a.agregar(
                 "aviso",
                 f"La solicitud trae {n} jurado{'' if n == 1 else 's'}; se presentan "
-                f"mínimo {jurados_minimo} ({umbrales.jurados_minimo.cita}"
-                + ("" if umbrales.jurados_minimo.norma else "; no es norma")
-                + ").",
+                f"mínimo {jurados_minimo} "
+                f"({solicitudes.cita_jurados_minimo(jurados_minimo)}).",
             )
         if _PROPONE.search(extraccion.objeto_solicitud):
             a.agregar(
