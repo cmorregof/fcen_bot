@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import practica
 from app.api.routes import router
 from app.api.web import crear_router
 from app.api.web.config import web_settings
@@ -23,11 +24,15 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Primer arranque del entorno de práctica: base nueva, datos ficticios.
+    primera_vez = settings.memoria_practica and not settings.db_path.exists()
     db = await connect()  # crea las tablas si no existen
     await repo.reabrir_interrumpidos(db)
     await db.close()
     settings.media_dir.mkdir(parents=True, exist_ok=True)
     settings.output_dir.mkdir(parents=True, exist_ok=True)
+    if primera_vez:
+        await practica.reiniciar()
     precarga = None
     if settings.bot_servicio == "admision":
         from app.servicios.admision import fuentes

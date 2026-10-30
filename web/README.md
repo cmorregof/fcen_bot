@@ -68,3 +68,10 @@ Además de las que ya usa cada servicio (`BOT_SERVICIO`, `TELEGRAM_*`, `ANTHROPI
 
 En Google Cloud Console, el cliente OAuth necesita como «orígenes de JavaScript
 autorizados» el dominio de Vercel (y `http://localhost:3000` para pruebas).
+
+## Despliegue de práctica
+
+Para capacitaciones, un proyecto de Vercel aparte con `NEXT_PUBLIC_PRACTICA=true` y las
+variables `NEXT_PUBLIC_API_*_PRACTICA` (la web usa solo esas, sin volver a las de
+producción) muestra el banner «ENTORNO DE PRÁCTICA · datos ficticios». Pasos completos en
+[`docs/entorno-practica.md`](../docs/entorno-practica.md).
