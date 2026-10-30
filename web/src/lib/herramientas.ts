@@ -54,6 +54,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     roles: ["calidad", "admin"],
   },
   {
+    ruta: "/calidad/soportes",
+    titulo: "Revisión de soportes",
+    descripcion: "Subir los soportes de un programa y recibir una propuesta de cierre para revisar.",
+    servicio: "calidad",
+    roles: ["calidad", "admin"],
+  },
+  {
     ruta: "/calidad/alertas",
     titulo: "Alertas",
     descripcion: "Ver qué acciones están vencidas, por vencer o «NO FUNCIONÓ».",

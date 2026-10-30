@@ -6,8 +6,18 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal, Self
 
-from pydantic import field_validator, model_validator
+from pydantic import TypeAdapter, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+RAIZ = Path(__file__).resolve().parents[2]
+
+
+def _es_verdadero(valor: object) -> bool:
+    # El mismo parser que usa Pydantic para el campo (acepta y, t, on, 1…).
+    try:
+        return TypeAdapter(bool).validate_python(valor)
+    except ValueError:
+        return False
 
 
 class Settings(BaseSettings):
@@ -15,6 +25,10 @@ class Settings(BaseSettings):
 
     # Servicio actual del bot (actas, admision, calidad)
     bot_servicio: Literal["actas", "admision", "calidad"] = "actas"
+
+    # Entorno de práctica (capacitaciones): base propia en <DATA_DIR>/practica/,
+    # sin envíos a Telegram y con datos ficticios. Ver docs/entorno-practica.md.
+    memoria_practica: bool = False
 
     # Telegram
     telegram_bot_token: str = ""
@@ -68,8 +82,14 @@ class Settings(BaseSettings):
     periodo_inicio: date | None = None
 
     # Jurados de Trabajo de Grado que se presentan como mínimo. No es norma:
-    # es instrucción del Consejo de Facultad (reunión del 28-oct-2026).
-    jurados_minimo: int = 6
+    # es instrucción del Consejo de Facultad (reunión del 28-oct-2026). El
+    # valor por defecto está en config/solicitudes.yaml; si JURADOS_MINIMO se
+    # define, tiene prioridad.
+    jurados_minimo: int | None = None
+
+    # Rutas de decisión y umbrales de las solicitudes (lo edita la
+    # Vicedecanatura Académica; ver docs/solicitudes.md).
+    solicitudes_path: Path = RAIZ / "config" / "solicitudes.yaml"
 
     # Almacenamiento. Si DB_PATH, MEDIA_DIR u OUTPUT_DIR no se definen, se
     # derivan de DATA_DIR por servicio: <DATA_DIR>/<servicio>/... En Docker,
@@ -97,6 +117,11 @@ class Settings(BaseSettings):
         # En .env.example la variable viene vacía: eso es "sin configurar".
         return None if valor == "" else valor
 
+    @field_validator("jurados_minimo", mode="before")
+    @classmethod
+    def _entero_vacio(cls, valor: object) -> object:
+        return None if valor == "" else valor
+
     @model_validator(mode="before")
     @classmethod
     def _rutas_por_defecto(cls, datos: Any) -> Any:
@@ -105,12 +130,14 @@ class Settings(BaseSettings):
         datos = dict(datos)
         servicio = str(datos.get("bot_servicio") or "actas")
         data_dir = Path(str(datos.get("data_dir") or "data"))
-        base = data_dir / servicio
+        practica = _es_verdadero(datos.get("memoria_practica"))
+        base = data_dir / "practica" / servicio if practica else data_dir / servicio
         # Actas ya desplegado guardaba todo en <DATA_DIR>/fcen.db, media y out.
         # Si esa base existe y la nueva no, se sigue usando: así un despliegue
         # no deja huérfanos los casos ni los usuarios registrados.
         if (
-            servicio == "actas"
+            not practica
+            and servicio == "actas"
             and not datos.get("db_path")
             and (data_dir / "fcen.db").exists()
             and not (base / "fcen.db").exists()
@@ -127,6 +154,21 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _aislamiento(self) -> Self:
+        if self.memoria_practica:
+            # La práctica nunca toca la base de producción ni escribe a Telegram.
+            raiz = (self.data_dir / "practica").resolve()
+            for ruta in (self.db_path, self.media_dir, self.output_dir):
+                if not ruta.resolve().is_relative_to(raiz):
+                    raise ValueError(
+                        f"MEMORIA_PRACTICA=true exige rutas dentro de {raiz}; "
+                        f"recibió {ruta}."
+                    )
+            # Sin cifras de producción en el resumen.
+            self.resumen_secret = ""
+            self.resumen_calidad_url = ""
+            self.resumen_admision_url = ""
+            self.telegram_bot_token = ""
+            self.telegram_webhook_secret = ""
         # Un servicio nunca usa la base de actas (AGENTS.md).
         if self.bot_servicio != "actas":
             legado = {

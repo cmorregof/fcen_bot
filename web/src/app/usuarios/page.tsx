@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { SERVICIOS, Servicio, llamar } from "@/lib/api";
+import { usePractica } from "@/lib/entorno";
 import { NOMBRE_ROL, Rol, useSesion } from "@/lib/sesion";
 
 type Lista = {
@@ -20,6 +21,8 @@ function UsuariosServicio({ servicio }: { servicio: Servicio }) {
   const [nombre, setNombre] = useState("");
   const [rol, setRol] = useState<Rol | "">("");
   const [direccion, setDireccion] = useState("");
+  const [reiniciado, setReiniciado] = useState(false);
+  const practica = usePractica();
 
   const cargar = useCallback(() => {
     llamar<Lista>(servicio, "/usuarios", { token: t }).then(setLista).catch((e: Error) => setError(e.message));
@@ -32,6 +35,28 @@ function UsuariosServicio({ servicio }: { servicio: Servicio }) {
     <div>
       <h2>{SERVICIOS[servicio].nombre}</h2>
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
+      {practica ? (
+        <div className="botones">
+          <button
+            type="button"
+            className="secundario"
+            onClick={async () => {
+              if (!confirm("¿Reiniciar la práctica? Se borra lo que se hizo y se cargan de nuevo los casos ficticios.")) return;
+              setError(null);
+              setReiniciado(false);
+              try {
+                await llamar(servicio, "/practica/reiniciar", { token: t, metodo: "POST" });
+                setReiniciado(true);
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
+          >
+            Reiniciar práctica
+          </button>
+        </div>
+      ) : null}
+      {reiniciado ? <Mensaje tipo="exito">Práctica reiniciada: datos ficticios cargados de nuevo.</Mensaje> : null}
       {lista ? (
         <div className="tabla">
           <table>

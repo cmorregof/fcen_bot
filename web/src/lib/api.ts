@@ -3,10 +3,28 @@
 
 export type Servicio = "actas" | "calidad" | "admision";
 
+// Despliegue de práctica (capacitaciones): NEXT_PUBLIC_PRACTICA=true. Entonces
+// las URLs salen SOLO de las variables *_PRACTICA, sin volver a las de
+// producción: si falta una, ese servicio queda sin configurar y la web nunca
+// escribe en la base real.
+export const PRACTICA = process.env.NEXT_PUBLIC_PRACTICA === "true";
+
+const URLS: Record<Servicio, string> = PRACTICA
+  ? {
+      actas: process.env.NEXT_PUBLIC_API_ACTAS_PRACTICA ?? "",
+      calidad: process.env.NEXT_PUBLIC_API_CALIDAD_PRACTICA ?? "",
+      admision: process.env.NEXT_PUBLIC_API_ADMISION_PRACTICA ?? "",
+    }
+  : {
+      actas: process.env.NEXT_PUBLIC_API_ACTAS ?? "",
+      calidad: process.env.NEXT_PUBLIC_API_CALIDAD ?? "",
+      admision: process.env.NEXT_PUBLIC_API_ADMISION ?? "",
+    };
+
 export const SERVICIOS: Record<Servicio, { nombre: string; url: string }> = {
-  actas: { nombre: "Comités asesores", url: process.env.NEXT_PUBLIC_API_ACTAS ?? "" },
-  calidad: { nombre: "Calidad", url: process.env.NEXT_PUBLIC_API_CALIDAD ?? "" },
-  admision: { nombre: "Admisión", url: process.env.NEXT_PUBLIC_API_ADMISION ?? "" },
+  actas: { nombre: "Comités asesores", url: URLS.actas },
+  calidad: { nombre: "Calidad", url: URLS.calidad },
+  admision: { nombre: "Admisión", url: URLS.admision },
 };
 
 export const servicioConfigurado = (s: Servicio) => SERVICIOS[s].url !== "";
@@ -31,7 +49,7 @@ const MENSAJES: Record<number, string> = {
 export async function llamar<T>(
   servicio: Servicio,
   ruta: string,
-  opciones: { token?: string | null; metodo?: string; json?: unknown; form?: FormData } = {},
+  opciones: { token?: string | null; metodo?: string; json?: unknown; form?: FormData; archivo?: Blob } = {},
 ): Promise<T> {
   const base = SERVICIOS[servicio].url;
   if (!base) throw new ErrorApi(0, "Este servicio no está disponible.");
@@ -39,6 +57,11 @@ export async function llamar<T>(
   if (opciones.token) cabeceras.Authorization = `Bearer ${opciones.token}`;
   let cuerpo: BodyInit | undefined;
   if (opciones.form) cuerpo = opciones.form;
+  else if (opciones.archivo) {
+    // El archivo va como cuerpo de la petición, sin multipart.
+    cabeceras["Content-Type"] = "application/octet-stream";
+    cuerpo = opciones.archivo;
+  }
   else if (opciones.json !== undefined) {
     cabeceras["Content-Type"] = "application/json";
     cuerpo = JSON.stringify(opciones.json);

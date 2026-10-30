@@ -21,10 +21,12 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
+from app.servicios.calidad.config import calidad_settings  # noqa: E402
 from app.servicios.calidad.soportes.cliente import ClienteAnthropic  # noqa: E402
 from app.servicios.calidad.soportes.describir import Cache  # noqa: E402
 from app.servicios.calidad.soportes.revisor import (  # noqa: E402
     estimar,
+    excede_tope,
     preparar,
     revisar,
 )
@@ -52,6 +54,12 @@ def main() -> int:
     ap.add_argument("--env", type=Path, default=RAIZ / ".env")
     ap.add_argument("--concurrencia", type=int, default=4)
     ap.add_argument("--estimar", action="store_true", help="solo estima el costo")
+    ap.add_argument(
+        "--tope",
+        type=float,
+        default=calidad_settings.revisor_tope_usd,
+        help="USD máximos por corrida (CALIDAD_REVISOR_TOPE_USD; 10 por defecto)",
+    )
     args = ap.parse_args()
 
     carpeta = args.carpeta.expanduser().resolve()
@@ -84,6 +92,10 @@ def main() -> int:
     )
     if args.estimar:
         return 0
+    aviso_tope = excede_tope(est, args.tope)
+    if aviso_tope:
+        print(aviso_tope, file=sys.stderr)
+        return 2
 
     env = leer_env(args.env.expanduser())
     api_key = os.environ.get("ANTHROPIC_API_KEY") or env.get("ANTHROPIC_API_KEY", "")
@@ -104,6 +116,7 @@ def main() -> int:
             args.concurrencia,
             avisar=print,
             preparado=(archivos, acciones),
+            tope_usd=args.tope,
         )  # fmt: skip
     )
     print()
@@ -113,6 +126,8 @@ def main() -> int:
     for modelo, (ent, sal, n) in informe.uso.por_modelo.items():
         print(f"  {modelo}: {n} llamadas, {ent:,} tokens de entrada, {sal:,} de salida")
     print("Veredictos propuestos:", dict(informe.veredictos()))
+    if informe.detenida:
+        print(f"Corrida detenida: {informe.detenida}")
     fallos = [d for d in informe.descripciones.values() if d.datos is None]
     print(f"Archivos sin descripción: {len(fallos)}")
     for error, cuantos in Counter(d.error for d in fallos).most_common():

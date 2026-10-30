@@ -16,10 +16,11 @@ from pydantic import BaseModel
 
 from app.api.web import auth
 from app.api.web.auth import Db, Usuario
+from app.core import solicitudes
 from app.core.config import settings
 from app.core.programas import DIRECCIONES, PROGRAMAS, programas_de
 from app.db import repo
-from app.schemas.caso import Caso, EstadoCaso, Sentido
+from app.schemas.caso import TITULOS_TIPO, Caso, EstadoCaso, Sentido
 from app.schemas.consejo import (
     ETIQUETA_SENTIDO_CONSEJO,
     NOMBRE_INSTANCIA,
@@ -89,6 +90,29 @@ def _consejo(caso: Caso) -> dict[str, object] | None:
     }
 
 
+def _ruta(caso: Caso) -> dict[str, object]:
+    """Quién recomienda y quién decide, según config/solicitudes.yaml."""
+    tipos = caso.extraccion.tipos if caso.extraccion else []
+    config = solicitudes.actual()
+    return {
+        "recomienda": "Comité asesor",
+        "decide": solicitudes.texto_decide(tipos),
+        "por_confirmar": any(r.por_confirmar for r, _ in solicitudes.decisores(tipos)),
+        "fuera_de_facultad": solicitudes.fuera_de_facultad(tipos),
+        "tramites": [
+            {
+                "tipo": t.value,
+                "titulo": TITULOS_TIPO[t],
+                "decide": config.ruta(t).nombre_decide,
+                "por_confirmar": config.ruta(t).por_confirmar,
+                "acto": config.ruta(t).nombre_acto,
+                "nota": config.ruta(t).nota,
+            }
+            for t in tipos
+        ],
+    }
+
+
 def _detalle(caso: Caso) -> dict[str, object]:
     analisis = casos.analizar(caso)
     programa = PROGRAMAS.get(caso.programa or "")
@@ -98,6 +122,7 @@ def _detalle(caso: Caso) -> dict[str, object]:
         "extraccion": caso.extraccion.model_dump(mode="json")
         if caso.extraccion
         else None,
+        "ruta": _ruta(caso),
         "alertas": [a.model_dump() for a in analisis.alertas] if analisis else [],
         "cifras": {
             "creditos_inscritos": analisis.creditos_inscritos,

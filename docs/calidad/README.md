@@ -53,6 +53,7 @@ El formato plano anterior (una fila por tarea) se retiró: ningún plan real lo 
 | `CALIDAD_MAX_USERS` | Máximo de personas registradas (10) |
 | `CALIDAD_DIAS_PROXIMA` | Días para «vence pronto» (28 = 4 semanas) |
 | `ALERTAS_ACTIVAS` | `false` por defecto: el cron no envía nada hasta ponerla en `true` |
+| `CALIDAD_REVISOR_ACTIVO` y demás `CALIDAD_REVISOR_*` | Revisión de soportes desde la web; apagada por defecto. Ver [cierre.md](cierre.md#desde-la-web) |
 
 ## Alerta quincenal
 `POST /internal/alerta-quincenal` (cabecera `X-Cron-Secret`), programada los días 1 y 15 en `.github/workflows/alerta-quincenal.yml` con el secreto `CALIDAD_APP_URL`. Con `ALERTAS_ACTIVAS=false` responde `activas: false` y no envía. Las alertas van a las personas registradas; separar destinatarios por programa queda pendiente.

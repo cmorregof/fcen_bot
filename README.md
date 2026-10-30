@@ -106,7 +106,9 @@ Los casos en **Listo** son los que forman el borrador del día de su programa.
 | Trabajo de Grado en Ing. Física: 46 créditos disciplinares aprobados | Res. CFCEN-060-2008, art. 5 |
 | Documento ausente, con caracteres raros o con un número inusual de dígitos | — |
 | Cita del oficio: el fragmento entre comillas tiene que ser una subcadena exacta del correo, del formato o de la transcripción; si no, error y la cita sale en amarillo | Texto original del estudiante |
-| Jurados de Trabajo de Grado: mínimo 6 (configurable con `JURADOS_MINIMO`), y la frase de la solicitud no dice que el estudiante los «propone» o «sugiere» | Instrucción del Consejo de Facultad, 28-oct-2026 (no es norma) |
+| Jurados de Trabajo de Grado: mínimo 6 (la variable `JURADOS_MINIMO`, si está definida, gana al YAML), y la frase de la solicitud no dice que el estudiante los «propone» o «sugiere» | Instrucción del Consejo de Facultad, 28-oct-2026 (no es norma) |
+
+Los umbrales de la tabla y la instancia que decide cada trámite están en `config/solicitudes.yaml`, que edita la Vicedecanatura Académica sin tocar el código (`docs/solicitudes.md`). El comité asesor recomienda; decide el Consejo de Facultad, el de Sede o el Superior, según el trámite. Si el archivo falta o tiene un error, el servicio de actas no arranca.
 
 Las normas que se citan en el oficio están en `app/normativa/base.py`, con su texto literal. Las marcadas `verificada=False` se copiaron de como aparecen en un acta, porque el PDF de la norma todavía no está en la carpeta de reglamentación.
 

@@ -82,6 +82,8 @@ def aislar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "output_dir", tmp_path / "out")
     monkeypatch.setattr(settings, "soffice_bin", "no-existe-soffice")
     monkeypatch.setattr(settings, "telegram_bot_token", "TEST")
+    # El mínimo de jurados sale de config/solicitudes.yaml, no del .env local.
+    monkeypatch.setattr(settings, "jurados_minimo", None)
 
 
 @pytest.fixture

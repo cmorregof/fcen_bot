@@ -114,19 +114,27 @@ PAE_PROCEDIMIENTO = NormaCitada(
     verificada=True,
 )
 
-NORMAS_POR_TIPO: dict[TipoSolicitud, tuple[NormaCitada, ...]] = {
-    TipoSolicitud.CARGA_MINIMA: (ACUERDO_008_ART_10,),
-    TipoSolicitud.INSCRIPCION_EXTEMPORANEA: (ACUERDO_350_ART_1_2, ACUERDO_027_ART_1),
-    TipoSolicitud.TRABAJO_GRADO: (RES_CFCEN_060_ART_5, ACUERDO_027_ART_1),
-    TipoSolicitud.PAE: (PAE_PROCEDIMIENTO,),
+# Normas transcritas, por el nombre con que las cita config/solicitudes.yaml.
+# Qué normas acompañan a cada tipo de solicitud se define en ese archivo.
+NORMAS: dict[str, NormaCitada] = {
+    "ACUERDO_008_ART_10": ACUERDO_008_ART_10,
+    "ACUERDO_350_ART_1_2": ACUERDO_350_ART_1_2,
+    "ACUERDO_027_ART_1": ACUERDO_027_ART_1,
+    "RES_CFCEN_060_ART_5": RES_CFCEN_060_ART_5,
+    "PAE_PROCEDIMIENTO": PAE_PROCEDIMIENTO,
 }
 
 
 def normas_para(tipos: list[TipoSolicitud], programa: str | None) -> list[NormaCitada]:
     """Normas base del caso, sin repetir y respetando las de un solo programa."""
+    # Import diferido: app.core.solicitudes valida contra NORMAS.
+    from app.core import solicitudes
+
+    config = solicitudes.actual()
     vistas: list[NormaCitada] = []
     for tipo in tipos:
-        for norma in NORMAS_POR_TIPO.get(tipo, ()):
+        for ref in config.ruta(tipo).normas:
+            norma = NORMAS[ref]
             if norma.solo_programa and norma.solo_programa != programa:
                 continue
             if norma not in vistas:
