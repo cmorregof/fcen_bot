@@ -446,6 +446,18 @@ _SEMBRAR = {
 # ---------------------------------------------------------------------------
 
 
+async def sembrado(db: aiosqlite.Connection) -> bool:
+    """¿La siembra anterior terminó? Si falló a medias, no hay marca."""
+    cur = await db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'practica_meta'"
+    )
+    if await cur.fetchone() is None:
+        return False
+    cur = await db.execute("SELECT valor FROM practica_meta WHERE clave = 'sembrado'")
+    fila = await cur.fetchone()
+    return fila is not None and fila[0] == "1"
+
+
 async def _vaciar(db: aiosqlite.Connection) -> None:
     """Borra el contenido de todas las tablas menos los correos autorizados."""
     cur = await db.execute(
@@ -479,6 +491,14 @@ async def reiniciar() -> dict[str, object]:
         _limpiar_carpeta(settings.media_dir)
         _limpiar_carpeta(settings.output_dir)
         n = await _SEMBRAR[settings.bot_servicio](db)
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS practica_meta"
+            " (clave TEXT PRIMARY KEY, valor TEXT NOT NULL)"
+        )
+        await db.execute(
+            "INSERT OR REPLACE INTO practica_meta (clave, valor) VALUES ('sembrado', '1')"
+        )
+        await db.commit()
     finally:
         await db.close()
     return {"ok": True, "servicio": settings.bot_servicio, "registros": n}

@@ -24,9 +24,11 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    # Primer arranque del entorno de práctica: base nueva, datos ficticios.
-    primera_vez = settings.memoria_practica and not settings.db_path.exists()
-    db = await connect()  # crea las tablas si no existen
+    db = await connect()
+    # Entorno de práctica: se siembra si la siembra anterior no terminó.
+    primera_vez = settings.memoria_practica and not await practica.sembrado(
+        db
+    )  # crea las tablas si no existen
     await repo.reabrir_interrumpidos(db)
     await db.close()
     settings.media_dir.mkdir(parents=True, exist_ok=True)
