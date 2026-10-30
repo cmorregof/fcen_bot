@@ -188,8 +188,13 @@ async def _correr(
             calidad_settings.avance_tope_usd,
             progreso=progreso,
         )
-        salidas.borrador_docx(base() / DESCARGAS["docx"][0], borrador)
-        salidas.revision_xlsx(base() / DESCARGAS["xlsx"][0], borrador)
+        # Escribir los archivos es trabajo síncrono: fuera del event loop.
+        await asyncio.to_thread(
+            salidas.borrador_docx, base() / DESCARGAS["docx"][0], borrador
+        )
+        await asyncio.to_thread(
+            salidas.revision_xlsx, base() / DESCARGAS["xlsx"][0], borrador
+        )
         estado.update(estado="terminado", resumen=borrador.resumen())
     except Exception as exc:
         logger.exception("Falló el borrador de avance")
