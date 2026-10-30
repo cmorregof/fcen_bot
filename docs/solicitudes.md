@@ -61,10 +61,10 @@ umbrales:
 ```
 
 Cada umbral necesita `norma` o `fuente`, para que la alerta diga de dónde sale.
-Si un umbral cambia porque cambió la norma (por ejemplo, si el Acuerdo 230 de
-2026 deja la carga mínima en 9), hay que actualizar también el texto literal de
-la norma en `app/normativa/base.py`: si no, la alerta dirá 9 y la norma citada
-seguirá diciendo diez.
+Si un umbral cambia porque cambió la norma (por ejemplo, si una norma nueva
+fija otra carga mínima), hay que transcribir también su texto literal en
+`app/normativa/base.py` y apuntar `norma` a él: si no, la alerta dirá el valor
+nuevo y la norma citada seguirá diciendo el anterior.
 
 | Umbral | Valor actual | De dónde sale |
 |---|---|---|

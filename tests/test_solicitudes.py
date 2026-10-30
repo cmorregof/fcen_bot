@@ -305,3 +305,36 @@ def test_el_servicio_no_arranca_sin_yaml_valido(
     monkeypatch.setattr(settings, "solicitudes_path", tmp_path / "no-existe.yaml")
     with pytest.raises(solicitudes.ConfigSolicitudesError), TestClient(app):
         pass
+
+
+def test_alertas_citan_norma_y_articulo() -> None:
+    [carga] = [m for m in _alertas() if "carga mínima de 10" in m]
+    assert (
+        "(Acuerdo 008 de 2008 del Consejo Superior Universitario, "
+        "Artículo 10 y parágrafo)" in carga
+    )
+    e = extraccion_ejemplo(
+        tipos=[TipoSolicitud.INSCRIPCION_EXTEMPORANEA], fecha_solicitud="2026-10-20"
+    )
+    [semana] = [
+        m for m in _alertas(e, periodo_inicio=date(2026, 8, 10)) if "semana 10" in m
+    ]
+    assert (
+        "Acuerdo 027 de 2024 del Consejo Superior Universitario, Artículo 1" in semana
+    )
+
+
+def test_alerta_de_jurados_dice_si_viene_del_entorno(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.schemas.caso import Jurado
+
+    e = extraccion_ejemplo(
+        tipos=[TipoSolicitud.DESIGNACION_JURADOS],
+        jurados=[Jurado(nombre="Profesor Ficticio")],
+    )
+    [yaml_] = [m for m in _alertas(e) if "jurado" in m]
+    assert "instrucción del Consejo de Facultad, 28-oct-2026; no es norma" in yaml_
+    monkeypatch.setattr(settings, "jurados_minimo", 8)
+    [entorno] = [m for m in _alertas(e) if "jurado" in m]
+    assert "mínimo 8 (variable de entorno JURADOS_MINIMO; no es norma)" in entorno

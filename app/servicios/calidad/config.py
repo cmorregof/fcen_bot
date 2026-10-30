@@ -36,9 +36,19 @@ class CalidadSettings(BaseSettings):
     revisor_max_mb: int = 500
     revisor_max_descomprimido_mb: int = 2000
     revisor_max_archivos: int = 5000
+    # Días que se guardan salidas y caché en el volumen.
+    revisor_retencion_dias: int = 30
+    # Horas que se guarda una carga subida y nunca lanzada (son soportes).
+    revisor_retencion_carga_horas: int = 24
     # Carpeta del volumen para soportes, salidas y caché. Vacía: junto a la
     # base del servicio (en Railway, /data/calidad/revisor).
     revisor_dir: Path | None = None
+
+    # Borrador de la descripción de avance de un corte. Apagado por defecto: manda
+    # al modelo contenido del plan (tareas, cortes anteriores, enlaces).
+    avance_activo: bool = False
+    # Ningún borrador gasta más de esto en la API (USD).
+    avance_tope_usd: float = 2.0
 
 
 calidad_settings = CalidadSettings()

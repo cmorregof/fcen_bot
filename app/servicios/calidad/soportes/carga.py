@@ -58,7 +58,13 @@ def extraer(origen: Path, destino: Path, *, max_bytes: int, max_archivos: int) -
         with zf:
             entradas: list[tuple[zipfile.ZipInfo, PurePosixPath]] = []
             declarado = 0
-            for info in zf.infolist():
+            infos = zf.infolist()
+            # Se cuentan todas las entradas, también carpetas y omitidas.
+            if len(infos) > max_archivos:
+                raise ZipNoValido(
+                    f"El zip trae {len(infos)} entradas; el máximo es {max_archivos}."
+                )
+            for info in infos:
                 nombre = nombre_miembro_zip(info)
                 ruta = _ruta_segura(nombre)
                 if _es_enlace(info):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from typing import Annotated
 
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 from app.api.web import auth
 from app.api.web.auth import Db, Usuario
 from app.servicios.calidad import directorio, plan, plantilla, reloj, reporte
+from app.servicios.calidad.avance import corrida as avance
 from app.servicios.calidad.config import calidad_settings
 from app.servicios.calidad.db import init_calidad
 from app.servicios.calidad.plan import Estado, PlanGuardado
@@ -293,10 +295,17 @@ AVISO_APAGADO = (
 _OCUPADO = "Hay una revisión en curso. Espere a que termine."
 
 
-def _revisor_activo(usuario: _Calidad) -> Usuario:
-    # Primero el rol (en `_Calidad`), luego el interruptor.
+async def _revisor_activo(usuario: _Calidad) -> Usuario:
+    # Primero el rol (en `_Calidad`), luego el interruptor. Apagado, además,
+    # se borra lo que hubiera quedado en el volumen.
     if not calidad_settings.revisor_activo:
+        if corrida.base().exists():
+            await asyncio.to_thread(corrida.limpiar)
         raise HTTPException(403, AVISO_APAGADO)
+    try:
+        corrida.validar_base()
+    except corrida.CarpetaNoDedicada as exc:
+        raise HTTPException(503, str(exc)) from exc
     return usuario
 
 
@@ -308,12 +317,14 @@ def _estado_revisor() -> dict[str, object]:
         **corrida.leer_estado(),
         "tope_usd": calidad_settings.revisor_tope_usd,
         "max_mb": calidad_settings.revisor_max_mb,
+        "retencion_dias": calidad_settings.revisor_retencion_dias,
     }
 
 
 @router.get("/revisor")
 async def revisor_estado(_: _Revisor) -> dict[str, object]:
     """En qué va la revisión: carga, estimación, pasos y descargas."""
+    await corrida.limpiar_de_vez_en_cuando()
     return _estado_revisor()
 
 
@@ -343,6 +354,9 @@ async def revisor_subir(
 
 class Confirmacion(BaseModel):
     confirmo_costo: bool = False
+    # La carga y el costo que la persona vio en pantalla.
+    carga_id: str = ""
+    costo_usd: float = 0.0
 
 
 @router.post("/revisor/correr")
@@ -351,15 +365,22 @@ async def revisor_correr(
 ) -> dict[str, object]:
     """Lanza la revisión en segundo plano, solo si la persona confirmó el costo
     y la estimación cabe en el tope."""
-    if not cuerpo.confirmo_costo:
+    if not cuerpo.confirmo_costo or not cuerpo.carga_id:
         raise HTTPException(400, "Confirme el costo estimado antes de iniciar.")
     estado = corrida.leer_estado()
     if not estado.get("programa"):
         raise HTTPException(409, "Primero suba el zip de soportes.")
     pg = await _cargar(db, str(estado["programa"]))
     try:
+        # `lanzar` vuelve a comprobar, con el cerrojo, que la carga sigue
+        # siendo la que la persona vio y que es de este programa.
         await corrida.lanzar(
-            desde_plantilla(pg.plan), corrida.crear_cliente(), usuario.correo
+            desde_plantilla(pg.plan),
+            corrida.crear_cliente(),
+            usuario.correo,
+            programa=pg.programa,
+            carga_id=cuerpo.carga_id,
+            costo_visto=cuerpo.costo_usd,
         )
     except corrida.Ocupado as exc:
         raise HTTPException(409, _OCUPADO) from exc
@@ -382,7 +403,113 @@ async def revisor_borrar(_: _Revisor, cache: bool = False) -> dict[str, object]:
     """Borra soportes y salidas; con `cache=true`, también las descripciones
     guardadas (la próxima corrida las vuelve a pagar)."""
     try:
-        corrida.borrar(con_cache=cache)
+        await corrida.borrar(con_cache=cache)
     except corrida.Ocupado as exc:
         raise HTTPException(409, _OCUPADO) from exc
     return _estado_revisor()
+
+
+# ---------------------------------------------------------------------------
+# Borrador de la descripción de avance de un corte (docs/calidad/avance-corte.md)
+# ---------------------------------------------------------------------------
+
+AVISO_AVANCE_APAGADO = (
+    "El borrador de avance del corte está apagado en este servicio: procesa "
+    "con el modelo contenido del plan de mejoramiento."
+)
+_AVANCE_OCUPADO = "Hay un borrador en curso. Espere a que termine."
+
+
+def _avance_activo(usuario: _Calidad) -> Usuario:
+    # Primero el rol (en `_Calidad`), luego el interruptor.
+    if not calidad_settings.avance_activo:
+        raise HTTPException(403, AVISO_AVANCE_APAGADO)
+    return usuario
+
+
+_Avance = Annotated[Usuario, Depends(_avance_activo)]
+
+
+def _estado_avance() -> dict[str, object]:
+    return {**avance.leer_estado(), "tope_usd": calidad_settings.avance_tope_usd}
+
+
+def _fecha_corte(texto: str) -> date:
+    try:
+        return date.fromisoformat(texto)
+    except ValueError as exc:
+        raise HTTPException(400, "El corte debe ser una fecha AAAA-MM-DD.") from exc
+
+
+@router.get("/avance")
+async def avance_estado(_: _Avance) -> dict[str, object]:
+    return _estado_avance()
+
+
+@router.get("/avance/cortes")
+async def avance_cortes(programa: str, _: _Avance, db: Db) -> dict[str, object]:
+    return avance.cortes_disponibles(await _cargar(db, programa))
+
+
+class PedidoAvance(BaseModel):
+    programa: str
+    corte: str
+
+
+@router.post("/avance/estimar")
+async def avance_estimar(cuerpo: PedidoAvance, _: _Avance, db: Db) -> dict[str, object]:
+    """Cuenta qué acciones irían al modelo y cuánto costaría. No lo llama."""
+    pg = await _cargar(db, cuerpo.programa)
+    acciones, _nombres = await asyncio.to_thread(
+        avance.preparar, pg, _fecha_corte(cuerpo.corte)
+    )
+    est = await asyncio.to_thread(avance.estimacion, acciones)
+    return {"programa": pg.programa, **est}
+
+
+class ConfirmacionAvance(PedidoAvance):
+    confirmo_costo: bool = False
+    # La cifra que la persona vio en la estimación.
+    costo_usd: float | None = None
+
+
+@router.post("/avance/generar")
+async def avance_generar(
+    cuerpo: ConfirmacionAvance, usuario: _Avance, db: Db
+) -> dict[str, object]:
+    """Lanza el borrador en segundo plano, solo si la persona confirmó el costo
+    y la estimación cabe en el tope."""
+    if not cuerpo.confirmo_costo or cuerpo.costo_usd is None:
+        raise HTTPException(400, "Confirme el costo estimado antes de generar.")
+    pg = await _cargar(db, cuerpo.programa)
+    try:
+        await avance.lanzar(
+            pg,
+            _fecha_corte(cuerpo.corte),
+            avance.crear_cliente,
+            usuario.correo,
+            cuerpo.costo_usd,
+        )
+    except avance.Ocupado as exc:
+        raise HTTPException(409, _AVANCE_OCUPADO) from exc
+    except avance.NoSePuede as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _estado_avance()
+
+
+@router.get("/avance/descargar/{clave}")
+async def avance_descargar(clave: str, _: _Avance) -> FileResponse:
+    encontrado = avance.descarga(clave)
+    if encontrado is None:
+        raise HTTPException(404, "Ese archivo no está listo.")
+    ruta, nombre, tipo = encontrado
+    return FileResponse(ruta, media_type=tipo, filename=nombre)
+
+
+@router.delete("/avance")
+async def avance_borrar(_: _Avance) -> dict[str, object]:
+    try:
+        avance.borrar()
+    except avance.Ocupado as exc:
+        raise HTTPException(409, _AVANCE_OCUPADO) from exc
+    return _estado_avance()

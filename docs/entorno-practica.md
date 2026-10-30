@@ -8,8 +8,8 @@ El entorno es el mismo código que producción, con la variable
 
 - La web muestra el banner **«ENTORNO DE PRÁCTICA · datos ficticios»** en todas las pantallas.
 - **No se envía nada a Telegram.** El cliente descarta los envíos aunque el servicio tenga token, y el token y el secreto del webhook se ignoran.
-- La base va en su propia carpeta del volumen: `/data/practica/<servicio>/` (`fcen.db`, `media`, `out`). Si `DB_PATH`, `MEDIA_DIR` u `OUTPUT_DIR` no están dentro de una carpeta `practica`, el servicio se niega a arrancar.
-- El primer arranque (base nueva) carga los datos ficticios. Después, el administrador usa el botón **Reiniciar práctica**.
+- La base va en su propia carpeta del volumen: `/data/practica/<servicio>/` (`fcen.db`, `media`, `out`). Si `DB_PATH`, `MEDIA_DIR` u `OUTPUT_DIR` (ya resueltas) no están dentro de `<DATA_DIR>/practica`, el servicio se niega a arrancar.
+- El arranque carga (si la siembra anterior no terminó) los datos ficticios. Después, el administrador usa el botón **Reiniciar práctica**.
 
 Los datos: ocho casos de actas (todos «Ficticio/a», documentos 1000000xxx, con la
 extracción ya hecha: no gastan API), el plan «Ejemplo Beta» de calidad y las
@@ -46,7 +46,7 @@ Para cada uno:
 | `ANTHROPIC_API_KEY` | **Opcional.** Sin ella todo funciona con los casos sembrados; solo fallan «procesar», correcciones y revisión de documentos nuevos. Si la pones, gasta API |
 | `ADMISION_INSUMOS_DIR` | Solo en admisión; puede quedar vacío para la práctica |
 
-   **No definas** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `INTERNAL_CRON_SECRET`, `DB_PATH`, `MEDIA_DIR`, `OUTPUT_DIR` ni `WEB_AUTH_DEV`, y **no registres ningún webhook**.
+   **No definas** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `INTERNAL_CRON_SECRET`, `RESUMEN_SECRET`, `RESUMEN_CALIDAD_URL`, `RESUMEN_ADMISION_URL` (en práctica se ignoran, para no mostrar cifras reales), `DB_PATH`, `MEDIA_DIR`, `OUTPUT_DIR` ni `WEB_AUTH_DEV`, y **no registres ningún webhook**.
 4. Despliega y comprueba `https://<servicio-practica>/api/web/entorno`: debe responder `"practica": true`. El primer arranque crea `/data/practica/<servicio>/` con los datos ficticios.
 
 ### 2. Vercel: proyecto aparte

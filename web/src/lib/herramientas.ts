@@ -68,6 +68,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     roles: ["calidad", "admin"],
   },
   {
+    ruta: "/calidad/avance",
+    titulo: "Borrador de avance del corte",
+    descripcion: "Proponer la descripción de avance de cada acción en un corte, con sus fuentes, para aprobar o editar.",
+    servicio: "calidad",
+    roles: ["calidad", "admin"],
+  },
+  {
     ruta: "/calidad/alertas",
     titulo: "Alertas",
     descripcion: "Ver qué acciones están vencidas, por vencer o «NO FUNCIONÓ».",

@@ -129,12 +129,14 @@ class ClienteAnthropic:
             error = error_corto(exc)
             if es_fatal(exc):
                 self.detenido = f"corrida detenida: {error}"
-            logger.warning("Falló la llamada al modelo: %s", error)
+            # Solo el tipo: el texto del error puede citar contenido enviado.
+            logger.warning("Falló la llamada al modelo: %s", type(exc).__name__)
             return Respuesta(None, error=error, llamada=False)
 
         uso = resp.usage
         ent = int(getattr(uso, "input_tokens", 0) or 0)
-        ent += int(getattr(uso, "cache_creation_input_tokens", 0) or 0)
+        # La escritura en caché se cobra a 1,25x: se cuenta así en el costo.
+        ent += int(1.25 * int(getattr(uso, "cache_creation_input_tokens", 0) or 0))
         ent += int(getattr(uso, "cache_read_input_tokens", 0) or 0)
         sal = int(getattr(uso, "output_tokens", 0) or 0)
         servido = str(getattr(resp, "model", "") or modelo)
@@ -166,16 +168,42 @@ class ClienteAnthropic:
         return Respuesta(entrada, ent, sal, modelo=servido)
 
 
+# Cota de tokens de entrada por bloque, holgada. Los bloques salen de
+# `contenido.preparar`: PDF de hasta 4 páginas e imágenes de hasta 1568 px.
+TOKENS_POR_PAGINA_PDF = 5000  # imagen de la página más su texto
+TOKENS_POR_IMAGEN = 3300  # 1568 x 1568 / 750
+TOKENS_FIJOS = 2000  # herramienta, esquema y envoltura del mensaje
+CARACTERES_POR_TOKEN = 2.5  # el español da unos 3,5: 2,5 sobreestima
+
+
+def tokens_entrada_maximos(
+    sistema: str, bloques: list[dict[str, Any]], texto: str
+) -> int:
+    """Cota alta de los tokens de entrada de una petición, sin llamar a la API."""
+    from app.servicios.calidad.soportes import contenido
+
+    caracteres = len(sistema) + len(texto)
+    tokens = TOKENS_FIJOS
+    for b in bloques:
+        if b.get("type") == "document":
+            tokens += contenido.PAGINAS_PDF * TOKENS_POR_PAGINA_PDF
+        elif b.get("type") == "image":
+            tokens += TOKENS_POR_IMAGEN
+        else:
+            caracteres += len(str(b.get("text", "")))
+    return tokens + int(caracteres / CARACTERES_POR_TOKEN) + 1
+
+
 class ClienteConTope:
     """Envuelve otro cliente y no deja que la corrida pase de `tope_usd`.
 
-    Antes de cada llamada reserva su costo máximo (la salida completa más
-    `ENTRADA_MAXIMA` tokens de entrada). Si lo gastado más lo reservado por
-    las llamadas en curso supera el tope, no llama y detiene la corrida: lo
-    que ya se describió queda en la caché.
+    Antes de cada llamada reserva su costo máximo: los tokens de entrada de la
+    petición real (cota alta, ver `tokens_entrada_maximos`) cobrados como
+    escritura en caché (1,25x) y la salida completa, a la tarifa del modelo
+    más caro (la API puede responder con un modelo de respaldo). Si lo
+    gastado más lo reservado por las llamadas en curso supera el tope, no
+    llama y detiene la corrida: lo ya descrito queda en la caché.
     """
-
-    ENTRADA_MAXIMA = 50_000
 
     def __init__(self, cliente: ClienteModelo, uso: Any, tope_usd: float) -> None:
         self._cliente = cliente
@@ -184,11 +212,16 @@ class ClienteConTope:
         self._reservado = 0.0
         self.detenido = ""
 
-    def _reserva(self, modelo: str, max_tokens: int) -> float:
+    @staticmethod
+    def reserva(
+        sistema: str, bloques: list[dict[str, Any]], texto: str, max_tokens: int
+    ) -> float:
         from app.servicios.calidad.soportes.modelos import PRECIOS_USD_POR_MILLON
 
-        p_in, p_out = PRECIOS_USD_POR_MILLON.get(modelo, (4.0, 20.0))
-        return (self.ENTRADA_MAXIMA * p_in + max_tokens * p_out) / 1e6
+        p_in = max(p[0] for p in PRECIOS_USD_POR_MILLON.values())
+        p_out = max(p[1] for p in PRECIOS_USD_POR_MILLON.values())
+        entrada = tokens_entrada_maximos(sistema, bloques, texto)
+        return (1.25 * entrada * p_in + max_tokens * p_out) / 1e6
 
     async def llamar(
         self,
@@ -207,7 +240,7 @@ class ClienteConTope:
             self.detenido = detenido_abajo
         if self.detenido:
             return Respuesta(None, error=self.detenido, llamada=False)
-        reserva = self._reserva(modelo, max_tokens)
+        reserva = self.reserva(sistema, bloques, texto, max_tokens)
         if self._uso.costo() + self._reservado + reserva > self.tope_usd:
             self.detenido = (
                 f"corrida detenida: se alcanzó el tope de {self.tope_usd:.2f} USD"

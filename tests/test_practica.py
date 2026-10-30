@@ -311,3 +311,48 @@ async def test_primer_arranque_siembra_y_los_siguientes_no(
         await db.commit()
     with TestClient(app):
         assert await _contar("SELECT COUNT(*) FROM casos") == 0
+
+
+def test_practica_rechaza_rutas_con_punto_punto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORIA_PRACTICA", "true")
+    monkeypatch.setenv("DATA_DIR", "/data")
+    monkeypatch.setenv("DB_PATH", "/data/practica/../actas/fcen.db")
+    with pytest.raises(ValueError, match="dentro de"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("valor", ["y", "t", "on", "1", "TRUE"])
+def test_mismo_parser_del_flag(valor: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEMORIA_PRACTICA", valor)
+    monkeypatch.setenv("DATA_DIR", "/data")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.memoria_practica and "practica" in s.db_path.parts
+
+
+def test_practica_anula_las_urls_del_resumen(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEMORIA_PRACTICA", "true")
+    monkeypatch.setenv("RESUMEN_SECRET", "real")
+    monkeypatch.setenv("RESUMEN_CALIDAD_URL", "https://prod.test")
+    monkeypatch.setenv("RESUMEN_ADMISION_URL", "https://prod.test")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert not (s.resumen_secret or s.resumen_calidad_url or s.resumen_admision_url)
+
+
+async def test_siembra_fallida_se_reintenta_al_arrancar(
+    en_practica: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.main import app
+
+    monkeypatch.setattr(settings, "bot_servicio", "actas")
+
+    async def falla(db: aiosqlite.Connection) -> int:
+        raise RuntimeError("falló a medias")
+
+    with monkeypatch.context() as m:
+        m.setitem(practica._SEMBRAR, "actas", falla)
+        with pytest.raises(RuntimeError), TestClient(app):
+            pass
+    with TestClient(app):
+        assert await _contar("SELECT COUNT(*) FROM casos") == 8
