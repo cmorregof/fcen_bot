@@ -302,6 +302,10 @@ async def _revisor_activo(usuario: _Calidad) -> Usuario:
         if corrida.base().exists():
             await asyncio.to_thread(corrida.limpiar)
         raise HTTPException(403, AVISO_APAGADO)
+    try:
+        corrida.validar_base()
+    except corrida.CarpetaNoDedicada as exc:
+        raise HTTPException(503, str(exc)) from exc
     return usuario
 
 

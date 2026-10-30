@@ -28,9 +28,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     if settings.bot_servicio == "actas":
         # Sin rutas ni umbrales válidos el servicio no arranca (error claro).
         solicitudes.recargar()
-    # Primer arranque del entorno de práctica: base nueva, datos ficticios.
-    primera_vez = settings.memoria_practica and not settings.db_path.exists()
     db = await connect()  # crea las tablas si no existen
+    # Entorno de práctica: se siembra si la siembra anterior no terminó.
+    primera_vez = settings.memoria_practica and not await practica.sembrado(db)
     await repo.reabrir_interrumpidos(db)
     await db.close()
     settings.media_dir.mkdir(parents=True, exist_ok=True)

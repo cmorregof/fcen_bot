@@ -382,6 +382,17 @@ def _caso_corto(caso: Caso | None) -> dict[str, object] | None:
     }
 
 
+async def _filas_visibles(
+    db: Db, acta: consejo.Acta, alcance: str | None
+) -> list[consejo.FilaDecision]:
+    """Solo las decisiones cuyo caso o candidatos son del área de quien mira."""
+    return [
+        f
+        for f in await consejo.decisiones_del_acta(db, acta.id)
+        if await consejo.fila_visible(db, f, acta, alcance)
+    ]
+
+
 async def _acta_visible(db: Db, acta_id: int, usuario: Usuario) -> consejo.Acta:
     acta = await consejo.get_acta(db, acta_id)
     alcance = _alcance(usuario)
@@ -394,21 +405,38 @@ async def _detalle_acta(
     db: Db, acta: consejo.Acta, usuario: Usuario
 ) -> dict[str, object]:
     alcance = _alcance(usuario)
+    texto = await consejo.texto_acta(db, acta.id)
     filas = []
-    for f in await consejo.decisiones_del_acta(db, acta.id):
+    for f in await _filas_visibles(db, acta, alcance):
         candidatos = []
+        ajenos = False
         for i in f.candidatos:
             c = await repo.get_caso(db, i)
             if c is not None and (alcance is None or c.direccion == alcance):
                 candidatos.append(_caso_corto(c))
+            elif c is not None:
+                ajenos = True
         caso = await repo.get_caso(db, f.caso_id) if f.caso_id else None
         if caso is not None and alcance is not None and caso.direccion != alcance:
             caso = None
+            ajenos = True
+        leida = f.leida.model_dump(mode="json")
+        if ajenos:
+            # Puede ser de un caso de otra área: solo se muestra la decisión y
+            # los datos del candidato de su área, no lo que dice el acta.
+            leida = {
+                **{k: None for k in leida},
+                "texto_decision": f.leida.texto_decision,
+                "fragmento": "",
+            }
         filas.append(
             {
                 "id": f.id,
                 "orden": f.orden,
-                "leida": f.leida.model_dump(mode="json"),
+                "leida": leida,
+                "oculta": ajenos,
+                "asignable": f.cruce != Cruce.NO_VERIFICADO
+                or consejo.asignable_a_mano(f, texto),
                 "sentido": f.sentido.value,
                 "sentido_texto": ETIQUETA_SENTIDO_CONSEJO[f.sentido],
                 "cruce": f.cruce.value,
@@ -464,7 +492,9 @@ async def actas_consejo(usuario: _ActaConsejo, db: Db) -> dict[str, object]:
         acta = await consejo.get_acta(db, int(acta_id))
         if acta is None:
             continue
-        filas = await consejo.decisiones_del_acta(db, acta.id)
+        filas = await _filas_visibles(db, acta, alcance)
+        if not filas and acta.direccion is None and alcance is not None:
+            continue  # acta de admin sin nada de su área
         actas.append(
             {
                 "id": acta.id,
@@ -519,6 +549,8 @@ async def ver_acta_consejo(
 
 class Confirmacion(BaseModel):
     caso_id: int | None = None
+    # Confirmación explícita para reemplazar una decisión final ya registrada.
+    reemplazar: bool = False
 
 
 @router.post("/consejo/{acta_id}/decisiones/{decision_id}/confirmar")
@@ -542,6 +574,7 @@ async def confirmar_decision(
             caso_id=cuerpo.caso_id,
             persona=_persona(usuario),
             direccion=_alcance(usuario),
+            reemplazar=cuerpo.reemplazar,
         )
     except consejo.ErrorActa as exc:
         raise HTTPException(409, str(exc)) from exc

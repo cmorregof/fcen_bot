@@ -25,8 +25,12 @@ PATRON_ACCION = re.compile(r"^\s*ACCI[OÓ]N\s*(\d+(?:\.\d+)+)", re.IGNORECASE)
 # Los xlsx y docx también son zip: antes de abrirlos se mira cuánto declaran
 # descomprimido (zipfile no lee más de lo declarado).
 MAX_BYTES_ARCHIVO = 50 * 1024 * 1024
-MAX_BYTES_OFFICE = 200 * 1024 * 1024
-# Presupuesto para TODO lo que traen los zip internos de una carpeta.
+# Descomprimido declarado por documento. docx más bajo: python-docx arma todo
+# el árbol XML en memoria; openpyxl lee los xlsx en modo de solo lectura.
+MAX_BYTES_XLSX = 150 * 1024 * 1024
+MAX_BYTES_DOCX = 25 * 1024 * 1024
+# Presupuesto común de una carpeta: lo que traen los zip internos más lo que
+# declaran descomprimido todos los xlsx y docx, sueltos o dentro de un zip.
 MAX_BYTES_ANIDADOS = 2 * 1024 * 1024 * 1024
 MAX_MIEMBROS_ANIDADOS = 5000
 _BLOQUE = 1024 * 1024
@@ -146,20 +150,47 @@ def _fecha_office(datos: bytes, tipo: str) -> str | None:
     return creado.date().isoformat() if isinstance(creado, datetime) else None
 
 
-def office_seguro(datos: bytes, maximo: int | None = None) -> bool:
-    """Un xlsx/docx es un zip: True si lo que declara descomprimido cabe."""
-    maximo = MAX_BYTES_OFFICE if maximo is None else maximo
+class Presupuesto:
+    """Bytes descomprimidos y miembros que todavía se pueden leer en una carpeta."""
+
+    def __init__(self) -> None:
+        self.bytes = MAX_BYTES_ANIDADOS
+        self.miembros = MAX_MIEMBROS_ANIDADOS
+
+    def gastar(self, n: int) -> bool:
+        """Descuenta `n` bytes si caben; False si no."""
+        if n > self.bytes:
+            return False
+        self.bytes -= n
+        return True
+
+
+def office_descomprimido(datos: bytes) -> int | None:
+    """Un xlsx/docx es un zip: lo que declara descomprimido (zipfile no lee
+    más de lo declarado). None si trae demasiadas entradas."""
     try:
         with zipfile.ZipFile(io.BytesIO(datos)) as zf:
             infos = zf.infolist()
-            return len(infos) <= 10_000 and sum(i.file_size for i in infos) <= maximo
+            if len(infos) > 10_000:
+                return None
+            return sum(i.file_size for i in infos)
     except zipfile.BadZipFile:
-        return True  # no es zip: el lector fallará solo y sin gastar memoria
+        return 0  # no es zip: el lector fallará solo y sin gastar memoria
 
 
-def _completar_metadatos(archivo: Archivo, datos: bytes) -> None:
+def _office_cabe(archivo: Archivo, datos: bytes, presupuesto: Presupuesto) -> bool:
+    tamano = office_descomprimido(datos)
+    maximo = MAX_BYTES_DOCX if archivo.tipo == "docx" else MAX_BYTES_XLSX
+    return tamano is not None and tamano <= maximo and presupuesto.gastar(tamano)
+
+
+def _completar_metadatos(
+    archivo: Archivo, datos: bytes, presupuesto: Presupuesto | None = None
+) -> None:
     archivo.sha256 = hashlib.sha256(datos).hexdigest()
-    if archivo.tipo in ("xlsx", "docx") and not office_seguro(datos):
+    if archivo.tipo in ("xlsx", "docx") and not _office_cabe(
+        archivo, datos, presupuesto or Presupuesto()
+    ):
         archivo.nota = "descomprimido pasa del límite: no se abre"
         archivo.tipo = "otro"
         return
@@ -208,7 +239,7 @@ def inventariar(carpeta: Path) -> list[Archivo]:
     def nuevo_id() -> str:
         return f"S{len(archivos) + 1:03d}"
 
-    anidados = [0, 0]  # bytes y miembros leídos de los zip internos
+    presupuesto = Presupuesto()
 
     for ruta in _recorrer(carpeta):
         relativa = nfc(ruta.relative_to(carpeta).as_posix())
@@ -230,7 +261,7 @@ def inventariar(carpeta: Path) -> list[Archivo]:
             archivo.nota = "pasa de 50 MB: no se abre"
             continue
         datos = ruta.read_bytes()
-        _completar_metadatos(archivo, datos)
+        _completar_metadatos(archivo, datos, presupuesto)
         if tipo != "zip":
             continue
         try:
@@ -246,15 +277,14 @@ def inventariar(carpeta: Path) -> list[Archivo]:
                     continue
                 archivo.miembros.append(nombre_m)
                 tipo_m, ext_m = tipo_de(base)
-                anidados[1] += 1
-                if anidados[1] > MAX_MIEMBROS_ANIDADOS:
+                presupuesto.miembros -= 1
+                if presupuesto.miembros < 0:
                     archivo.nota = (
                         "demasiados archivos en los zip: no se abrió el resto"
                     )
                     break
-                if (
-                    info.file_size > MAX_BYTES_ARCHIVO
-                    or anidados[0] + info.file_size > MAX_BYTES_ANIDADOS
+                if info.file_size > MAX_BYTES_ARCHIVO or not presupuesto.gastar(
+                    info.file_size
                 ):
                     archivos.append(
                         Archivo(
@@ -270,8 +300,8 @@ def inventariar(carpeta: Path) -> list[Archivo]:
                         )
                     )
                     continue
+                # Ya se descontó lo declarado; zipfile no lee más que eso.
                 datos_m = leer_miembro(zf, info)
-                anidados[0] += len(datos_m)
                 miembro = Archivo(
                     id=nuevo_id(),
                     ruta=f"{relativa}!/{nombre_m}",
@@ -286,7 +316,7 @@ def inventariar(carpeta: Path) -> list[Archivo]:
                     tamano=len(datos_m),
                     dentro_de_zip=archivo.id,
                 )
-                _completar_metadatos(miembro, datos_m)
+                _completar_metadatos(miembro, datos_m, presupuesto)
                 if tipo_m == "zip":
                     miembro.nota = "zip dentro de un zip: no se abre"
                 archivos.append(miembro)

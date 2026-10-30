@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
-import { llamar } from "@/lib/api";
+import { ErrorApi, llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
 
 type CasoCorto = {
@@ -31,6 +31,10 @@ type Decision = {
   motivo: string | null;
   estado: "pendiente" | "aplicada" | "descartada";
   revisado_por: string | null;
+  // Puede ser de un caso de otra área: el acta no se muestra completa.
+  oculta: boolean;
+  // Se puede asignar a mano: lo que se registraría es literal.
+  asignable: boolean;
   caso: CasoCorto | null;
   candidatos: CasoCorto[];
 };
@@ -72,6 +76,20 @@ function Leido({ d }: { d: Decision }) {
     l.radicado ? `radicado ${l.radicado}` : null,
     l.programa,
   ].filter(Boolean);
+  if (d.oculta) {
+    return (
+      <>
+        <div>
+          {d.sentido_texto}: «{l.texto_decision}»
+        </div>
+        <p>
+          <small>
+            Esta decisión podría ser de un caso de otra área: solo se muestran los datos de su caso candidato.
+          </small>
+        </p>
+      </>
+    );
+  }
   return (
     <>
       <strong>{l.nombre_estudiante ?? "Sin nombre en el acta"}</strong>
@@ -103,7 +121,7 @@ function Duda({ d, ocupado, accion }: { d: Decision; ocupado: boolean; accion: (
         </p>
       ) : (
         <>
-          {d.cruce !== "no_verificado" ? (
+          {d.asignable ? (
             <>
               <label htmlFor={`caso-${d.id}`}>¿A qué caso corresponde?</label>
               <select id={`caso-${d.id}`} value={elegido} onChange={(e) => setElegido(e.target.value)}>
@@ -127,7 +145,7 @@ function Duda({ d, ocupado, accion }: { d: Decision; ocupado: boolean; accion: (
             </>
           ) : null}
           <div className="botones">
-            {d.cruce !== "no_verificado" ? (
+            {d.asignable ? (
               <button
                 type="button"
                 disabled={ocupado || !casoId}
@@ -300,12 +318,33 @@ export default function ActaConsejo() {
     setOcupado(true);
     setError(null);
     setAviso(null);
+    const enviar = (cuerpo?: object) =>
+      llamar<Acta>("actas", `/actas/consejo/${acta.id}${ruta}`, { token: t, json: cuerpo, metodo: "POST" });
     try {
-      setActa(await llamar<Acta>("actas", `/actas/consejo/${acta.id}${ruta}`, { token: t, json, metodo: "POST" }));
+      setActa(await enviar(json));
       setAviso("Guardado.");
       cargarLista();
     } catch (err) {
-      setError((err as Error).message);
+      // El caso ya tiene una decisión del Consejo: se ofrece reemplazarla,
+      // en cualquier fila, solo con confirmación explícita.
+      const previa = err instanceof ErrorApi && err.estado === 409 && err.message.includes("reemplazarla");
+      if (
+        previa &&
+        window.confirm(
+          `${err.message}\n\nSi continúa, la decisión anterior se reemplaza por la de esta acta. Hágalo solo si el Consejo la ` +
+            "modificó. ¿Reemplazarla?",
+        )
+      ) {
+        try {
+          setActa(await enviar({ ...(json ?? {}), reemplazar: true }));
+          setAviso("Decisión reemplazada.");
+          cargarLista();
+        } catch (err2) {
+          setError((err2 as Error).message);
+        }
+      } else {
+        setError((err as Error).message);
+      }
     }
     setOcupado(false);
   };

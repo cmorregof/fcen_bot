@@ -143,6 +143,7 @@ Todo vive en el volumen del servicio, en `CALIDAD_REVISOR_DIR` (por defecto
 | Carpeta | Qué guarda | Se borra |
 |---|---|---|
 | `actual/subida.zip` | el zip mientras llega | al descomprimirlo |
+| `actual/` de una carga subida y nunca lanzada | soportes y estimación | a las `CALIDAD_REVISOR_RETENCION_CARGA_HORAS` (24) |
 | `actual/soportes/` | los soportes | al terminar la corrida (bien o mal) |
 | `actual/salidas/` | los tres archivos para descargar | con «Borrar soportes», al subir otro zip o a los `CALIDAD_REVISOR_RETENCION_DIAS` |
 | `cache/` | descripciones, cruces, resumen y sugerencias ya pagados | con la casilla de la caché o, cada entrada, a los `CALIDAD_REVISOR_RETENCION_DIAS` |
@@ -151,6 +152,11 @@ Al arrancar el servicio, si una corrida quedó cortada (o no hay estado), se
 borran los soportes y el zip a medio subir: hay que volver a subirlo. Con
 `CALIDAD_REVISOR_ACTIVO=false` se borra todo lo del revisor, al arrancar y en
 la primera petición a su API.
+
+Los borrados solo tocan `actual/` y `cache/`, y con el cerrojo de la corrida
+tomado. `CALIDAD_REVISOR_DIR` debe ser una carpeta dedicada: si es `DATA_DIR`,
+la carpeta de la base o una que la contenga, el servicio no borra nada y la
+API del revisor responde 503.
 
 El zip llega como cuerpo de la petición, no como formulario: así no pasa por
 archivos temporales fuera del volumen. Nada sale a otro servicio que no sea la
@@ -172,11 +178,13 @@ contenido.
   modelo de respaldo), más la salida completa. Si lo gastado más lo reservado
   pasa del tope, la llamada no sale, la corrida se detiene y las salidas traen
   lo que alcanzó. El script usa el mismo tope (`--tope`).
-- **Archivos dentro de la carpeta**: no se abre ningún archivo de más de 50 MB
-  ni un xlsx o docx que declare más de 200 MB descomprimido. Los zip internos
-  se leen en trozos, con 50 MB por archivo y un presupuesto común de 2 GB y
-  5000 archivos; lo que pasa de ahí queda en el inventario con su nota, sin
-  abrir.
+- **Archivos dentro de la carpeta**: no se abre ningún archivo de más de 50 MB,
+  ni un xlsx que declare más de 150 MB descomprimido, ni un docx de más de
+  25 MB (python-docx arma todo el documento en memoria). Los zip internos se
+  leen en trozos, con 50 MB por archivo. Un presupuesto común de 2 GB y 5000
+  archivos cubre lo que traen los zip internos y lo que declaran
+  descomprimido todos los xlsx y docx, sueltos o dentro de un zip. Lo que pasa
+  de ahí queda en el inventario con su nota, sin abrir.
 - **Trabajo pesado en hilos**: PDF, imágenes, Excel, Word, salidas y borrados
   corren fuera del event loop para no frenar las demás peticiones.
 - **Zip**: se rechaza entero si trae rutas que salen de la carpeta (`../`,
@@ -195,7 +203,8 @@ contenido.
 | `CALIDAD_REVISOR_MAX_DESCOMPRIMIDO_MB` | `2000` | Máximo descomprimido |
 | `CALIDAD_REVISOR_MAX_ARCHIVOS` | `5000` | Máximo de archivos en el zip |
 | `CALIDAD_REVISOR_RETENCION_DIAS` | `30` | Días que se guardan salidas y caché |
-| `CALIDAD_REVISOR_DIR` | junto a la base | Carpeta del volumen |
+| `CALIDAD_REVISOR_RETENCION_CARGA_HORAS` | `24` | Horas que se guarda una carga subida y nunca lanzada |
+| `CALIDAD_REVISOR_DIR` | junto a la base | Carpeta dedicada del volumen (no `DATA_DIR` ni la carpeta de la base) |
 | `ANTHROPIC_API_KEY` | — | La del servicio de calidad |
 
 ### API

@@ -539,7 +539,7 @@ def test_archivo_grande_y_office_bomba_no_se_abren(
     from app.servicios.calidad.soportes import inventario
 
     monkeypatch.setattr(inventario, "MAX_BYTES_ARCHIVO", 1_000_000)
-    monkeypatch.setattr(inventario, "MAX_BYTES_OFFICE", 1_000_000)
+    monkeypatch.setattr(inventario, "MAX_BYTES_XLSX", 1_000_000)
     carpeta = tmp_path / "c"
     carpeta.mkdir()
     (carpeta / "grande.pdf").write_bytes(b"%PDF" + b"\0" * 1_500_000)
@@ -735,3 +735,180 @@ async def test_el_log_de_un_fallo_no_trae_nombres(
     assert "Zoila" not in caplog.text and "acta_ficticia" not in caplog.text
     assert "Zoila" not in json.dumps(estado)
     assert not estado["soportes_presentes"]
+
+
+# ---------------------------------------------------------------------------
+# Segunda revisión: presupuesto de Office, carpeta dedicada y cerrojo
+# ---------------------------------------------------------------------------
+
+
+def test_muchos_office_moderados_agotan_el_presupuesto_comun(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.servicios.calidad.soportes import inventario
+
+    monkeypatch.setattr(inventario, "MAX_BYTES_ANIDADOS", 2_500_000)
+    abiertos: list[str] = []
+    monkeypatch.setattr(
+        inventario, "_fecha_office", lambda d, t: abiertos.append(t) or None
+    )
+    monkeypatch.setattr(
+        "app.servicios.calidad.soportes.contenido.conteos_xlsx", lambda d: ""
+    )
+    carpeta = tmp_path / "c"
+    carpeta.mkdir()
+    # Cada xlsx pesa unos KB y declara 1 MB de XML: cabe por documento.
+    office = _zip_de({"xl/hoja.xml": b"\0" * 1_000_000})
+    for i in range(2):
+        (carpeta / f"suelto{i}.xlsx").write_bytes(office)
+    # Y otros dos dentro de un zip: también descuentan del mismo presupuesto.
+    (carpeta / "interno.zip").write_bytes(
+        _zip_de({f"dentro{i}.xlsx": office for i in range(2)})
+    )
+    archivos = inventario.inventariar(carpeta)
+    xlsx = [a for a in archivos if a.extension == ".xlsx"]
+    rechazados = [a for a in xlsx if "límite" in a.nota]
+    assert len(xlsx) == 4
+    assert len(abiertos) == 2 and len(rechazados) == 2
+
+
+def test_docx_tiene_un_tope_mas_bajo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.servicios.calidad.soportes import inventario
+
+    assert inventario.MAX_BYTES_DOCX < inventario.MAX_BYTES_XLSX
+    monkeypatch.setattr(inventario, "MAX_BYTES_DOCX", 500_000)
+    monkeypatch.setattr(inventario, "_fecha_office", lambda d, t: None)
+    monkeypatch.setattr(
+        "app.servicios.calidad.soportes.contenido.conteos_xlsx", lambda d: ""
+    )
+    carpeta = tmp_path / "c"
+    carpeta.mkdir()
+    office = _zip_de({"word/document.xml": b"\0" * 1_000_000})
+    (carpeta / "acta.docx").write_bytes(office)
+    (carpeta / "lista.xlsx").write_bytes(office)
+    archivos = {a.nombre: a for a in inventario.inventariar(carpeta)}
+    assert archivos["acta.docx"].tipo == "otro"
+    assert archivos["lista.xlsx"].tipo == "xlsx"
+
+
+@pytest.mark.parametrize("donde", ["db", "data_dir"])
+async def test_carpeta_no_dedicada_no_se_borra(
+    donde: str,
+    cliente: Cliente,  # noqa: F811
+    falso: ModeloFalso,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.core.config import settings
+
+    if donde == "db":
+        carpeta = settings.db_path.parent
+    else:
+        carpeta = tmp_path / "data"
+        monkeypatch.setattr(settings, "data_dir", carpeta)
+    (carpeta / "cache").mkdir(parents=True, exist_ok=True)
+    (carpeta / "cache" / "x.json").write_text("{}")
+    otro = carpeta / "fcen-ficticio.db"
+    otro.write_text("base")
+    monkeypatch.setattr(calidad_settings, "revisor_dir", carpeta)
+
+    c = cliente("calidad")
+    cab = await _token("lili@unal.edu.co", "calidad")
+    # Encendido: la API se niega a usar esa carpeta.
+    assert c.get(RUTA, headers=cab).status_code == 503
+    # Apagado y al arrancar: no se borra nada.
+    monkeypatch.setattr(calidad_settings, "revisor_activo", False)
+    corrida.limpiar(al_arrancar=True)
+    assert c.get(RUTA, headers=cab).status_code == 403
+    assert otro.exists() and (carpeta / "cache" / "x.json").exists()
+    assert settings.db_path.exists()
+
+
+def test_apagado_borra_solo_lo_propio(
+    falso: ModeloFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raiz = corrida.base()
+    (raiz / "actual" / "salidas").mkdir(parents=True)
+    (raiz / "cache").mkdir()
+    (raiz / "ajeno.txt").write_text("no es del revisor")
+    monkeypatch.setattr(calidad_settings, "revisor_activo", False)
+    corrida.limpiar()
+    assert not (raiz / "actual").exists() and not (raiz / "cache").exists()
+    assert (raiz / "ajeno.txt").exists()
+
+
+def test_limpiar_toma_el_cerrojo(
+    falso: ModeloFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    actual = corrida.base() / "actual"
+    (actual / "soportes").mkdir(parents=True)
+    # Con una carga en curso, la limpieza no toca nada.
+    monkeypatch.setattr(corrida, "_ocupado", True)
+    corrida.limpiar(al_arrancar=True)
+    assert (actual / "soportes").exists()
+    monkeypatch.setattr(corrida, "_ocupado", False)
+
+    # Mientras limpia, nadie más puede tomar el cerrojo.
+    durante: list[bool] = []
+    original = corrida._limpiar
+    monkeypatch.setattr(
+        corrida,
+        "_limpiar",
+        lambda *a: durante.append(corrida._tomar()) or original(*a),
+    )
+    corrida.limpiar(al_arrancar=True)
+    assert durante == [False]
+    assert not (actual / "soportes").exists()
+    assert corrida._tomar()  # y lo suelta al terminar
+    corrida._soltar()
+
+
+def test_carga_sin_lanzar_se_borra_al_dia(
+    falso: ModeloFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    monkeypatch.setattr(calidad_settings, "revisor_retencion_carga_horas", 24)
+    actual = corrida.base() / "actual"
+    (actual / "soportes").mkdir(parents=True)
+    estado = actual / "estado.json"
+    hace_dos_dias = time.time() - 2 * 86400
+
+    estado.write_text(json.dumps({"estado": "terminado"}))
+    os.utime(estado, (hace_dos_dias, hace_dos_dias))
+    corrida.limpiar()
+    assert actual.exists()  # salidas: retención de 30 días
+
+    estado.write_text(json.dumps({"estado": "cargado"}))
+    os.utime(estado, (hace_dos_dias, hace_dos_dias))
+    corrida.limpiar()
+    assert not actual.exists()
+
+
+async def test_el_cliente_real_registra_solo_el_tipo_del_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from app.servicios.calidad.soportes.cliente import ClienteAnthropic
+
+    class Mensajes:
+        async def create(self, **kw: Any) -> Any:
+            raise ValueError("Zoila Ficticia Pérez - acta_ficticia.pdf")
+
+    class Beta:
+        messages = Mensajes()
+
+    class Falso:
+        beta = Beta()
+
+    from app.servicios.calidad.soportes.modelos import DescripcionArchivo
+
+    real = ClienteAnthropic("clave-ficticia")
+    real._cliente = Falso()  # type: ignore[assignment]
+    resp = await real.llamar(
+        modelo="m", sistema="s", bloques=[], texto="t", salida=DescripcionArchivo,
+        nombre_herramienta="h", esfuerzo="low", max_tokens=10,
+    )  # fmt: skip
+    assert resp.entrada is None
+    assert "ValueError" in caplog.text and "Zoila" not in caplog.text

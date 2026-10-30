@@ -184,10 +184,38 @@ def test_el_acta_ficticia_contiene_los_fragmentos() -> None:
         ("Se niega", SentidoConsejo.NO_APROBO),
         ("Se aplaza para la próxima sesión", SentidoConsejo.APLAZO),
         ("Se remite a la Dirección de Bienestar", SentidoConsejo.OTRO),
+        # Negaciones que no pueden leerse como «aprobó» (revisión del PR #16).
+        ("No fue aprobada", SentidoConsejo.NO_APROBO),
+        ("La solicitud no fue aprobada por el Consejo", SentidoConsejo.NO_APROBO),
+        ("No se le aprueba", SentidoConsejo.NO_APROBO),
+        ("No es procedente aprobar la solicitud", SentidoConsejo.NO_APROBO),
+        ("No ha sido autorizada", SentidoConsejo.NO_APROBO),
+        ("Se declara improcedente", SentidoConsejo.NO_APROBO),
+        ("Aprobado; no obstante, debe presentar el soporte", SentidoConsejo.OTRO),
+        ("No se aplaza", SentidoConsejo.OTRO),
+        # Palabras que empiezan como un rechazo pero no lo son.
+        ("Se aprueba la negociación del plazo", SentidoConsejo.APROBO),
+        ("Aprobado el negocio jurídico", SentidoConsejo.APROBO),
+        ("Se aprueba el recurso contra el rechazo anterior", SentidoConsejo.OTRO),
+        ("El Consejo negó la solicitud", SentidoConsejo.NO_APROBO),
+        ("Rechazada por extemporánea", SentidoConsejo.NO_APROBO),
+        ("Denegado", SentidoConsejo.NO_APROBO),
     ],
 )
 def test_sentido_sale_del_texto_literal(texto: str, sentido: SentidoConsejo) -> None:
     assert consejo.sentido_de(texto) == sentido
+
+
+def test_ninguna_negacion_da_aprobo() -> None:
+    for texto in (
+        "no fue aprobada",
+        "no se le aprueba",
+        "no es procedente aprobar",
+        "no ha sido autorizada",
+        "niega lo aprobado",
+        "sin aprobar",
+    ):
+        assert consejo.sentido_de(texto) != SentidoConsejo.APROBO, texto
 
 
 def test_instancia() -> None:
@@ -309,7 +337,7 @@ async def test_fragmento_no_literal_no_se_aplica(
     *_, cuatro = await _escenario(db)
     registrada = await _registrar(db)
     filas = await consejo.decisiones_del_acta(db, registrada.acta_id)
-    with pytest.raises(consejo.ErrorActa, match="literal"):
+    with pytest.raises(consejo.ErrorActa, match="verificar"):
         await consejo.aplicar(
             db, filas[4].id, caso_id=cuatro, persona="A", direccion=DIRECCION
         )
@@ -509,6 +537,9 @@ async def test_acta_consejo_por_telegram(
 
     await bot.manejar_update(db, _callback(boton["callback_data"]))
     assert f"#{uno}, #{dos}" in tg.textos()[-1]
+    # Segundo toque del mismo botón (otro update): no registra nada más.
+    await bot.manejar_update(db, _callback(boton["callback_data"]))
+    assert "Registré 0 decisión(es)" in tg.textos()[-1]
     assert (await repo.get_caso(db, uno)).consejo is not None  # type: ignore[union-attr]
     assert (await repo.get_caso(db, tres)).consejo is None  # type: ignore[union-attr]
 
@@ -630,3 +661,375 @@ async def test_admin_entra_y_otra_area_no_ve_el_acta(
         files={"archivo": ("acta.txt", b"hola")},
     )
     assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Revisión del PR #16
+# ---------------------------------------------------------------------------
+
+
+async def test_1_acta_de_admin_no_se_filtra_a_otra_area(
+    db: aiosqlite.Connection, modelo: Any, web: TestClient
+) -> None:
+    uno, *_ = await _escenario(db)
+    admin = await _cabecera(db, "admin@unal.edu.co", "admin", None)
+    propia = await _cabecera(db, "adm@unal.edu.co", "administrativa", DIRECCION)
+    otra = await _cabecera(db, "mat@unal.edu.co", "administrativa", "matematicas")
+    r = web.post(
+        "/api/web/actas/consejo",
+        headers=admin,
+        files={"archivo": (ACTA.name, ACTA.read_bytes())},
+    )
+    assert r.status_code == 200, r.text
+    acta_id = r.json()["id"]
+    todas = r.json()["cruzaron"] + r.json()["en_duda"] + r.json()["sin_caso"]
+    assert len(todas) == 5  # admin ve todo
+
+    # La otra área no ve el acta en su lista ni ninguna fila en el detalle.
+    assert web.get("/api/web/actas/consejo", headers=otra).json()["actas"] == []
+    d = web.get(f"/api/web/actas/consejo/{acta_id}", headers=otra).json()
+    assert d["cruzaron"] == d["en_duda"] == d["sin_caso"] == []
+    assert "Ficticia Uno" not in str(d)
+    # Ni puede descartar ni confirmar una decisión de un caso de Física.
+    fila_uno = todas[0]["id"]
+    base = f"/api/web/actas/consejo/{acta_id}/decisiones/{fila_uno}"
+    assert web.post(f"{base}/descartar", headers=otra).status_code == 409
+    assert web.post(f"{base}/confirmar", headers=otra, json={}).status_code == 409
+    filas = await consejo.decisiones_del_acta(db, acta_id)
+    assert filas[0].estado == EstadoDecision.PENDIENTE
+
+    # El área propia ve sus filas, pero no las que no tienen caso ni candidatos
+    # en un acta de admin (sin caso, fragmento inventado).
+    d = web.get(f"/api/web/actas/consejo/{acta_id}", headers=propia).json()
+    assert [f["caso"]["id"] for f in d["cruzaron"]][0] == uno
+    assert d["sin_caso"] == []
+    assert [f["cruce"] for f in d["en_duda"]] == ["dudoso"]
+
+
+def _caso_ficticio(caso_id: int, nombre: str, documento: str, **kw: Any) -> Any:
+    from app.schemas.caso import Caso
+
+    return Caso(
+        id=caso_id,
+        chat_id=1,
+        direccion=DIRECCION,
+        estado=EstadoCaso.LISTO,
+        sentido=kw.get("sentido", Sentido.APROBAR),
+        extraccion=extraccion_ejemplo(nombre_estudiante=nombre, documento=documento),
+    )
+
+
+def test_2_identificador_fuera_del_fragmento_no_cruza() -> None:
+    caso = _caso_ficticio(1, "Persona Ficticia Uno", "1000000001")
+    acta = "4.1 Persona Ficticia Uno, documento 1000000001. Decisión: APROBADO."
+    # Fragmento corto y repetible; el documento y el nombre vienen de otra fila.
+    (p,) = consejo.cruzar(
+        [
+            DecisionLeida(
+                nombre_estudiante="Persona Ficticia Uno",
+                documento="1000000001",
+                texto_decision="APROBADO",
+                fragmento="Decisión: APROBADO.",
+            )
+        ],
+        [caso],
+        acta,
+    )
+    assert p.cruce == Cruce.NO_VERIFICADO and p.caso_id is None
+    # El nombre está en el fragmento, pero el documento no: a duda.
+    (p,) = consejo.cruzar(
+        [
+            DecisionLeida(
+                nombre_estudiante="Persona Ficticia Uno",
+                documento="1000000001",
+                texto_decision="APROBADO",
+                fragmento="Persona Ficticia Uno: APROBADO.",
+            )
+        ],
+        [caso],
+        acta + " Persona Ficticia Uno: APROBADO.",
+    )
+    assert p.cruce == Cruce.DUDOSO and "documento" in (p.motivo or "")
+    # Documento con puntos de miles y número de caso «#1»: sí cuentan.
+    acta2 = "Persona Ficticia Uno (C.C. 1.000.000.001), caso #1: APROBADO."
+    (p,) = consejo.cruzar(
+        [
+            DecisionLeida(
+                nombre_estudiante="Persona Ficticia Uno",
+                documento="1000000001",
+                numero_caso="1",
+                texto_decision="APROBADO",
+                fragmento=acta2,
+            )
+        ],
+        [caso],
+        acta2,
+    )
+    assert p.cruce == Cruce.EXACTO and p.caso_id == 1
+
+
+async def test_4_segunda_acta_no_pisa_la_primera(
+    db: aiosqlite.Connection, modelo: Any
+) -> None:
+    uno, *_ = await _escenario(db)
+    primera = await _registrar(db)
+    segunda = await _registrar(db)  # la misma acta, subida dos veces
+    f1 = (await consejo.decisiones_del_acta(db, primera.acta_id))[0]
+    f2 = (await consejo.decisiones_del_acta(db, segunda.acta_id))[0]
+    assert f2.cruce == Cruce.EXACTO  # al subirla aún no había decisión
+    await consejo.aplicar(db, f1.id, caso_id=None, persona="A", direccion=DIRECCION)
+    with pytest.raises(consejo.ErrorActa, match="reemplazarla"):
+        await consejo.aplicar(db, f2.id, caso_id=None, persona="B", direccion=DIRECCION)
+    caso = await repo.get_caso(db, uno)
+    assert caso is not None and caso.consejo is not None
+    assert caso.consejo.confirmado_por == "A"
+    # Con confirmación explícita, sí.
+    await consejo.aplicar(
+        db, f2.id, caso_id=None, persona="B", direccion=DIRECCION, reemplazar=True
+    )
+    assert (await repo.decision_consejo(db, uno)).confirmado_por == "B"  # type: ignore[union-attr]
+
+
+async def test_4_aplazo_no_reemplaza_una_aprobacion(
+    db: aiosqlite.Connection, modelo: Any
+) -> None:
+    _, _, tres, _ = await _escenario(db)
+    primera = await _registrar(db)
+    f = (await consejo.decisiones_del_acta(db, primera.acta_id))[0]
+    # Aprobó sobre el caso tres (asignado a mano) y luego un aplazamiento.
+    await consejo.aplicar(db, f.id, caso_id=tres, persona="A", direccion=DIRECCION)
+    aplazo = (await consejo.decisiones_del_acta(db, primera.acta_id))[2]
+    assert aplazo.sentido == SentidoConsejo.APLAZO
+    with pytest.raises(consejo.ErrorActa, match="aplazamiento no la reemplaza"):
+        await consejo.aplicar(
+            db,
+            aplazo.id,
+            caso_id=tres,
+            persona="B",
+            direccion=DIRECCION,
+            reemplazar=True,
+        )
+    assert (await repo.decision_consejo(db, tres)).sentido == SentidoConsejo.APROBO  # type: ignore[union-attr]
+
+
+async def test_5_aplazo_no_saca_el_caso_del_seguimiento(
+    db: aiosqlite.Connection, modelo: Any
+) -> None:
+    _, _, tres, _ = await _escenario(db)
+    registrada = await _registrar(db)
+    aplazo = (await consejo.decisiones_del_acta(db, registrada.acta_id))[2]
+    await consejo.aplicar(db, aplazo.id, caso_id=tres, persona="A", direccion=DIRECCION)
+    caso = await repo.get_caso(db, tres)
+    assert caso is not None and caso.estado == EstadoCaso.LISTO
+    assert caso.consejo is not None and caso.consejo.sentido == SentidoConsejo.APLAZO
+    assert tres in [c.id for c in await repo.casos_listos(db, direccion=DIRECCION)]
+
+
+async def test_6_sin_recomendacion_del_comite_va_a_duda(
+    db: aiosqlite.Connection, modelo: Any
+) -> None:
+    await _caso(db, "Persona Ficticia Uno", "1000000001", sentido=Sentido.PENDIENTE)
+    registrada = await _registrar(db)
+    p = registrada.propuestas[0]
+    assert p.cruce == Cruce.DUDOSO and "recomendación" in (p.motivo or "")
+
+
+async def test_7_tope_de_texto_y_lectura_cortada(
+    db: aiosqlite.Connection, modelo: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "acta_consejo_max_caracteres", 100)
+    with pytest.raises(consejo.ErrorActa, match="máximo"):
+        await _registrar(db)
+    assert modelo.llamadas == []  # no se envió al modelo
+
+    monkeypatch.setattr(settings, "acta_consejo_max_caracteres", 150_000)
+
+    class Cortado:
+        async def extraer(self, **kw: Any) -> Resultado:
+            return Resultado(
+                None, 9000, 16000, error="La respuesta del modelo quedó incompleta."
+            )
+
+    extraccion.set_estructurador(Cortado())  # type: ignore[arg-type]
+    with pytest.raises(consejo.ErrorActa, match="se perderían decisiones"):
+        await _registrar(db)
+    cur = await db.execute("SELECT COUNT(*) FROM actas_consejo")
+    assert (await cur.fetchone())[0] == 0  # type: ignore[index]
+
+
+async def test_8_doble_clic_registra_una_sola_vez(
+    db: aiosqlite.Connection, modelo: Any
+) -> None:
+    import asyncio
+
+    await _escenario(db)
+    registrada = await _registrar(db)
+    f = (await consejo.decisiones_del_acta(db, registrada.acta_id))[0]
+    resultados = await asyncio.gather(
+        consejo.aplicar(db, f.id, caso_id=None, persona="A", direccion=DIRECCION),
+        consejo.aplicar(db, f.id, caso_id=None, persona="B", direccion=DIRECCION),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(r, consejo.ErrorActa) for r in resultados) == 1
+    dobles = await asyncio.gather(
+        consejo.aplicar_exactos(
+            db, registrada.acta_id, persona="A", direccion=DIRECCION
+        ),
+        consejo.aplicar_exactos(
+            db, registrada.acta_id, persona="B", direccion=DIRECCION
+        ),
+    )
+    assert sum(len(d) for d in dobles) == 1  # quedaba un solo cruce exacto
+
+
+# ---------------------------------------------------------------------------
+# Segunda revisión del PR #16
+# ---------------------------------------------------------------------------
+
+
+async def test_b_decision_previa_se_ofrece_reemplazar_en_cualquier_fila(
+    db: aiosqlite.Connection, modelo: Any, web: TestClient
+) -> None:
+    uno, *_ = await _escenario(db)
+    adm = await _cabecera(db, "adm@unal.edu.co", "administrativa", DIRECCION)
+    base = "/api/web/actas/consejo"
+    primera = web.post(
+        base, headers=adm, files={"archivo": (ACTA.name, ACTA.read_bytes())}
+    ).json()
+    segunda = web.post(
+        base, headers=adm, files={"archivo": (ACTA.name, ACTA.read_bytes())}
+    ).json()
+    # El caso recibe su decisión después de subir la segunda: la fila de la
+    # segunda sigue como cruce exacto, sin motivo de «ya tiene una decisión».
+    f1, f2 = primera["cruzaron"][0], segunda["cruzaron"][0]
+    assert f2["motivo"] is None
+    r = web.post(
+        f"{base}/{primera['id']}/decisiones/{f1['id']}/confirmar", headers=adm, json={}
+    )
+    assert r.status_code == 200
+    url = f"{base}/{segunda['id']}/decisiones/{f2['id']}/confirmar"
+    r = web.post(url, headers=adm, json={})
+    assert r.status_code == 409 and "reemplazarla" in r.json()["detail"]
+    r = web.post(url, headers=adm, json={"reemplazar": True})
+    assert r.status_code == 200, r.text
+    caso = await repo.get_caso(db, uno)
+    assert caso is not None and caso.consejo is not None
+
+
+async def test_c_sin_verificar_con_fragmento_literal_se_asigna_a_mano(
+    db: aiosqlite.Connection, modelo: Any, web: TestClient
+) -> None:
+    *_, cuatro = await _escenario(db)
+    # El modelo atribuyó la fila 4.4 a otra persona: el fragmento es literal,
+    # pero el nombre y el documento no están en él.
+    modelo.salida.decisiones.append(
+        DecisionLeida(
+            nombre_estudiante="Persona Ficticia Cuatro",
+            documento="1000000004",
+            texto_decision="APROBADO",
+            fragmento=F_AUSENTE,
+        )
+    )
+    adm = await _cabecera(db, "adm@unal.edu.co", "administrativa", DIRECCION)
+    d = web.post(
+        "/api/web/actas/consejo",
+        headers=adm,
+        files={"archivo": (ACTA.name, ACTA.read_bytes())},
+    ).json()
+    sin_verificar = [f for f in d["en_duda"] if f["cruce"] == "no_verificado"]
+    inventado, atribuido = sin_verificar
+    assert inventado["asignable"] is False  # fragmento que no está en el acta
+    assert atribuido["asignable"] is True
+    url = f"/api/web/actas/consejo/{d['id']}/decisiones"
+    # Sin elegir caso no se aplica; eligiéndolo, sí.
+    assert (
+        web.post(f"{url}/{atribuido['id']}/confirmar", headers=adm, json={}).status_code
+        == 409
+    )
+    r = web.post(
+        f"{url}/{atribuido['id']}/confirmar", headers=adm, json={"caso_id": cuatro}
+    )
+    assert r.status_code == 200, r.text
+    r = web.post(
+        f"{url}/{inventado['id']}/confirmar", headers=adm, json={"caso_id": cuatro}
+    )
+    assert r.status_code == 409
+
+
+async def test_d_candidatos_de_dos_areas_no_muestran_el_acta(
+    db: aiosqlite.Connection, modelo: Any, web: TestClient
+) -> None:
+    _, _, tres, _ = await _escenario(db)
+    ajeno = await _caso(
+        db, "Persona Ficticia Tres", "1000000033", direccion="matematicas"
+    )
+    admin = await _cabecera(db, "admin@unal.edu.co", "admin", None)
+    adm = await _cabecera(db, "adm@unal.edu.co", "administrativa", DIRECCION)
+    d = web.post(
+        "/api/web/actas/consejo",
+        headers=admin,
+        files={"archivo": (ACTA.name, ACTA.read_bytes())},
+    ).json()
+    fila_admin = next(f for f in d["en_duda"] if f["leida"]["fragmento"] == F_TRES)
+    assert {c["id"] for c in fila_admin["candidatos"]} == {tres, ajeno}
+    assert fila_admin["oculta"] is False
+
+    d = web.get(f"/api/web/actas/consejo/{d['id']}", headers=adm).json()
+    fila = next(f for f in d["en_duda"] if f["id"] == fila_admin["id"])
+    assert fila["oculta"] is True
+    assert [c["id"] for c in fila["candidatos"]] == [tres]
+    assert fila["leida"]["fragmento"] == ""
+    assert fila["leida"]["nombre_estudiante"] is None
+    assert "1000000033" not in str(d)
+
+
+async def test_e_decision_previa_atomica_y_reversion(
+    db: aiosqlite.Connection, modelo: Any
+) -> None:
+    import asyncio
+
+    from app.db.session import connect
+
+    uno, *_ = await _escenario(db)
+    a = await _registrar(db)
+    b = await _registrar(db)
+    fa = (await consejo.decisiones_del_acta(db, a.acta_id))[0]
+    fb = (await consejo.decisiones_del_acta(db, b.acta_id))[0]
+
+    # Dos confirmaciones del mismo caso desde dos conexiones (dos peticiones).
+    c1, c2 = await connect(), await connect()
+    try:
+        resultados = await asyncio.gather(
+            consejo.aplicar(c1, fa.id, caso_id=None, persona="A", direccion=DIRECCION),
+            consejo.aplicar(c2, fb.id, caso_id=None, persona="B", direccion=DIRECCION),
+            return_exceptions=True,
+        )
+    finally:
+        await c1.close()
+        await c2.close()
+    errores = [r for r in resultados if isinstance(r, consejo.ErrorActa)]
+    assert len(errores) == 1 and "reemplazarla" in str(errores[0])
+    ganador = "A" if not isinstance(resultados[0], Exception) else "B"
+    assert (await repo.decision_consejo(db, uno)).confirmado_por == ganador  # type: ignore[union-attr]
+    # La fila del que perdió se revirtió: sigue pendiente, sin caso aplicado.
+    filas = {
+        f.id: f
+        for f in await consejo.decisiones_del_acta(db, a.acta_id)
+        + await consejo.decisiones_del_acta(db, b.acta_id)
+    }
+    perdedora = fb.id if ganador == "A" else fa.id
+    assert filas[perdedora].estado == EstadoDecision.PENDIENTE
+
+    # La guarda está en la sentencia misma, no solo en la lectura previa.
+    previa = await repo.decision_consejo(db, uno)
+    assert previa is not None
+    with pytest.raises(consejo.ErrorActa, match="reemplazarla"):
+        await consejo._guardar_decision(
+            db,
+            previa.model_copy(update={"confirmado_por": "C"}),
+            a.acta_id,
+            fa.id,
+            False,
+        )
+    await db.rollback()
+    assert (await repo.decision_consejo(db, uno)).confirmado_por == ganador  # type: ignore[union-attr]
