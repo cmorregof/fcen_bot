@@ -26,6 +26,7 @@ from app.servicios.calidad import reloj
 from app.servicios.calidad.avance import borrador as bor
 from app.servicios.calidad.avance import fuentes, salidas
 from app.servicios.calidad.avance.fuentes import AccionCorte
+from app.servicios.calidad.avance.nombres import nombres_en_plan
 from app.servicios.calidad.config import calidad_settings
 from app.servicios.calidad.plan import PlanGuardado
 from app.servicios.calidad.soportes import corrida as revisor
@@ -42,6 +43,7 @@ DESCARGAS: dict[str, tuple[str, str]] = {
 }
 
 _tarea: asyncio.Task[None] | None = None
+_ocupado = False  # un lanzamiento o un borrado en curso (antes de crear la tarea)
 
 
 class Ocupado(Exception):
@@ -96,7 +98,7 @@ def descarga(clave: str) -> tuple[Path, str, str] | None:
 
 
 def borrar() -> None:
-    if corriendo():
+    if corriendo() or _ocupado:
         raise Ocupado
     shutil.rmtree(base(), ignore_errors=True)
 
@@ -117,7 +119,7 @@ def cortes_disponibles(pg: PlanGuardado) -> dict[str, Any]:
 
 
 def preparar(pg: PlanGuardado, corte: date) -> tuple[list[AccionCorte], set[str]]:
-    nombres = fuentes.nombres_en_plan(pg)
+    nombres = nombres_en_plan(pg)
     soportes = leer_indice(revisor.cache(), pg.programa)
     return fuentes.armar(pg, corte, soportes, nombres), nombres
 
@@ -153,37 +155,42 @@ async def lanzar(
     """`costo_confirmado`: la cifra que la persona vio y aceptó. Si la
     estimación de ahora es otra, no corre. El cliente se crea al final, ya
     validados el tope y la corrida en curso."""
-    global _tarea
-    if corriendo():
+    global _tarea, _ocupado
+    # Se marca antes del primer `await`: dos peticiones simultáneas no pasan.
+    if corriendo() or _ocupado:
         raise Ocupado
-    acciones, nombres = await asyncio.to_thread(preparar, pg, corte)
-    est = await asyncio.to_thread(estimacion, acciones)
-    if est["excede_tope"]:
-        raise NoSePuede(est["excede_tope"])
-    if abs(est["costo_usd"] - costo_confirmado) > 0.005:
-        raise NoSePuede(
-            f"La estimación cambió ({est['costo_usd']:.2f} USD, no "
-            f"{costo_confirmado:.2f}). Vuelva a estimar y confirmar."
+    _ocupado = True
+    try:
+        acciones, nombres = await asyncio.to_thread(preparar, pg, corte)
+        est = await asyncio.to_thread(estimacion, acciones)
+        if est["excede_tope"]:
+            raise NoSePuede(est["excede_tope"])
+        if abs(est["costo_usd"] - costo_confirmado) > 0.005:
+            raise NoSePuede(
+                f"La estimación cambió ({est['costo_usd']:.2f} USD, no "
+                f"{costo_confirmado:.2f}). Vuelva a estimar y confirmar."
+            )
+        cliente: ClienteModelo = (
+            crear_cliente() if est["al_modelo"] else cast(ClienteModelo, _SinModelo())
         )
-    cliente: ClienteModelo = (
-        crear_cliente() if est["al_modelo"] else cast(ClienteModelo, _SinModelo())
-    )
-    await asyncio.to_thread(shutil.rmtree, base(), True)
-    estado: dict[str, Any] = {
-        "estado": "corriendo",
-        "programa": pg.programa,
-        "corte": corte.isoformat(),
-        "lanzado_por": usuario,
-        "inicio": reloj.ahora().isoformat(timespec="seconds"),
-        "estimacion": est,
-        "hechas": 0,
-        "total": len(acciones),
-        "costo_usd": 0.0,
-        "resumen": None,
-        "error": "",
-    }
-    _guardar(estado)
-    _tarea = asyncio.create_task(_correr(estado, pg, acciones, nombres, cliente))
+        await asyncio.to_thread(shutil.rmtree, base(), True)
+        estado: dict[str, Any] = {
+            "estado": "corriendo",
+            "programa": pg.programa,
+            "corte": corte.isoformat(),
+            "lanzado_por": usuario,
+            "inicio": reloj.ahora().isoformat(timespec="seconds"),
+            "estimacion": est,
+            "hechas": 0,
+            "total": len(acciones),
+            "costo_usd": 0.0,
+            "resumen": None,
+            "error": "",
+        }
+        _guardar(estado)
+        _tarea = asyncio.create_task(_correr(estado, pg, acciones, nombres, cliente))
+    finally:
+        _ocupado = False
 
 
 async def _correr(

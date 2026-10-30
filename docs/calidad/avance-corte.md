@@ -23,8 +23,8 @@ Si no hay ninguna fuente nueva, el borrador dice «Sin evidencia nueva en el cor
 Cada frase termina con sus citas. Un verificador determinista (`avance/borrador.py::verificar`, en la línea de `soportes/verificador.py`) rechaza la frase que:
 1. no cita ninguna fuente en el texto, o cuyo campo `citas` no coincide con las del texto;
 2. cita una fuente que no existe para esa acción;
-3. trae cifras, fechas o enlaces que no están literalmente en las fuentes que cita (o un % distinto del declarado o de los de esas fuentes);
-4. se apoya solo en `[P1]` (la acción en el plan, que es contexto) sin restituir una cifra suya;
+3. trae cifras, fechas, enlaces (completos, con o sin esquema) o un % que no están como token literal en las fuentes que cita: una cifra suelta no vale si solo aparece dentro de una fecha o una URL; las fechas «12 de octubre» deben coincidir con una fecha de la fuente; un número o mes escrito con letras sin respaldo literal se marca «revisar». `[P1]` (la acción en el plan) es contexto: solo respalda el % declarado, no cifras ni fechas, y el código de la acción no cuenta como cifra;
+4. se apoya solo en `[P1]` sin restituir el % declarado;
 5. nombra a una persona.
 
 La frase rechazada **no entra al texto propuesto**: sale aparte con ⚠ y el motivo. Si nombraba a una persona se reemplaza por «[frase omitida: menciona a una persona]»: ni las salidas ni la caché guardan el texto original.
@@ -32,7 +32,9 @@ La frase rechazada **no entra al texto propuesto**: sale aparte con ⚠ y el mot
 Límite: las cifras escritas con letras («cuarenta») no se comparan.
 
 ## Privacidad
-Todo texto del plan (objetivo, acción, indicador, cortes, tareas) y de las descripciones del revisor pasa por `ocultar` antes de ir al modelo o a las salidas: nombres de los campos de responsables (sin importar tildes ni mayúsculas, palabra completa), «título + nombre», correos y teléfonos.
+**Los filtros son una red de seguridad, no una garantía.** Con expresiones regulares no se detectan todos los nombres ni todas las cifras mal puestas. La revisión humana de Calidad es obligatoria antes de usar el borrador (el aviso sale en la pantalla, en el docx y en el Excel), y por eso la función sigue apagada hasta el aval de datos.
+
+El campo `citas` solo conserva IDs válidos (`P1`, `E3`, `S012`…); lo demás se descarta antes de la caché. Todo texto del plan (objetivo, acción, indicador, cortes, tareas) y de las descripciones del revisor pasa por `ocultar` antes de ir al modelo o a las salidas: nombres de los campos de responsables (sin importar tildes ni mayúsculas, palabra completa), títulos con nombre o apellido («prof.», «dra.», «ing.», «sra.»…, también en minúsculas), «con/por + nombre completo», correos y teléfonos. Los cargos y dependencias («Facultad de Ciencias Exactas», «Dirección del programa») no se tocan. Los caracteres invisibles y los espacios dobles no evaden el filtro.
 
 ## Salidas
 - `borrador_avance.docx`: encabezado «BORRADOR — propuesta…», una sección por objetivo y acción, el párrafo propuesto, sus fuentes con hoja y fila, y las frases sin fuente marcadas.

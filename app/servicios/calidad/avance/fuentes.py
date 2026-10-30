@@ -16,15 +16,16 @@ from __future__ import annotations
 
 import calendar
 import re
-import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 
+from app.servicios.calidad.avance.nombres import ocultar
 from app.servicios.calidad.plan import CorteGuardado, PlanGuardado
-from app.servicios.calidad.plantilla import Accion, Objetivo, TareaCronograma, plegar
+from app.servicios.calidad.plantilla import Accion, Objetivo, TareaCronograma
 from app.servicios.calidad.soportes.modelos import DescripcionArchivo
 
 ID = r"(?:[PCE]\d+|S\d{3,})"
+ID_COMPLETO = re.compile(rf"{ID}$")
 PATRON_ID = re.compile(rf"\b{ID}\b")
 # Un corchete con uno o varios IDs: [P2], [P2, E1], [S012; C1].
 PATRON_CITA = re.compile(rf"\[({ID}(?:\s*[,;]\s*{ID})*)\]")
@@ -33,39 +34,6 @@ PATRON_CITA = re.compile(rf"\[({ID}(?:\s*[,;]\s*{ID})*)\]")
 MAX_CORTES_PREVIOS = 2
 # Cada fuente se recorta para que el prompt tenga un tamaño predecible.
 MAX_CARACTERES_FUENTE = 900
-
-CORREO = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-TELEFONO = re.compile(r"(?<!\d)(?:\+?57)?\s?3\d{2}[\s-]?\d{3}[\s-]?\d{4}(?!\d)")
-# «profesor Juan Pérez», «la doctora Ana Gómez»: un título seguido de un nombre.
-TITULO_Y_NOMBRE = re.compile(
-    r"\b(?i:profesora?|docente|director[a]?|coordinador[a]?|ingenier[oa]|"
-    r"doctor[a]?|dr|dra|mg|phd|sr|sra|se[ñn]or[a]?|estudiante)\.?\s+"
-    r"[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+"
-)
-
-# Palabras de cargos y dependencias: lo que SÍ puede escribirse.
-_CARGOS = {
-    plegar(p)
-    for p in (
-        "dirección direccion director directora coordinación coordinacion "
-        "coordinador coordinadora comité comite asesor asesora oficina calidad "
-        "programa facultad decanatura decano decana vicedecanatura consejo sede "
-        "secretaría secretaria académica academica área area unidad jefe jefatura "
-        "profesor profesora docente docentes estudiantes estudiante bienestar "
-        "departamento escuela maestría maestria doctorado posgrado pregrado "
-        "curricular grupo equipo ejemplo ficticio universidad nacional manizales "
-        "investigación investigacion extensión extension acreditación acreditacion "
-        "autoevaluación autoevaluacion sistema servicio apoyo gestión gestion "
-        "ciencias exactas naturales ingeniería ingenieria arquitectura "
-        "administración administracion humanas económicas economicas sociales "
-        "salud artes educación educacion física fisica química quimica "
-        "matemáticas matematicas biología biologia geología geologia "
-        "estadística estadistica computación computacion ambiental biotecnología "
-        "biotecnologia ecología ecologia currículo curriculo plan mejoramiento "
-        "sede nacional colombia caldas"
-    ).split()
-}
-_ENLACES = {"de", "del", "la", "el", "los", "las", "y", "e", "en", "para", "con"}
 
 
 @dataclass
@@ -99,90 +67,6 @@ class AccionCorte:
 
     def por_id(self) -> dict[str, Fuente]:
         return {f.id: f for f in self.fuentes}
-
-
-# ---------------------------------------------------------------------------
-# Nombres de personas
-# ---------------------------------------------------------------------------
-
-
-def nombres_en_plan(pg: PlanGuardado) -> set[str]:
-    """Nombres de personas que el plan trae en los campos de responsables.
-
-    Los campos suelen traer cargos («Dirección del programa»); un segmento se
-    toma como nombre si, quitando palabras de cargos y conectores, le quedan
-    dos o más palabras con mayúscula inicial.
-    """
-    campos: list[str] = []
-    for a in pg.plan.acciones:
-        campos.append(a.responsables)
-        campos += [t.responsable for t in a.tareas]
-    nombres: set[str] = set()
-    for campo in campos:
-        for segmento in re.split(r"[,;/\n]|\s+y\s+|\s+e\s+", campo or ""):
-            restantes = [
-                p
-                for p in re.findall(r"[^\W\d_]+", segmento)
-                if p[:1].isupper()
-                and plegar(p) not in _CARGOS
-                and plegar(p) not in _ENLACES
-            ]
-            if len(restantes) >= 2:
-                nombres.add(" ".join(restantes))
-                nombres.update(
-                    f"{a} {b}" for a, b in zip(restantes, restantes[1:], strict=False)
-                )
-    return nombres
-
-
-def _plano(texto: str) -> tuple[str, list[int]]:
-    """Minúsculas y sin tildes, con la posición original de cada carácter."""
-    salida: list[str] = []
-    mapa: list[int] = []
-    for i, ch in enumerate(texto):
-        for d in unicodedata.normalize("NFKD", ch):
-            if not unicodedata.combining(d):
-                salida.append(d.lower())
-                mapa.append(i)
-    return "".join(salida), mapa
-
-
-def _tramos(texto: str, nombres: set[str]) -> list[tuple[int, int]]:
-    """Dónde aparece cada nombre como palabra completa, sin importar tildes
-    ni mayúsculas. Posiciones del texto original."""
-    plano, mapa = _plano(texto)
-    tramos: list[tuple[int, int]] = []
-    for nombre in nombres:
-        buscado = _plano(nombre)[0].strip()
-        if not buscado:
-            continue
-        for m in re.finditer(rf"(?<!\w){re.escape(buscado)}(?!\w)", plano):
-            tramos.append((mapa[m.start()], mapa[m.end() - 1] + 1))
-    return tramos
-
-
-def ocultar(texto: str, nombres: set[str]) -> str:
-    """Quita nombres conocidos, títulos con nombre, correos y teléfonos antes
-    de mandar o mostrar texto del plan o de los soportes."""
-    fusion: list[list[int]] = []
-    for ini, fin in sorted(_tramos(texto, nombres)):
-        if fusion and ini <= fusion[-1][1]:
-            fusion[-1][1] = max(fusion[-1][1], fin)
-        else:
-            fusion.append([ini, fin])
-    for ini, fin in reversed(fusion):
-        texto = texto[:ini] + "[responsable]" + texto[fin:]
-    texto = TITULO_Y_NOMBRE.sub("[persona]", texto)
-    texto = CORREO.sub("[correo]", texto)
-    return TELEFONO.sub("[teléfono]", texto)
-
-
-def con_nombre_de_persona(texto: str, nombres: set[str]) -> bool:
-    """Verificación de la salida: un nombre conocido, un correo, un teléfono o
-    un título seguido de un nombre."""
-    if CORREO.search(texto) or TELEFONO.search(texto) or TITULO_Y_NOMBRE.search(texto):
-        return True
-    return bool(_tramos(texto, nombres))
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +177,7 @@ def _una(
                 nuevo(prefijo),
                 tipo,
                 ocultar(_recorte(texto), nombres),
-                ref,
+                ocultar(ref, nombres),
                 nueva,
                 contexto,
             )

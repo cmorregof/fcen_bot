@@ -22,12 +22,16 @@ from app.servicios.calidad.soportes.salidas import (
 )
 
 DECISIONES = "Aprobado,Editar,Descartar"
+AVISO_FILTRO = (
+    "Los filtros automáticos de nombres, cifras y citas son una red de seguridad, "
+    "no una garantía: Calidad debe revisar cada frase antes de usar el borrador."
+)
 AVISO = (
     "Cada frase cita su fuente: [P] es la hoja y fila del plan, [C] un corte "
     "anterior, [E] un enlace de evidencia registrado y [S] un soporte que el "
     "revisor describió. Las frases sin fuente verificada se marcan con ⚠ y no se "
     "afirman. El borrador es una propuesta: la oficina de calidad lo aprueba, lo "
-    "edita o lo descarta."
+    "edita o lo descarta. " + AVISO_FILTRO
 )
 
 

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from app.servicios.calidad.avance import borrador as bor
 from app.servicios.calidad.avance import fuentes, salidas
+from app.servicios.calidad.avance import nombres as nm
 from app.servicios.calidad.plan import PlanGuardado, Soporte
 from app.servicios.calidad.soportes.cliente import Respuesta
 from app.servicios.calidad.soportes.describir import Cache
@@ -71,7 +72,7 @@ def con_enlace(pg: PlanGuardado, codigo: str, url: str, creado: str) -> None:
 
 
 def armar(pg: PlanGuardado, **kw: Any) -> list[fuentes.AccionCorte]:
-    return fuentes.armar(pg, CORTE, kw.get("soportes", {}), fuentes.nombres_en_plan(pg))
+    return fuentes.armar(pg, CORTE, kw.get("soportes", {}), nm.nombres_en_plan(pg))
 
 
 def accion(acciones: list[fuentes.AccionCorte], codigo: str) -> fuentes.AccionCorte:
@@ -86,7 +87,7 @@ async def correr(
         "Ejemplo",
         CORTE.isoformat(),
         acciones,
-        fuentes.nombres_en_plan(pg),
+        nm.nombres_en_plan(pg),
         modelo,
         Cache(tmp_path / "c"),
     )
@@ -186,7 +187,7 @@ async def test_accion_sin_evidencia_no_llama_al_modelo_ni_inventa(
 async def test_sin_nombres_de_personas(tmp_path: Path) -> None:
     pg = guardado(PERSONA)
     con_enlace(pg, "1.1.1", "https://ejemplo.invalid/drive/nuevo", "2026-10-01T10:00")
-    nombres = fuentes.nombres_en_plan(pg)
+    nombres = nm.nombres_en_plan(pg)
     assert PERSONA in nombres
     # Los cargos del resto del plan no se toman por nombres.
     assert not any("Dirección" in n or "Comité" in n for n in nombres)
@@ -298,7 +299,7 @@ async def test_el_nombre_no_aparece_en_ninguna_parte(tmp_path: Path) -> None:
         "Ejemplo",
         CORTE.isoformat(),
         acciones,
-        fuentes.nombres_en_plan(pg),
+        nm.nombres_en_plan(pg),
         modelo,
         cache,
     )
@@ -321,14 +322,12 @@ async def test_el_nombre_no_aparece_en_ninguna_parte(tmp_path: Path) -> None:
 
 def test_ocultar_ignora_tildes_y_mayusculas_y_exige_palabra_completa() -> None:
     nombres = {"Zoila Ficticia Pérez"}
-    assert (
-        fuentes.ocultar("ZOILA FICTICIA PEREZ firmó", nombres) == "[responsable] firmó"
-    )
-    assert fuentes.ocultar("zoila ficticia pérez.", nombres) == "[responsable]."
-    assert fuentes.ocultar("Ana Gómez", {"Ana Gómez"}) == "[responsable]"
-    assert fuentes.ocultar("Mariana Gómez", {"Ana Gómez"}) == "Mariana Gómez"
-    assert fuentes.ocultar("el profesor Juan Gómez", set()) == "el [persona]"
-    assert fuentes.con_nombre_de_persona("ZOILA FICTICIA PEREZ", nombres)
+    assert nm.ocultar("ZOILA FICTICIA PEREZ firmó", nombres) == "[responsable] firmó"
+    assert nm.ocultar("zoila ficticia pérez.", nombres) == "[responsable]."
+    assert nm.ocultar("Ana Gómez", {"Ana Gómez"}) == "[responsable]"
+    assert nm.ocultar("Mariana Gómez", {"Ana Gómez"}) == "Mariana Gómez"
+    assert nm.ocultar("el profesor Juan Gómez", set()) == "el [persona]"
+    assert nm.con_nombre_de_persona("ZOILA FICTICIA PEREZ", nombres)
 
 
 def test_cargos_e_instituciones_no_son_nombres() -> None:
@@ -337,9 +336,9 @@ def test_cargos_e_instituciones_no_son_nombres() -> None:
         "Facultad de Ciencias Exactas y Naturales, Dirección del programa, "
         "Oficina de Calidad; Comité Asesor"
     )
-    assert fuentes.nombres_en_plan(pg) == set()
+    assert nm.nombres_en_plan(pg) == set()
     texto = "La Facultad de Ciencias Exactas publicó la pieza"
-    assert fuentes.ocultar(texto, fuentes.nombres_en_plan(pg)) == texto
+    assert nm.ocultar(texto, nm.nombres_en_plan(pg)) == texto
 
 
 def verificar(
@@ -436,3 +435,141 @@ def test_soporte_del_revisor_pasa_por_el_filtro_de_nombres() -> None:
     texto = next(f for f in a.fuentes if f.id == "S001").texto
     for secreto in ("Ana", "ana@", "3105551234"):
         assert secreto not in texto
+
+
+# ---------------------------------------------------------------------------
+# Segunda revisión: citas en la caché, hechos por token, filtro de nombres
+# ---------------------------------------------------------------------------
+
+
+async def test_el_campo_citas_no_filtra_datos_a_la_cache(tmp_path: Path) -> None:
+    pg = guardado(PERSONA)
+    a0 = pg.plan.acciones[0]
+    con_enlace(pg, a0.codigo, "https://ejemplo.invalid/drive/nuevo", "2026-10-01T10:00")
+    modelo = ModeloFalso(
+        [
+            {
+                "texto": "Hay un enlace nuevo [E3].",
+                "citas": ["E3", "zoila@ejemplo.test"],
+            },
+            {"texto": "Otro enlace nuevo [E3].", "citas": ["E3", PERSONA]},
+        ]
+    )
+    cache = Cache(tmp_path / "cache")
+    b = await bor.generar(
+        "Ejemplo", CORTE.isoformat(), armar(pg), nm.nombres_en_plan(pg), modelo, cache
+    )
+    salidas.borrador_docx(tmp_path / "salida" / "b.docx", b)
+    texto = todo_el_texto(tmp_path)
+    for secreto in ("Zoila", "zoila", "ejemplo.test"):
+        assert secreto not in texto
+    a = next(x for x in b.acciones if x.base.accion.codigo == a0.codigo)
+    # Solo sobreviven los IDs válidos.
+    assert all(f.citas == ["E3"] for f in a.frases if f.valida)
+
+
+@pytest.mark.parametrize(
+    ("texto", "citas", "motivo"),
+    [
+        # [P1] no respalda cifras ni fechas.
+        ("Se avanzó hasta el 60 % en 2026 [P1].", ["P1"], bor.MOTIVO_DATO_SIN_FUENTE),
+        # Una cifra suelta dentro de una fecha de la fuente no cuenta.
+        ("Asistieron 10 personas [E3].", ["E3"], bor.MOTIVO_DATO_SIN_FUENTE),
+        ("Asistieron 2026 personas [E3].", ["E3"], bor.MOTIVO_DATO_SIN_FUENTE),
+        ("Fue el 12 de octubre [E3].", ["E3"], bor.MOTIVO_DATO_SIN_FUENTE),
+        ("Fue el 2026-10-02 [E3].", ["E3"], bor.MOTIVO_DATO_SIN_FUENTE),
+        # URL completa, con o sin esquema; ni prefijos ni otros sitios.
+        (
+            "Ver https://ejemplo.invalid/drive/nue [E3].",
+            ["E3"],
+            bor.MOTIVO_DATO_SIN_FUENTE,
+        ),
+        ("Ver ejemplo.invalid/otro [E3].", ["E3"], bor.MOTIVO_DATO_SIN_FUENTE),
+        ("Ver www.otro.com/x [E3].", ["E3"], bor.MOTIVO_DATO_SIN_FUENTE),
+        # En palabras: se marcan «revisar».
+        ("Hubo cuarenta asistentes [E3].", ["E3"], bor.MOTIVO_REVISAR),
+        ("Se hizo en septiembre [E3].", ["E3"], bor.MOTIVO_REVISAR),
+        # El % declarado solo vale si la frase cita la acción en el plan.
+        ("El avance llegó al 60 % [E3].", ["E3"], bor.MOTIVO_DATO_SIN_FUENTE),
+    ],
+)
+def test_hechos_literales_por_token(texto: str, citas: list[str], motivo: str) -> None:
+    f = verificar(texto, citas)
+    assert not f.valida and f.motivo == motivo
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Se registró el 1 de octubre de 2026 un enlace [E3].",
+        "El enlace se registró el 2026-10-01 [E3].",
+        "Se registró en octubre https://ejemplo.invalid/drive/nuevo [E3].",
+        "Se registró ejemplo.invalid/drive/nuevo [E3].",
+        "El plan declara 60 % de avance [P1].",
+        "Para la acción 1.1.1 hay un enlace nuevo [E3].",
+    ],
+)
+def test_hechos_que_si_estan_en_la_fuente(texto: str) -> None:
+    citas = list(dict.fromkeys(nm_citas(texto)))
+    assert verificar(texto, citas).valida, texto
+
+
+def nm_citas(texto: str) -> list[str]:
+    return fuentes.citas_en_texto(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Prof. Ana Gómez presentó la pieza",
+        "La profesora ana gómez presentó la pieza",
+        "La Sra. Pérez presentó la pieza",
+        "la dra. gomez presentó la pieza",
+        "El ing. Pérez presentó la pieza",
+        "La lic. lópez presentó la pieza",
+        "Se hizo con Juan Gómez",
+        "Se hizo por Ana Pérez Ruiz",
+        "Zoila​Ficticia Pérez presentó la pieza",
+        "Zoila  Ficticia   Pérez presentó la pieza",
+        "ZOILA PÉREZ presentó la pieza",
+        "Escribir a ana@ejemplo.test",
+    ],
+)
+def test_filtro_detecta_nombres_con_variantes(texto: str) -> None:
+    assert nm.con_nombre_de_persona(texto, nm.nombres_en_plan(guardado(PERSONA)))
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "La estudiante Ciencias Exactas participó",
+        "La coordinadora Curricular Nacional revisó",
+        "El estudiante de posgrado asistió",
+        "Los profesores participaron en la jornada",
+        "Se hizo con Dirección del Programa",
+        "Se hizo por Ciencias Exactas",
+        "El docente del programa presentó la pieza",
+    ],
+)
+def test_filtro_no_marca_cargos_ni_dependencias(texto: str) -> None:
+    assert not nm.con_nombre_de_persona(texto, set())
+    assert nm.ocultar(texto, set()) == texto
+
+
+def test_la_ref_de_la_fuente_tambien_se_oculta() -> None:
+    pg = guardado()
+    con_enlace(
+        pg, "1.1.1", "https://ejemplo.invalid/ana@ejemplo.test/x", "2026-10-01T10:00"
+    )
+    a = accion(armar(pg), "1.1.1")
+    assert all("ana@" not in f.ref for f in a.fuentes)
+
+
+def test_el_docx_y_el_xlsx_llevan_el_aviso_del_filtro(tmp_path: Path) -> None:
+    b = bor.Borrador("Ejemplo", CORTE.isoformat(), [])
+    salidas.borrador_docx(tmp_path / "b.docx", b)
+    salidas.revision_xlsx(tmp_path / "r.xlsx", b)
+    assert "no una garantía" in "\n".join(
+        p.text for p in Document(str(tmp_path / "b.docx")).paragraphs
+    )
+    assert "no una garantía" in todo_el_texto(tmp_path)

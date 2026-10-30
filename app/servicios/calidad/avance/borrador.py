@@ -20,13 +20,14 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.servicios.calidad.avance.fuentes import (
+    ID_COMPLETO,
     PATRON_CITA,
     AccionCorte,
     Fuente,
     citas_en_texto,
-    con_nombre_de_persona,
-    ocultar,
 )
+from app.servicios.calidad.avance.nombres import con_nombre_de_persona, ocultar
+from app.servicios.calidad.plantilla import plegar
 from app.servicios.calidad.soportes.cliente import ClienteConTope, ClienteModelo
 from app.servicios.calidad.soportes.describir import Cache
 from app.servicios.calidad.soportes.modelos import PRECIOS_USD_POR_MILLON, Uso
@@ -46,6 +47,9 @@ MOTIVO_NOMBRE = "menciona a una persona; use solo el cargo o la dependencia"
 MOTIVO_CITAS_NO_COINCIDEN = "las citas del campo no coinciden con las del texto"
 MOTIVO_DATO_SIN_FUENTE = (
     "trae cifras, fechas o enlaces que no están en las fuentes que cita"
+)
+MOTIVO_REVISAR = (
+    "trae un número o un mes en palabras que no aparece literal en las fuentes: revisar"
 )
 MOTIVO_SOLO_CONTEXTO = (
     "solo cita la acción en el plan (contexto): no respalda ese hecho"
@@ -192,45 +196,110 @@ def texto_para_modelo(ac: AccionCorte) -> str:
     return "\n".join(partes)
 
 
-_NUMERO = re.compile(r"\d+(?:[.,]\d+)?")
-_PORCENTAJE = re.compile(r"(\d+(?:[.,]\d+)?)\s?%")
-_URL = re.compile(r"https?://[^\s)\]]+")
+_NUMERO = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)?(?![\w])")
+_PORCENTAJE = re.compile(r"(?<![\w.])(\d+(?:[.,]\d+)?)\s?%")
+_FECHA_ISO = re.compile(r"(?<!\d)(\d{4})-(\d{2})(?:-(\d{2}))?(?!\d)")
+_URL = re.compile(
+    r"(?:https?://|www\.)[^\s)\]>]+"
+    r"|\b(?:[a-z0-9-]+\.)+(?:com|org|net|edu|gov|co|io|invalid|test|app|dev|info)"
+    r"(?:/[^\s)\]>]*)?",
+    re.I,
+)
+MESES = (
+    "enero febrero marzo abril mayo junio julio agosto septiembre octubre "
+    "noviembre diciembre"
+).split()
+_FECHA_TEXTO = re.compile(
+    rf"(?<!\d)(\d{{1,2}})\s+de\s+({'|'.join(MESES)})(?:\s+de\s+(\d{{4}}))?", re.I
+)
+# Números en palabras: no se pueden comparar con cifras; se piden literales.
+_NUMEROS_PALABRAS = {
+    plegar(p)
+    for p in (
+        "dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce "
+        "quince veinte treinta cuarenta cincuenta sesenta setenta ochenta noventa "
+        "cien ciento mil primero segundo tercero cuarto quinto sexto"
+    ).split()
+}
 
 
-def _numeros(texto: str) -> set[str]:
-    """Cifras de un texto, sin ceros a la izquierda ni coma decimal."""
-    salida: set[str] = set()
-    for n in _NUMERO.findall(texto):
-        n = n.replace(",", ".")
-        salida.add(str(int(float(n))) if float(n).is_integer() else n)
-    return salida
+def _numero(n: str) -> str:
+    n = n.replace(",", ".")
+    return str(int(float(n))) if float(n).is_integer() else n
+
+
+def _url(u: str) -> str:
+    u = re.sub(r"^(?:https?://)?(?:www\.)?", "", u.strip().lower())
+    return u.rstrip(".,;:)/")
+
+
+def _datos(
+    texto: str,
+) -> tuple[set[str], set[tuple[int, int | None, int | None]], set[str]]:
+    """Cifras sueltas, fechas ISO (año, mes, día) y URL de un texto. Una cifra
+    dentro de una fecha o de una URL no cuenta como cifra suelta."""
+    urls = {_url(u) for u in _URL.findall(texto)}
+    resto = _URL.sub(" ", texto)
+    fechas = {
+        (int(a), int(m), int(d) if d else None) for a, m, d in _FECHA_ISO.findall(resto)
+    }
+    resto = _FECHA_ISO.sub(" ", resto)
+    resto = _PORCENTAJE.sub(" ", resto)
+    return {_numero(n) for n in _NUMERO.findall(resto)}, fechas, urls  # type: ignore[return-value]
 
 
 def _hechos_sin_fuente(
     ac: AccionCorte, texto: str, citadas: list[str], catalogo: dict[str, Fuente]
 ) -> str:
-    """Motivo si la frase afirma datos que sus fuentes no traen, o si solo cita
-    el contexto del plan; vacío si pasa. Comparación literal, sin modelo."""
+    """Motivo si la frase afirma datos que sus fuentes no traen; vacío si pasa.
+    Comparación literal por token, sin modelo. La acción en el plan ([P1]) es
+    contexto: no respalda cifras ni fechas, salvo el % declarado."""
     fuentes_citadas = [catalogo[c] for c in citadas]
-    respaldo = " ".join(f"{f.texto} {f.ref}" for f in fuentes_citadas)
-    cabecera = f"{ac.accion.codigo} {ac.corte} {ac.anterior or ''}"
-    permitidas = _numeros(respaldo) | _numeros(cabecera)
-    sin_citas = PATRON_CITA.sub("", texto)
-    for url in _URL.findall(sin_citas):
-        if url.rstrip(".,;") not in respaldo:
-            return MOTIVO_DATO_SIN_FUENTE
-    cifras = _numeros(_URL.sub("", sin_citas))
-    if not cifras <= permitidas:
+    respaldo = " ".join(f"{f.texto} {f.ref}" for f in fuentes_citadas if not f.contexto)
+    sin_citas = PATRON_CITA.sub(" ", texto)
+    # El código de la acción identifica, no afirma.
+    sin_citas = re.sub(
+        rf"(?<![\w.]){re.escape(ac.accion.codigo)}(?![\w])", " ", sin_citas
+    )
+    cifras, fechas, urls = _datos(sin_citas)
+    cifras_f, fechas_f, urls_f = _datos(respaldo)
+    if not urls <= urls_f or not fechas <= fechas_f:
         return MOTIVO_DATO_SIN_FUENTE
-    declarado = ac.accion.avance
-    for p in _PORCENTAJE.findall(sin_citas):
-        valor = float(p.replace(",", "."))
-        en_fuentes = any(
-            float(q.replace(",", ".")) == valor for q in _PORCENTAJE.findall(respaldo)
-        )
-        if not en_fuentes and (declarado is None or valor != declarado):
+    # Fechas escritas «12 de octubre [de 2026]»: deben coincidir con una fecha
+    # ISO de las fuentes (día y mes, y año si lo trae).
+    for dia, mes, anio in _FECHA_TEXTO.findall(sin_citas):
+        m = MESES.index(mes.lower()) + 1
+        if not any(
+            f[1] == m and f[2] == int(dia) and (not anio or f[0] == int(anio))
+            for f in fechas_f
+        ):
             return MOTIVO_DATO_SIN_FUENTE
-    if all(f.contexto for f in fuentes_citadas) and not cifras:
+    sin_fechas = _FECHA_TEXTO.sub(" ", sin_citas)
+    cifras = _datos(sin_fechas)[0]
+    if not cifras <= cifras_f:
+        return MOTIVO_DATO_SIN_FUENTE
+    plano = plegar(respaldo)
+    # Meses y números en palabras: solo con respaldo literal o fecha de la fuente.
+    mes_ok = {f[1] for f in fechas_f}
+    for palabra in re.findall(r"[^\W\d_]+", sin_fechas):
+        p = plegar(palabra)
+        if p in _NUMEROS_PALABRAS and not re.search(rf"\b{p}\b", plano):
+            return MOTIVO_REVISAR
+        if p in MESES and MESES.index(p) + 1 not in mes_ok:
+            if not re.search(rf"\b{p}\b", plano):
+                return MOTIVO_REVISAR
+    declarado = ac.accion.avance
+    cita_contexto = any(f.contexto for f in fuentes_citadas)
+    porcentajes = [float(q.replace(",", ".")) for q in _PORCENTAJE.findall(sin_citas)]
+    en_fuentes = {float(q.replace(",", ".")) for q in _PORCENTAJE.findall(respaldo)}
+    for valor in porcentajes:
+        if valor in en_fuentes:
+            continue
+        # El % declarado solo vale si la frase cita la acción en el plan.
+        if declarado is None or valor != declarado or not cita_contexto:
+            return MOTIVO_DATO_SIN_FUENTE
+    solo_contexto = all(f.contexto for f in fuentes_citadas)
+    if solo_contexto and not (porcentajes and declarado is not None):
         return MOTIVO_SOLO_CONTEXTO
     return ""
 
@@ -243,7 +312,13 @@ def depurar(frases: list[FraseAvance], nombres: set[str]) -> list[FraseAvance]:
         if con_nombre_de_persona(f.texto, nombres):
             salida.append(FraseAvance(texto=OMITIDA, citas=[]))
         else:
-            salida.append(f)
+            # `citas` solo puede traer IDs: lo demás podría ser un dato personal.
+            ids = [c.strip().strip("[]") for c in f.citas]
+            salida.append(
+                FraseAvance(
+                    texto=f.texto, citas=[c for c in ids if ID_COMPLETO.match(c)]
+                )
+            )
     return salida
 
 

@@ -252,3 +252,28 @@ async def test_el_cliente_con_tope_detiene_la_corrida(tmp_path: Path) -> None:
     )
     assert modelo.textos == [] and "tope" in b.detenido
     assert all(a.error for a in b.acciones if not a.sin_evidencia_nueva)
+
+
+async def test_dos_generar_simultaneos_lanzan_una_sola_corrida(
+    falso: ModeloFalso,
+) -> None:
+    import asyncio
+
+    pg = guardado()
+    con_enlace(pg, "1.1.1", "https://ejemplo.invalid/drive/nuevo", "2026-10-01T10:00")
+    acciones, _ = avance.preparar(pg, date.fromisoformat(CORTE))
+    costo = avance.estimacion(acciones)["costo_usd"]
+    resultados = await asyncio.gather(
+        *(
+            avance.lanzar(
+                pg, date.fromisoformat(CORTE), avance.crear_cliente, "x", costo
+            )
+            for _ in range(3)
+        ),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(r, avance.Ocupado) for r in resultados) == 2
+    assert falso.clientes == 1
+    await avance.esperar()
+    assert falso.llamadas == 1
+    assert avance.leer_estado()["estado"] == "terminado"

@@ -177,6 +177,10 @@ export default function BorradorAvance() {
             <strong>Todo lo que entrega es una propuesta.</strong> La oficina de calidad la revisa; el Comité Asesor
             recomienda y el Consejo de Facultad decide.
           </Mensaje>
+          <Mensaje tipo="info">
+            Los filtros automáticos de nombres, cifras y citas son una red de seguridad, no una garantía:{" "}
+            <strong>Calidad debe revisar cada frase antes de usar el borrador.</strong>
+          </Mensaje>
 
           {!corriendo ? (
             <>
