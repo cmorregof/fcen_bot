@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # URL pública de los servicios de calidad y admisión (solo en actas).
     resumen_calidad_url: str = ""
     resumen_admision_url: str = ""
+    # Al confirmar una decisión del acta del Consejo, avisar por Telegram a las
+    # personas del área del caso. Apagado por defecto.
+    aviso_consejo_telegram: bool = False
 
     # Claude
     anthropic_api_key: str = ""
@@ -48,6 +51,8 @@ class Settings(BaseSettings):
     extraction_model: str = "claude-sonnet-5-5"
     correction_model: str = "claude-sonnet-5-5"
     extraction_max_tokens: int = 8000
+    # El acta del Consejo trae muchas decisiones: salida más larga.
+    acta_consejo_max_tokens: int = 16000
     extraction_timeout_seconds: float = 90.0
     # Lado mayor de las imágenes antes de enviarlas al modelo (controla tokens).
     max_image_side: int = 1568

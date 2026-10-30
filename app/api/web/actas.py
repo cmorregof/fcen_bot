@@ -20,13 +20,21 @@ from app.core.config import settings
 from app.core.programas import DIRECCIONES, PROGRAMAS, programas_de
 from app.db import repo
 from app.schemas.caso import Caso, EstadoCaso, Sentido
-from app.services import borrador, casos
+from app.schemas.consejo import (
+    ETIQUETA_SENTIDO_CONSEJO,
+    NOMBRE_INSTANCIA,
+    Cruce,
+    EstadoDecision,
+    Instancia,
+)
+from app.services import borrador, casos, consejo
 
 router = APIRouter(prefix="/actas")
 
 _Administrativa = Annotated[Usuario, Depends(auth.requiere("administrativa"))]
 _Area = Annotated[Usuario, Depends(auth.requiere("administrativa", "comite"))]
 _Lectura = Annotated[Usuario, Depends(auth.requiere("decanatura", "admin"))]
+_ActaConsejo = Annotated[Usuario, Depends(auth.requiere("administrativa", "admin"))]
 
 _IMAGENES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 _MAX_IMAGEN = 10_000_000
@@ -65,6 +73,19 @@ def _resumen(caso: Caso) -> dict[str, object]:
         "estudiante": ext.nombre_estudiante if ext else None,
         "objeto": ext.objeto_solicitud if ext else None,
         "creado": caso.creado,
+        "consejo": _consejo(caso),
+    }
+
+
+def _consejo(caso: Caso) -> dict[str, object] | None:
+    """Decisión del Consejo confirmada desde su acta; sin acta, None."""
+    d = caso.consejo
+    if d is None:
+        return None
+    return {
+        **d.model_dump(mode="json"),
+        "instancia_texto": NOMBRE_INSTANCIA[d.instancia],
+        "sentido_texto": ETIQUETA_SENTIDO_CONSEJO[d.sentido],
     }
 
 
@@ -305,6 +326,233 @@ async def descargar(
             "Content-Disposition": f'attachment; filename="{archivo.ruta_docx.name}"'
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Acta del Consejo
+# ---------------------------------------------------------------------------
+
+
+def _alcance(usuario: Usuario) -> str | None:
+    """La administrativa cruza con los casos de su área; admin, con todos."""
+    return None if usuario.rol == "admin" else _direccion(usuario)
+
+
+def _persona(usuario: Usuario) -> str:
+    return usuario.nombre or usuario.correo
+
+
+def _caso_corto(caso: Caso | None) -> dict[str, object] | None:
+    if caso is None:
+        return None
+    ext = caso.extraccion
+    return {
+        "id": caso.id,
+        "estudiante": ext.nombre_estudiante if ext else None,
+        "documento": ext.documento if ext else None,
+        "programa": PROGRAMAS[caso.programa].nombre
+        if caso.programa in PROGRAMAS
+        else None,
+        "recomendacion": ETIQUETA_SENTIDO[caso.sentido],
+    }
+
+
+async def _acta_visible(db: Db, acta_id: int, usuario: Usuario) -> consejo.Acta:
+    acta = await consejo.get_acta(db, acta_id)
+    alcance = _alcance(usuario)
+    if acta is None or (alcance is not None and acta.direccion not in (None, alcance)):
+        raise HTTPException(404, "No encontré esa acta.")
+    return acta
+
+
+async def _detalle_acta(
+    db: Db, acta: consejo.Acta, usuario: Usuario
+) -> dict[str, object]:
+    alcance = _alcance(usuario)
+    filas = []
+    for f in await consejo.decisiones_del_acta(db, acta.id):
+        candidatos = []
+        for i in f.candidatos:
+            c = await repo.get_caso(db, i)
+            if c is not None and (alcance is None or c.direccion == alcance):
+                candidatos.append(_caso_corto(c))
+        caso = await repo.get_caso(db, f.caso_id) if f.caso_id else None
+        if caso is not None and alcance is not None and caso.direccion != alcance:
+            caso = None
+        filas.append(
+            {
+                "id": f.id,
+                "orden": f.orden,
+                "leida": f.leida.model_dump(mode="json"),
+                "sentido": f.sentido.value,
+                "sentido_texto": ETIQUETA_SENTIDO_CONSEJO[f.sentido],
+                "cruce": f.cruce.value,
+                "motivo": f.motivo,
+                "estado": f.estado.value,
+                "revisado_por": f.revisado_por,
+                "caso": _caso_corto(caso),
+                "candidatos": candidatos,
+            }
+        )
+    grupos: dict[str, list[dict[str, object]]] = {
+        "cruzaron": [],
+        "en_duda": [],
+        "sin_caso": [],
+    }
+    for fila in filas:
+        cruce = fila["cruce"]
+        if cruce == Cruce.EXACTO.value:
+            grupos["cruzaron"].append(fila)
+        elif cruce == Cruce.SIN_CASO.value:
+            grupos["sin_caso"].append(fila)
+        else:
+            grupos["en_duda"].append(fila)
+    faltantes = await consejo.no_aparecieron(db, acta.id, alcance or acta.direccion)
+    return {
+        "id": acta.id,
+        "instancia": acta.instancia.value,
+        "instancia_texto": NOMBRE_INSTANCIA[acta.instancia],
+        "numero": acta.numero,
+        "fecha": acta.fecha,
+        "archivo": acta.archivo_nombre,
+        "subido_por": acta.subido_por,
+        "creado": acta.creado,
+        "pendientes": sum(
+            1 for f in filas if f["estado"] == EstadoDecision.PENDIENTE.value
+        ),
+        **grupos,
+        "no_aparecieron": [_caso_corto(c) for c in faltantes],
+    }
+
+
+@router.get("/consejo")
+async def actas_consejo(usuario: _ActaConsejo, db: Db) -> dict[str, object]:
+    alcance = _alcance(usuario)
+    sql = "SELECT id FROM actas_consejo"
+    params: tuple[object, ...] = ()
+    if alcance is not None:
+        sql += " WHERE direccion IS NULL OR direccion = ?"
+        params = (alcance,)
+    cur = await db.execute(sql + " ORDER BY id DESC LIMIT 30", params)
+    actas = []
+    for (acta_id,) in await cur.fetchall():
+        acta = await consejo.get_acta(db, int(acta_id))
+        if acta is None:
+            continue
+        filas = await consejo.decisiones_del_acta(db, acta.id)
+        actas.append(
+            {
+                "id": acta.id,
+                "instancia_texto": NOMBRE_INSTANCIA[acta.instancia],
+                "numero": acta.numero,
+                "fecha": acta.fecha,
+                "archivo": acta.archivo_nombre,
+                "decisiones": len(filas),
+                "pendientes": sum(
+                    1 for f in filas if f.estado == EstadoDecision.PENDIENTE
+                ),
+            }
+        )
+    return {
+        "actas": actas,
+        "instancias": [
+            {"clave": i.value, "nombre": NOMBRE_INSTANCIA[i]} for i in Instancia
+        ],
+    }
+
+
+@router.post("/consejo")
+async def subir_acta_consejo(
+    usuario: _ActaConsejo,
+    db: Db,
+    archivo: Annotated[UploadFile, File()],
+    instancia: Annotated[Instancia | None, Form()] = None,
+) -> dict[str, object]:
+    """Lee el acta y propone el cruce. No registra nada en los casos."""
+    datos = await archivo.read(20 * 1024 * 1024 + 1)
+    try:
+        registrada = await consejo.leer_y_registrar(
+            db,
+            datos=datos,
+            nombre_archivo=archivo.filename or "acta.pdf",
+            direccion=_alcance(usuario),
+            instancia=instancia,
+            subido_por=_persona(usuario),
+        )
+    except consejo.ErrorActa as exc:
+        raise HTTPException(400, str(exc)) from exc
+    acta = await _acta_visible(db, registrada.acta_id, usuario)
+    return await _detalle_acta(db, acta, usuario)
+
+
+@router.get("/consejo/{acta_id}")
+async def ver_acta_consejo(
+    acta_id: int, usuario: _ActaConsejo, db: Db
+) -> dict[str, object]:
+    return await _detalle_acta(db, await _acta_visible(db, acta_id, usuario), usuario)
+
+
+class Confirmacion(BaseModel):
+    caso_id: int | None = None
+
+
+@router.post("/consejo/{acta_id}/decisiones/{decision_id}/confirmar")
+async def confirmar_decision(
+    acta_id: int,
+    decision_id: int,
+    cuerpo: Confirmacion,
+    usuario: _ActaConsejo,
+    db: Db,
+) -> dict[str, object]:
+    """Una persona confirma que la decisión del acta corresponde al caso."""
+    acta = await _acta_visible(db, acta_id, usuario)
+    if decision_id not in {
+        f.id for f in await consejo.decisiones_del_acta(db, acta.id)
+    }:
+        raise HTTPException(404, "Esa decisión no es de esta acta.")
+    try:
+        await consejo.aplicar(
+            db,
+            decision_id,
+            caso_id=cuerpo.caso_id,
+            persona=_persona(usuario),
+            direccion=_alcance(usuario),
+        )
+    except consejo.ErrorActa as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return await _detalle_acta(db, acta, usuario)
+
+
+@router.post("/consejo/{acta_id}/decisiones/{decision_id}/descartar")
+async def descartar_decision(
+    acta_id: int, decision_id: int, usuario: _ActaConsejo, db: Db
+) -> dict[str, object]:
+    acta = await _acta_visible(db, acta_id, usuario)
+    if decision_id not in {
+        f.id for f in await consejo.decisiones_del_acta(db, acta.id)
+    }:
+        raise HTTPException(404, "Esa decisión no es de esta acta.")
+    try:
+        await consejo.descartar(
+            db, decision_id, persona=_persona(usuario), direccion=_alcance(usuario)
+        )
+    except consejo.ErrorActa as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return await _detalle_acta(db, acta, usuario)
+
+
+@router.post("/consejo/{acta_id}/confirmar-exactos")
+async def confirmar_exactos(
+    acta_id: int, usuario: _ActaConsejo, db: Db
+) -> dict[str, object]:
+    acta = await _acta_visible(db, acta_id, usuario)
+    try:
+        await consejo.aplicar_exactos(
+            db, acta.id, persona=_persona(usuario), direccion=_alcance(usuario)
+        )
+    except consejo.ErrorActa as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return await _detalle_acta(db, acta, usuario)
 
 
 # ---------------------------------------------------------------------------
