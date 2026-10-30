@@ -41,9 +41,8 @@ class Programa:
     radicado_prefijo: str | None = None
     # En posgrado las asignaturas se llaman «cursos» en el oficio.
     nivel: Literal["pregrado", "posgrado"] = "pregrado"
-    # Créditos disciplinares aprobados exigidos para inscribir Trabajo de Grado,
-    # cuando el programa tiene esa regla propia (Res. CFCEN-060-2008 en Física).
-    tdg_creditos_disciplinares: int | None = None
+    # Los créditos disciplinares exigidos para inscribir Trabajo de Grado están
+    # en config/solicitudes.yaml (umbrales.tdg_creditos_disciplinares).
     alias: tuple[str, ...] = field(default=())
     # Integrantes del comité (de la última acta conocida). Si cambian, se
     # actualizan aquí; los que no están se pueden escribir a mano en el bot.
@@ -78,7 +77,6 @@ PROGRAMAS: dict[str, Programa] = {
             correo="caringfis_man@unal.edu.co",
             extension="55633",
             radicado_prefijo="Mz.FCEN.1.066",
-            tdg_creditos_disciplinares=46,
             alias=("ingenieria fisica",),
             # Acta 19 de 2026.
             miembros=(

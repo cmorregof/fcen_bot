@@ -26,6 +26,7 @@ type Detalle = {
     jurados?: Jurado[];
     proyecto?: { titulo: string | null; director: string | null; codirector: string | null; linea: string | null } | null;
   } | null;
+  ruta: Ruta;
   alertas: { nivel: string; mensaje: string }[];
   cifras: Record<string, number | null> | null;
   nota_comite: string | null;
@@ -34,6 +35,15 @@ type Detalle = {
   programas: { clave: string; nombre: string }[];
   imagenes: number;
   anexos: string[];
+};
+
+// Quién recomienda y quién decide (config/solicitudes.yaml).
+type Ruta = {
+  recomienda: string;
+  decide: string;
+  por_confirmar: boolean;
+  fuera_de_facultad: string[];
+  tramites: { tipo: string; titulo: string; decide: string; por_confirmar: boolean; acto: string; nota: string | null }[];
 };
 
 type Jurado = { nombre: string; vinculacion: string | null; correo: string | null };
@@ -127,7 +137,7 @@ function Ficha() {
           : ["Muestra la ficha del caso y le permite dejar su concepto."]
       }
       noHace={[
-        "No decide el caso: el comité recomienda y decide el Consejo de Facultad.",
+        "No decide el caso: el comité recomienda y decide el Consejo de Facultad, el de Sede o el Superior, según el trámite.",
         "Las alertas no reemplazan la lectura de la norma.",
       ]}
     >
@@ -159,6 +169,27 @@ function Ficha() {
             <li>Justificación: {caso.extraccion.justificacion_breve}</li>
             <li>Pantallazos: {caso.imagenes}. Anexos: {caso.anexos.length ? caso.anexos.join(", ") : "ninguno"}</li>
           </ul>
+          <h3>Quién decide</h3>
+          <p>
+            Recomienda: <strong>{caso.ruta.recomienda}</strong> · Decide: <strong>{caso.ruta.decide}</strong>
+          </p>
+          {caso.ruta.tramites.length > 1 ? (
+            <ul>
+              {caso.ruta.tramites.map((r) => (
+                <li key={r.tipo}>
+                  {r.titulo}: decide {r.decide}; acto: {r.acto}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {caso.ruta.por_confirmar ? (
+            <Mensaje tipo="info">La instancia que decide este trámite está por confirmar: lo confirma la Vicedecanatura Académica.</Mensaje>
+          ) : null}
+          {caso.ruta.fuera_de_facultad.map((instancia) => (
+            <Mensaje key={instancia} tipo="info">
+              Este trámite lo decide el {instancia}: revise el destinatario del oficio.
+            </Mensaje>
+          ))}
           {caso.extraccion.asignaturas && caso.extraccion.asignaturas.length > 0 ? (
             <>
               <h3>Asignaturas</h3>
