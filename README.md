@@ -15,6 +15,7 @@ Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el ca
 5. **Comité.** Botones: Recomendar aprobar, Recomendar no aprobar, Pendiente, Nota y **Concepto**. Con Concepto se elige el profesor (los integrantes de cada comité están en `app/core/programas.py`, o «Otro miembro») y se responde con su concepto tal como lo envió; va al acta, nunca al oficio. Responder «borrar» lo quita.
 6. **Borrador.** Cada día hábil a las 4:50 p. m. llegan el oficio y el acta de cada programa que haya cambiado. También se pueden pedir con `/acta`. Lo que el comité completa en Word (número de acta, hora, lugar, quórum, varios) y los casos pendientes (`[APROBAR / NO APROBAR]`) salen resaltados en amarillo.
 7. **Cierre.** `/cerrar_acta` saca del borrador los casos que ya tienen recomendación del comité.
+8. **Acta del Consejo.** Con `/acta_consejo` (o en la web, pantalla «Acta del Consejo», roles administrativa y admin) se sube el acta del Consejo de Facultad, de Sede o Superior (PDF con texto o Word). Claude copia cada decisión con su texto literal y los identificadores que aparezcan; cada fragmento se comprueba contra el acta. El sentido (aprobó, no aprobó, aplazó, otro) sale del texto literal con una regla fija, y el cruce con los casos es determinista: número de caso, documento y nombre. Lo que no cruza con certeza queda en duda para asignarlo a mano o descartarlo. Nada se registra hasta que una persona confirma. Con `AVISO_CONSEJO_TELEGRAM=true` las personas del área reciben la decisión por Telegram.
 
 ## Arquitectura
 
@@ -72,9 +73,11 @@ stateDiagram-v2
     Procesando --> Listo: datos validados
     Listo --> Listo: corrección · sentido · nota
     Listo --> Cerrado: /cerrar_acta
+    Listo --> DecididoConsejo: acta del Consejo confirmada
+    Cerrado --> DecididoConsejo: acta del Consejo confirmada
     Abierto --> Descartado: /cancelar
     Listo --> Descartado: Descartar
-    Cerrado --> [*]
+    DecididoConsejo --> [*]
     Descartado --> [*]
 ```
 
@@ -111,7 +114,7 @@ Las normas que se citan en el oficio están en `app/normativa/base.py`, con su t
 
 ## Comandos
 
-`/nuevo` · `/listo` · `/cancelar` · `/casos` · `/caso N` · `/acta` · `/cerrar_acta` · `/costo` · `/ayuda`
+`/nuevo` · `/listo` · `/cancelar` · `/casos` · `/caso N` · `/acta` · `/cerrar_acta` · `/acta_consejo` · `/costo` · `/ayuda`
 
 Para la decanatura (ids en `DECANATURA_TELEGRAM_IDS`): `/resumen`, con cifras por programa y estado, sin nombres. También llega solo cada lunes a las 7:30 a. m.; se apaga con `RESUMEN_SEMANAL_ACTIVO=false`. Ver `docs/despliegue-servicios.md` §7.
 

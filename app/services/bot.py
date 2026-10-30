@@ -22,8 +22,9 @@ from app.core.programas import DIRECCIONES, PROGRAMAS, normalizar, programas_de
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.caso import Caso, EstadoCaso, Sentido
+from app.schemas.consejo import ETIQUETA_SENTIDO_CONSEJO, Cruce
 from app.schemas.telegram import CallbackQuery, Document, Message, Update
-from app.services import borrador, casos, ficha, formatos, resumen
+from app.services import borrador, casos, consejo, ficha, formatos, resumen
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ _PALABRAS_PROCESAR = {
     "fin",
 }
 _locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+_ESPERA_ACTA = "acta_consejo"
 
 AYUDA = """<b>Cómo funciona</b>
 1. Pega el correo del estudiante (texto) y envía los pantallazos del SIA y de la solicitud.
@@ -60,6 +62,7 @@ AYUDA = """<b>Cómo funciona</b>
 /caso N — vuelve a mostrar la ficha del caso N
 /acta — oficio y acta ahora
 /cerrar_acta — saca del borrador los casos ya tratados por el comité
+/acta_consejo — sube el acta del Consejo para registrar sus decisiones
 /costo — consumo del modelo este mes"""
 
 
@@ -103,6 +106,17 @@ async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
         await _pedir_direccion(chat_id)
         return
 
+    if msg.document is not None:
+        leyenda = (msg.caption or "").strip().split("@")[0].lower()
+        estado = await repo.get_estado(db, chat_id)
+        if leyenda.startswith("/acta_consejo") or estado.esperando == _ESPERA_ACTA:
+            await _acta_consejo(db, msg, usuario)
+            return
+    elif not texto.startswith("/acta_consejo"):
+        # Cualquier otro mensaje cancela la espera del acta.
+        estado = await repo.get_estado(db, chat_id)
+        if estado.esperando == _ESPERA_ACTA:
+            await repo.set_estado(db, chat_id, caso_abierto_id=estado.caso_abierto_id)
     if texto.startswith("/"):
         await _comando(db, msg, usuario, texto)
         return
@@ -292,6 +306,19 @@ async def _comando(
             )
     elif nombre == "/cerrar_acta":
         await _ofrecer_cierre(db, chat_id, usuario.direccion)
+    elif nombre == "/acta_consejo":
+        await repo.set_estado(
+            db,
+            chat_id,
+            caso_abierto_id=estado.caso_abierto_id,
+            esperando=_ESPERA_ACTA,
+        )
+        await telegram.send_message(
+            chat_id,
+            "Envíe el acta del Consejo (PDF con texto o Word). La leo y le muestro "
+            "qué decisiones cruzan con sus casos; nada se registra hasta que "
+            "usted lo confirme.",
+        )
     elif nombre == "/costo":
         await _costo(db, chat_id)
     else:
@@ -482,6 +509,78 @@ async def _documento(
     )
 
 
+async def _acta_consejo(
+    db: aiosqlite.Connection, msg: Message, usuario: repo.Usuario
+) -> None:
+    """Lee el acta del Consejo y propone el cruce con los casos del área."""
+    assert msg.document is not None and usuario.direccion is not None
+    chat_id = msg.chat.id
+    estado = await repo.get_estado(db, chat_id)
+    await repo.set_estado(db, chat_id, caso_abierto_id=estado.caso_abierto_id)
+    doc = msg.document
+    if (doc.file_size or 0) > formatos.MAX_BYTES:
+        await telegram.send_message(chat_id, "El acta pesa más de 20 MB.")
+        return
+    await telegram.send_message(chat_id, "Leyendo el acta del Consejo…")
+    try:
+        registrada = await consejo.leer_y_registrar(
+            db,
+            datos=await telegram.descargar_archivo(doc.file_id),
+            nombre_archivo=doc.file_name or "acta.pdf",
+            direccion=usuario.direccion,
+            instancia=None,
+            subido_por=usuario.nombre or str(usuario.telegram_id),
+        )
+    except consejo.ErrorActa as exc:
+        await telegram.send_message(chat_id, escape(str(exc)))
+        return
+    texto, botones = await _resumen_acta(db, registrada, usuario.direccion)
+    await telegram.send_message(chat_id, texto, botones=botones)
+
+
+async def _resumen_acta(
+    db: aiosqlite.Connection, registrada: consejo.ActaRegistrada, direccion: str
+) -> tuple[str, list[list[dict[str, str]]] | None]:
+    exactos = [p for p in registrada.propuestas if p.cruce == Cruce.EXACTO]
+    duda = [
+        p
+        for p in registrada.propuestas
+        if p.cruce in (Cruce.DUDOSO, Cruce.NO_VERIFICADO)
+    ]
+    sin_caso = [p for p in registrada.propuestas if p.cruce == Cruce.SIN_CASO]
+    faltan = await consejo.no_aparecieron(db, registrada.acta_id, direccion)
+    lineas = [
+        f"<b>Acta del Consejo leída</b> ({len(registrada.propuestas)} decisiones)",
+        f"Cruzaron: {len(exactos)} · En duda: {len(duda)} · Sin caso: "
+        f"{len(sin_caso)} · Recomendados que no aparecen: {len(faltan)}",
+    ]
+    for p in exactos:
+        lineas.append(
+            f"• #{p.caso_id}: {escape(p.leida.nombre_estudiante or '')} — "
+            f"{ETIQUETA_SENTIDO_CONSEJO[p.sentido].lower()} "
+            f"«{escape(p.leida.texto_decision)}»"
+        )
+    if duda or sin_caso:
+        lineas.append(
+            "Lo que quedó en duda se resuelve a mano en la web, pantalla "
+            "«Acta del Consejo»."
+        )
+    lineas.append("Nada se ha registrado todavía.")
+    botones = (
+        [
+            [
+                {
+                    "text": f"Confirmar {len(exactos)} cruce(s)",
+                    "callback_data": f"ac:{registrada.acta_id}",
+                }
+            ]
+        ]
+        if exactos
+        else None
+    )
+    return "\n".join(lineas), botones
+
+
 async def _guardar_imagen(
     db: aiosqlite.Connection, caso_id: int, file_id: str, unique: str, ext: str
 ) -> None:
@@ -617,6 +716,22 @@ async def _callback(db: aiosqlite.Connection, cq: CallbackQuery) -> None:
         return
 
     partes = data.split(":")
+    if partes[0] == "ac" and len(partes) == 2 and partes[1].isdigit():
+        if cq.message:
+            await telegram.editar_botones(chat_id, cq.message.message_id, None)
+        aplicadas = await consejo.aplicar_exactos(
+            db,
+            int(partes[1]),
+            persona=usuario.nombre or str(usuario.telegram_id),
+            direccion=usuario.direccion,
+        )
+        await telegram.responder_callback(cq.id, f"{len(aplicadas)} registradas")
+        await telegram.send_message(
+            chat_id,
+            f"Registré {len(aplicadas)} decisión(es) del Consejo: "
+            + (", ".join(f"#{d.caso_id}" for d in aplicadas) or "ninguna"),
+        )
+        return
     try:
         caso_id = int(partes[1]) if len(partes) > 1 and partes[0] != "cerrar" else None
     except ValueError:

@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.consejo import DecisionConsejo
+
 
 class TipoSolicitud(StrEnum):
     INSCRIPCION_EXTEMPORANEA = "inscripcion_extemporanea"
@@ -282,6 +284,8 @@ class EstadoCaso(StrEnum):
     DESCARTADO = "descartado"
     # El comité ya sesionó sobre el caso; sale del borrador en curso.
     CERRADO = "cerrado"
+    # Una persona confirmó la decisión que consta en el acta del Consejo.
+    DECIDIDO_CONSEJO = "decidido_consejo"
 
 
 class Alerta(BaseModel):
@@ -315,3 +319,5 @@ class Caso(BaseModel):
     nota_comite: str | None = None
     conceptos: list[Concepto] = Field(default_factory=list)
     creado: str | None = None
+    # Solo desde el acta del Consejo y confirmada por una persona.
+    consejo: DecisionConsejo | None = None

@@ -96,6 +96,51 @@ _ESQUEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_casos_estado ON casos(estado, programa)",
+    # Actas del Consejo (Facultad, Sede o Superior) y su cruce con los casos.
+    """
+    CREATE TABLE IF NOT EXISTS actas_consejo (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        direccion        TEXT,
+        instancia        TEXT NOT NULL,
+        numero           TEXT,
+        fecha            TEXT,
+        archivo_nombre   TEXT,
+        texto            TEXT NOT NULL,
+        subido_por       TEXT NOT NULL,
+        creado           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS acta_consejo_decisiones (
+        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        acta_id               INTEGER NOT NULL REFERENCES actas_consejo(id),
+        orden                 INTEGER NOT NULL,
+        leida_json            TEXT NOT NULL,
+        sentido               TEXT NOT NULL,
+        cruce                 TEXT NOT NULL,
+        motivo                TEXT,
+        candidatos            TEXT NOT NULL DEFAULT '[]',
+        caso_id               INTEGER,
+        estado                TEXT NOT NULL DEFAULT 'pendiente',
+        revisado_por          TEXT,
+        revisado              TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS decisiones_consejo (
+        caso_id          INTEGER PRIMARY KEY REFERENCES casos(id),
+        acta_id          INTEGER NOT NULL REFERENCES actas_consejo(id),
+        decision_id      INTEGER NOT NULL,
+        instancia        TEXT NOT NULL,
+        sentido          TEXT NOT NULL,
+        texto_decision   TEXT NOT NULL,
+        acta_numero      TEXT,
+        acta_fecha       TEXT,
+        fragmento        TEXT NOT NULL,
+        confirmado_por   TEXT NOT NULL,
+        confirmado       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
 )
 
 

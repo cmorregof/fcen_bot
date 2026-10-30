@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import aiosqlite
 
 from app.schemas.caso import Caso, Concepto, EstadoCaso, ExtraccionCaso, Sentido
+from app.schemas.consejo import DecisionConsejo, Instancia, SentidoConsejo
 
 # ---------------------------------------------------------------------------
 # Usuarios
@@ -279,6 +280,29 @@ async def borrar_concepto(db: aiosqlite.Connection, caso_id: int, miembro: str) 
     return (cur.rowcount or 0) > 0
 
 
+async def decision_consejo(
+    db: aiosqlite.Connection, caso_id: int
+) -> DecisionConsejo | None:
+    """La decisión del Consejo confirmada para el caso, si la hay."""
+    cur = await db.execute(
+        "SELECT * FROM decisiones_consejo WHERE caso_id = ?", (caso_id,)
+    )
+    r = await cur.fetchone()
+    if r is None:
+        return None
+    return DecisionConsejo(
+        caso_id=int(r["caso_id"]),
+        instancia=Instancia(r["instancia"]),
+        sentido=SentidoConsejo(r["sentido"]),
+        texto_decision=r["texto_decision"],
+        acta_numero=r["acta_numero"],
+        acta_fecha=r["acta_fecha"],
+        fragmento=r["fragmento"],
+        confirmado_por=r["confirmado_por"],
+        confirmado=str(r["confirmado"]) if r["confirmado"] else None,
+    )
+
+
 async def _row_to_caso(db: aiosqlite.Connection, row: aiosqlite.Row) -> Caso:
     imagenes, anexos = await _archivos(db, int(row["id"]))
     extraccion = (
@@ -300,6 +324,7 @@ async def _row_to_caso(db: aiosqlite.Connection, row: aiosqlite.Row) -> Caso:
         nota_comite=row["nota_comite"],
         conceptos=await conceptos_de(db, int(row["id"])),
         creado=str(row["creado"]) if row["creado"] else None,
+        consejo=await decision_consejo(db, int(row["id"])),
     )
 
 
