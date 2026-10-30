@@ -112,6 +112,11 @@ async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
         if leyenda.startswith("/acta_consejo") or estado.esperando == _ESPERA_ACTA:
             await _acta_consejo(db, msg, usuario)
             return
+    elif not texto.startswith("/acta_consejo"):
+        # Cualquier otro mensaje cancela la espera del acta.
+        estado = await repo.get_estado(db, chat_id)
+        if estado.esperando == _ESPERA_ACTA:
+            await repo.set_estado(db, chat_id, caso_abierto_id=estado.caso_abierto_id)
     if texto.startswith("/"):
         await _comando(db, msg, usuario, texto)
         return
