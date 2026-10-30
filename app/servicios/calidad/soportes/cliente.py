@@ -164,3 +164,68 @@ class ClienteAnthropic:
                 None, ent, sal, "el modelo no usó la herramienta", modelo=servido
             )
         return Respuesta(entrada, ent, sal, modelo=servido)
+
+
+class ClienteConTope:
+    """Envuelve otro cliente y no deja que la corrida pase de `tope_usd`.
+
+    Antes de cada llamada reserva su costo máximo (la salida completa más
+    `ENTRADA_MAXIMA` tokens de entrada). Si lo gastado más lo reservado por
+    las llamadas en curso supera el tope, no llama y detiene la corrida: lo
+    que ya se describió queda en la caché.
+    """
+
+    ENTRADA_MAXIMA = 50_000
+
+    def __init__(self, cliente: ClienteModelo, uso: Any, tope_usd: float) -> None:
+        self._cliente = cliente
+        self._uso = uso  # modelos.Uso; Any para no importar modelos aquí
+        self.tope_usd = tope_usd
+        self._reservado = 0.0
+        self.detenido = ""
+
+    def _reserva(self, modelo: str, max_tokens: int) -> float:
+        from app.servicios.calidad.soportes.modelos import PRECIOS_USD_POR_MILLON
+
+        p_in, p_out = PRECIOS_USD_POR_MILLON.get(modelo, (4.0, 20.0))
+        return (self.ENTRADA_MAXIMA * p_in + max_tokens * p_out) / 1e6
+
+    async def llamar(
+        self,
+        *,
+        modelo: str,
+        sistema: str,
+        bloques: list[dict[str, Any]],
+        texto: str,
+        salida: type[BaseModel],
+        nombre_herramienta: str,
+        esfuerzo: str,
+        max_tokens: int,
+    ) -> Respuesta:
+        detenido_abajo = getattr(self._cliente, "detenido", "")
+        if detenido_abajo and not self.detenido:
+            self.detenido = detenido_abajo
+        if self.detenido:
+            return Respuesta(None, error=self.detenido, llamada=False)
+        reserva = self._reserva(modelo, max_tokens)
+        if self._uso.costo() + self._reservado + reserva > self.tope_usd:
+            self.detenido = (
+                f"corrida detenida: se alcanzó el tope de {self.tope_usd:.2f} USD"
+            )
+            return Respuesta(None, error=self.detenido, llamada=False)
+        self._reservado += reserva
+        try:
+            # El que llama registra el uso apenas vuelve, sin otra espera en
+            # medio: la reserva se libera y el gasto se suma en el mismo paso.
+            return await self._cliente.llamar(
+                modelo=modelo,
+                sistema=sistema,
+                bloques=bloques,
+                texto=texto,
+                salida=salida,
+                nombre_herramienta=nombre_herramienta,
+                esfuerzo=esfuerzo,
+                max_tokens=max_tokens,
+            )
+        finally:
+            self._reservado -= reserva
