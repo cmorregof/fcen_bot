@@ -50,7 +50,7 @@ Los periodos académicos anteriores no se pueden pedir por nombre, porque MemorI
 | `dias_comite_mediana` | Días de la solicitud a la recomendación (mediana) | Días calendario entre la fecha de la solicitud y el registro de la recomendación | Ver «Fechas» |
 | `dias_comite_p90` | Ídem, percentil 90 | Ver «Mediana y percentil 90» | Ver «Fechas» |
 | `dias_comite_casos` | Casos que entran en ese cálculo | — | — |
-| `dias_consejo_mediana` | Días de la recomendación a la decisión del Consejo (mediana) | Días calendario entre el registro de la recomendación y la fecha de la sesión que consta en el acta. Solo decididos, sin aplazados | Ver «Fechas» |
+| `dias_consejo_mediana` | Días de la recomendación a la decisión del Consejo (mediana) | Días calendario entre el registro de la recomendación y la fecha de la sesión que consta en el acta. Solo decididos, sin aplazados y con la recomendación vigente (si volvió a «Pendiente», no entra) | Ver «Fechas» |
 | `dias_consejo_p90` | Ídem, percentil 90 | — | Ver «Fechas» |
 | `dias_consejo_casos` | Casos que entran en ese cálculo | — | — |
 | `sin_fecha_recomendacion` | Recomendados sin fecha de recomendación | Recomendados antes de que MemorIA guardara la fecha. Cuentan como recomendados, pero no entran en los días ni en los plazos | Botón de la administrativa |
@@ -104,8 +104,9 @@ El comité no tiene esta pantalla. En Telegram, las administrativas tampoco tien
 El reporte mensual lo dispara `.github/workflows/reporte-mensual.yml` con `POST /internal/reporte-mensual`, igual que el resumen semanal. Está **apagado por defecto**: se enciende con `REPORTE_MENSUAL_ACTIVO=true`. El envío es el de `resumen.enviar_a`: si falla uno, sigue con los demás.
 
 El envío es idempotente:
-- la tabla `reportes_mensuales` guarda cada mes ya enviado, y una nueva corrida del workflow para ese mes responde `ya_enviado: true` sin reenviar;
-- si nadie recibió el reporte (no hay destinatarios o Telegram está caído), el mes no queda registrado y se puede volver a intentar;
+- la tabla `reportes_mensuales` guarda, por mes, a qué destinos (cada área y la Vicedecanatura) ya salió el reporte; cada destino se registra apenas sale;
+- una nueva corrida envía solo a los destinos que faltan; si ya salió a todos, responde `ya_enviado: true` sin reenviar;
+- si algo falla a mitad de camino (la base, el cálculo o Telegram), ese destino no queda registrado: la respuesta lo lista en `pendientes` y el próximo intento lo envía;
 - el workflow corre sin permisos sobre el repositorio (`permissions: {}`) y con `concurrency`, para que dos corridas no se pisen.
 
 El resumen semanal de la decanatura muestra, además, las actas del Consejo confirmadas en la semana, con instancia, número, fecha y conteo por sentido.

@@ -539,6 +539,7 @@ async def test_reporte_mensual_por_area_y_consolidado(
         "areas": {"ciencias_naturales": 1, "matematicas": 1},
         "vicedecanatura": 1,
         "enviados": 3,
+        "pendientes": [],
     }
     por_chat = {m["chat_id"]: m["texto"] for m in tg.mensajes}
     assert "Área Curricular de Ciencias Naturales" in por_chat[ADM_NATURALES]
@@ -663,10 +664,10 @@ async def test_cambiar_el_sentido_despues_del_acta_no_mueve_la_fecha(
     await _acta(db, caso_id, SentidoConsejo.APROBO, "2026-10-13")
     await repo.set_sentido(db, caso_id, Sentido.NO_APROBAR)
     assert await _recomendado(db, caso_id) == "2026-10-03 15:00:00"
-    await repo.set_sentido(db, caso_id, Sentido.PENDIENTE)
-    assert await _recomendado(db, caso_id) == "2026-10-03 15:00:00"
     r = await indicadores.reporte(db, OCTUBRE, HOY)
     assert r.total.dias_consejo.casos == 1
+    await repo.set_sentido(db, caso_id, Sentido.PENDIENTE)
+    assert await _recomendado(db, caso_id) == "2026-10-03 15:00:00"
 
 
 async def test_fechas_inconsistentes_se_cuentan_aparte(
@@ -775,3 +776,61 @@ def test_workflow_sin_permisos_y_con_concurrencia() -> None:
     )
     assert flujo["permissions"] == {}
     assert flujo["concurrency"]["group"] == "reporte-mensual"
+
+
+async def test_falla_a_mitad_de_camino_reintenta_solo_lo_que_falta(
+    db: aiosqlite.Connection, tg: TelegramFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _personas(db)
+    original = reporte_mensual.armar
+
+    async def armar_que_falla(
+        db: aiosqlite.Connection, hoy: date, direccion: str | None = None
+    ) -> str:
+        if direccion == "matematicas":
+            raise RuntimeError("base caída (ficticio)")
+        return await original(db, hoy, direccion)
+
+    monkeypatch.setattr(reporte_mensual, "armar", armar_que_falla)
+    primera = await reporte_mensual.enviar(db, HOY)
+    assert primera["areas"] == {"ciencias_naturales": 1, "matematicas": 0}
+    assert primera["vicedecanatura"] == 1
+    assert primera["pendientes"] == ["matematicas"]
+
+    monkeypatch.setattr(reporte_mensual, "armar", original)
+    segunda = await reporte_mensual.enviar(db, HOY)
+    assert segunda["areas"] == {"ciencias_naturales": 0, "matematicas": 1}
+    assert segunda["vicedecanatura"] == 0 and segunda["enviados"] == 1
+    assert sorted(m["chat_id"] for m in tg.mensajes) == sorted(
+        [ADM_NATURALES, ADM_MATE, VICEDECANA]
+    )
+    tercera = await reporte_mensual.enviar(db, HOY)
+    assert tercera["ya_enviado"] is True and len(tg.mensajes) == 3
+
+
+async def test_si_todo_falla_el_mes_no_queda_tomado(
+    db: aiosqlite.Connection, tg: TelegramFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _personas(db)
+    original = reporte_mensual.armar
+
+    async def roto(*a: object, **kw: object) -> str:
+        raise RuntimeError("falla ficticia")
+
+    monkeypatch.setattr(reporte_mensual, "armar", roto)
+    assert (await reporte_mensual.enviar(db, HOY))["enviados"] == 0
+    monkeypatch.setattr(reporte_mensual, "armar", original)
+    assert (await reporte_mensual.enviar(db, HOY))["enviados"] == 3
+
+
+async def test_decidido_y_vuelto_a_pendiente_no_cuenta_en_dias_al_consejo(
+    db: aiosqlite.Connection,
+) -> None:
+    caso_id = await _caso(
+        db, sentido=Sentido.APROBAR, recomendado="2026-10-03 15:00:00"
+    )
+    await _acta(db, caso_id, SentidoConsejo.APROBO, "2026-10-13")
+    await repo.set_sentido(db, caso_id, Sentido.PENDIENTE)
+    t = (await indicadores.reporte(db, OCTUBRE, HOY)).total
+    assert t.decididos_consejo == 1
+    assert t.dias_consejo.casos == 0 and t.fechas_inconsistentes == 0

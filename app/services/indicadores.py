@@ -169,7 +169,7 @@ FUENTES: dict[str, Fuente] = {
         "Días de la recomendación a la decisión del Consejo (mediana)",
         "Días calendario entre la fecha en que se registró la recomendación y "
         "la fecha de la sesión que consta en el acta del Consejo. Solo casos "
-        "decididos (no aplazados) con ambas fechas.",
+        "decididos (no aplazados), con la recomendación vigente y ambas fechas.",
         "Fecha del clic en el botón de recomendación; fecha de la sesión "
         "leída del acta del Consejo confirmada.",
     ),
@@ -627,12 +627,18 @@ def calcular(
             dias_comite.append((f.recomendado - f.solicitud).days)
         if (
             _decidido(f)
+            and _recomendado(f)
             and f.recomendado is not None
             and f.acta_fecha is not None
             and f.acta_fecha >= f.recomendado
         ):
             dias_consejo.append((f.acta_fecha - f.recomendado).days)
-        elif _decidido(f) and f.recomendado is not None and f.acta_fecha is not None:
+        elif (
+            _decidido(f)
+            and _recomendado(f)
+            and f.recomendado is not None
+            and f.acta_fecha is not None
+        ):
             # El acta es anterior al registro de la recomendación.
             fechas_inconsistentes += 1
         if plazos.comite:
