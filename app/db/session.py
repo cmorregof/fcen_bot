@@ -145,7 +145,11 @@ _ESQUEMA = (
 
 
 # Columnas agregadas después de la primera versión: (tabla, columna, tipo).
-_COLUMNAS_NUEVAS = (("borradores", "ultima_modificacion", "TEXT"),)
+_COLUMNAS_NUEVAS = (
+    ("borradores", "ultima_modificacion", "TEXT"),
+    # Cuándo se registró la recomendación del comité (indicadores de tiempos).
+    ("casos", "recomendado", "TIMESTAMP"),
+)
 
 
 async def init_db(db: aiosqlite.Connection) -> None:

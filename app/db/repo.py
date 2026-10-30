@@ -402,9 +402,20 @@ async def set_programa(db: aiosqlite.Connection, caso_id: int, programa: str) ->
 
 
 async def set_sentido(db: aiosqlite.Connection, caso_id: int, sentido: Sentido) -> None:
+    # `recomendado` guarda cuándo se registró la recomendación (indicadores):
+    # volver a marcar el mismo sentido no la mueve; volver a «pendiente» la borra.
     await db.execute(
-        "UPDATE casos SET sentido = ?, actualizado = CURRENT_TIMESTAMP WHERE id = ?",
-        (sentido.value, caso_id),
+        """
+        UPDATE casos SET
+            recomendado = CASE
+                WHEN :sentido = :pendiente THEN NULL
+                WHEN sentido = :sentido AND recomendado IS NOT NULL THEN recomendado
+                ELSE CURRENT_TIMESTAMP END,
+            sentido = :sentido,
+            actualizado = CURRENT_TIMESTAMP
+        WHERE id = :id
+        """,
+        {"sentido": sentido.value, "pendiente": Sentido.PENDIENTE.value, "id": caso_id},
     )
     await db.commit()
 

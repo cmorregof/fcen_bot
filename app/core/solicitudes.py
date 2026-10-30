@@ -108,6 +108,23 @@ class Umbrales(_Estricto):
         return self.tdg_creditos_disciplinares.get(programa or "")
 
 
+class Plazo(_Estricto):
+    """Días calendario para un tramo del trámite (indicador «fuera de plazo»)."""
+
+    dias: int = Field(ge=1)
+    # Quién fijó el plazo: norma, circular o instrucción. Sin fuente no hay plazo.
+    fuente: str = Field(min_length=1)
+    nota: str | None = None
+
+
+class Plazos(_Estricto):
+    # De la solicitud a la recomendación del comité asesor.
+    comite: Plazo | None = None
+    # De la recomendación del comité a la decisión que consta en el acta del
+    # Consejo.
+    consejo: Plazo | None = None
+
+
 class Ruta(_Estricto):
     # El comité asesor recomienda; nunca decide (AGENTS.md).
     recomienda: Literal["comite_asesor"] = "comite_asesor"
@@ -137,6 +154,8 @@ class Ruta(_Estricto):
 
 class ConfigSolicitudes(_Estricto):
     umbrales: Umbrales
+    # Vacíos mientras la Vicedecanatura no los fije (docs/indicadores.md).
+    plazos: Plazos = Field(default_factory=Plazos)
     solicitudes: dict[TipoSolicitud, Ruta]
 
     @model_validator(mode="after")

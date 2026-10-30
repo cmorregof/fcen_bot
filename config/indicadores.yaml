@@ -1,0 +1,48 @@
+# Columnas del Excel de indicadores del servicio de actas (pestaña «indicadores»).
+#
+# La plantilla oficial de indicadores de Calidad todavía no llega. Mientras
+# tanto, este archivo dice qué columnas salen y con qué encabezado. Cuando
+# llegue la plantilla, basta reordenar, renombrar o quitar columnas aquí, sin
+# tocar el código. Lo que falta definir está en docs/indicadores.md.
+#
+# «clave» es uno de los indicadores que calcula MemorIA (la lista completa y su
+# definición están en docs/indicadores.md). Una clave desconocida es un error.
+# «encabezado» es el texto de la columna en el Excel.
+
+columnas:
+  - clave: recibidos
+    encabezado: Casos recibidos
+  - clave: recomendados
+    encabezado: Recomendados por el comité
+  - clave: recomendar_aprobar
+    encabezado: Recomendar aprobar
+  - clave: recomendar_no_aprobar
+    encabezado: Recomendar no aprobar
+  - clave: decididos_consejo
+    encabezado: Decididos por el Consejo
+  - clave: consejo_aprobo
+    encabezado: El Consejo aprobó
+  - clave: consejo_no_aprobo
+    encabezado: El Consejo no aprobó
+  - clave: consejo_aplazo
+    encabezado: El Consejo aplazó
+  - clave: consejo_otro
+    encabezado: Otra decisión del Consejo
+  - clave: pendientes_acta
+    encabezado: Pendientes de acta del Consejo
+  - clave: dias_comite_mediana
+    encabezado: Días solicitud a recomendación (mediana)
+  - clave: dias_comite_p90
+    encabezado: Días solicitud a recomendación (percentil 90)
+  - clave: dias_comite_casos
+    encabezado: Casos con días solicitud a recomendación
+  - clave: dias_consejo_mediana
+    encabezado: Días recomendación a decisión del Consejo (mediana)
+  - clave: dias_consejo_p90
+    encabezado: Días recomendación a decisión del Consejo (percentil 90)
+  - clave: dias_consejo_casos
+    encabezado: Casos con días recomendación a decisión
+  - clave: fuera_plazo_comite
+    encabezado: Fuera de plazo en el comité
+  - clave: fuera_plazo_consejo
+    encabezado: Fuera de plazo en el Consejo
