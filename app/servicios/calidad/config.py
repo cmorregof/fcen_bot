@@ -36,6 +36,8 @@ class CalidadSettings(BaseSettings):
     revisor_max_mb: int = 500
     revisor_max_descomprimido_mb: int = 2000
     revisor_max_archivos: int = 5000
+    # Días que se guardan salidas y caché en el volumen.
+    revisor_retencion_dias: int = 30
     # Carpeta del volumen para soportes, salidas y caché. Vacía: junto a la
     # base del servicio (en Railway, /data/calidad/revisor).
     revisor_dir: Path | None = None

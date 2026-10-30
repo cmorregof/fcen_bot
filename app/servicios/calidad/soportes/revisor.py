@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -71,13 +72,16 @@ class Estimacion:
 def estimar(
     archivos: list[Archivo], acciones: list[Accion], cache: Cache
 ) -> Estimacion:
+    por_codigo = {acc.codigo: acc for acc in acciones}
     al_modelo = 0
     en_cache = 0
     ent = sal = 0
     for a in archivos:
         if a.tipo not in ("pdf", "imagen", "xlsx", "docx"):
             continue
-        if cache.leer(clave_descripcion(a, MODELO_DESCRIPCION)):
+        if cache.leer(
+            clave_descripcion(a, MODELO_DESCRIPCION, por_codigo.get(a.accion))
+        ):
             en_cache += 1
             continue
         al_modelo += 1
@@ -204,7 +208,6 @@ async def revisar(
         cliente = ClienteConTope(cliente, uso, tope_usd)
     decir(f"Inventario: {len(archivos)} archivos; plan: {len(acciones)} acciones.")
     marcar("descripcion", 0, len(archivos))
-    decir(f"Inventario: {len(archivos)} archivos; plan: {len(acciones)} acciones.")
 
     hechos = [0]
 
@@ -252,10 +255,17 @@ async def revisar(
         "cruce": salidas / "cruce_acciones.xlsx",
         "borrador": salidas / "borrador_cierre.docx",
     }
-    rutas["reporte_sin_evidencia"].write_text(reporte, encoding="utf-8")
-    inventario_xlsx(rutas["inventario"], archivos, descripciones)
-    cruce_xlsx(rutas["cruce"], cruces)
-    borrador_docx(rutas["borrador"], programa, cruces, resumen, alertas_resumen, indice)
+
+    def escribir() -> None:
+        rutas["reporte_sin_evidencia"].write_text(reporte, encoding="utf-8")
+        inventario_xlsx(rutas["inventario"], archivos, descripciones)
+        cruce_xlsx(rutas["cruce"], cruces)
+        borrador_docx(
+            rutas["borrador"], programa, cruces, resumen, alertas_resumen, indice
+        )
+
+    # openpyxl y python-docx son síncronos: en un hilo.
+    await asyncio.to_thread(escribir)
     marcar("salidas", 1, 1)
     return Informe(
         archivos,

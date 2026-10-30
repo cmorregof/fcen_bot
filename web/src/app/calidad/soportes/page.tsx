@@ -35,6 +35,7 @@ type Resumen = {
 
 type Estado = {
   estado: "vacio" | "cargado" | "corriendo" | "terminado" | "fallido" | "interrumpido";
+  carga_id?: string;
   programa?: string;
   estimacion?: Estimacion;
   pasos?: Paso[];
@@ -46,6 +47,7 @@ type Estado = {
   en_cache: number;
   tope_usd: number;
   max_mb: number;
+  retencion_dias: number;
 };
 
 const DESCARGAS: { clave: string; nombre: string; texto: string }[] = [
@@ -141,7 +143,16 @@ export default function RevisionSoportes() {
     ).then(() => setAcepto(false));
 
   const correr = () =>
-    accion("correr", () => llamar<Estado>("calidad", "/calidad/revisor/correr", { token: t, json: { confirmo_costo: true } }));
+    accion("correr", () =>
+      llamar<Estado>("calidad", "/calidad/revisor/correr", {
+        token: t,
+        // La carga y el costo que la persona vio: si cambiaron, el servidor no corre.
+        json: { confirmo_costo: true, carga_id: estado?.carga_id, costo_usd: estado?.estimacion?.costo_usd },
+      }),
+    ).then(() => {
+      setAcepto(false);
+      consultar();
+    });
 
   const borrar = () => {
     const texto = borrarCache
@@ -169,7 +180,7 @@ export default function RevisionSoportes() {
 
   const est = estado?.estimacion;
   const hayAlgo = estado && (estado.estado !== "vacio" || estado.soportes_presentes || estado.descargas.length > 0 || estado.en_cache > 0);
-  const puedeCorrer = estado && ["cargado", "interrumpido"].includes(estado.estado) && estado.soportes_presentes;
+  const puedeCorrer = estado && estado.estado === "cargado" && estado.soportes_presentes;
 
   return (
     <Pantalla
@@ -184,7 +195,7 @@ export default function RevisionSoportes() {
       noHace={[
         "No decide si una acción se cumplió: propone, y usted revisa.",
         "No cambia el % de avance del plan.",
-        "No guarda los soportes: se borran al terminar. Los resultados se borran con el botón «Borrar soportes».",
+        "No guarda los soportes: se borran al terminar. Los resultados se borran con el botón «Borrar soportes» o solos, pasado un tiempo.",
       ]}
     >
       {apagado ? (
@@ -262,8 +273,8 @@ export default function RevisionSoportes() {
               {est.excede_tope ? <Mensaje tipo="error">{est.excede_tope}</Mensaje> : null}
               {estado.estado === "interrumpido" ? (
                 <Mensaje tipo="info">
-                  La revisión anterior se interrumpió (el servicio se reinició). Puede volver a iniciarla: lo ya pagado
-                  no se cobra otra vez.
+                  La revisión anterior se interrumpió (el servicio se reinició) y sus soportes se borraron. Vuelva a
+                  subir el zip: lo ya pagado no se cobra otra vez.
                 </Mensaje>
               ) : null}
               {puedeCorrer && !est.excede_tope ? (
@@ -366,7 +377,8 @@ export default function RevisionSoportes() {
             <>
               <h2>Borrar</h2>
               <p>
-                Borra del servidor los soportes y los resultados de esta revisión. Descargue antes lo que necesite.
+                Borra del servidor los soportes y los resultados de esta revisión. Descargue antes lo que necesite. Si
+                no los borra, se borran solos a los {estado.retencion_dias} días.
               </p>
               <label className="confirmar">
                 <input type="checkbox" checked={borrarCache} onChange={(e) => setBorrarCache(e.target.checked)} />

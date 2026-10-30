@@ -122,8 +122,11 @@ Pasos que ve la persona:
    hay, cuántos irán al modelo, cuántos ya están en la caché, el costo
    estimado, las acciones sin carpeta y las carpetas cuyo código no está en el
    plan. Todavía no llama al modelo.
-3. Marca «Entiendo que esta revisión gastará unos X USD» e inicia. Si la
-   estimación pasa del tope, el botón no aparece y la API responde 409.
+3. Marca «Entiendo que esta revisión gastará unos X USD» e inicia. La
+   confirmación queda atada a esa carga (`carga_id`) y a ese costo: si otra
+   persona subió otro zip o el costo estimado subió, no corre y pide confirmar
+   otra vez. Si la estimación pasa del tope, el botón no aparece y la API
+   responde 409.
 4. Ve el avance por paso (descripción, cruce, resumen y salidas) con una barra
    de progreso. Puede cerrar la página: la corrida sigue en el servidor.
 5. Descarga `inventario_soportes.xlsx`, `cruce_acciones.xlsx` y
@@ -141,8 +144,13 @@ Todo vive en el volumen del servicio, en `CALIDAD_REVISOR_DIR` (por defecto
 |---|---|---|
 | `actual/subida.zip` | el zip mientras llega | al descomprimirlo |
 | `actual/soportes/` | los soportes | al terminar la corrida (bien o mal) |
-| `actual/salidas/` | los tres archivos para descargar | con «Borrar soportes» o al subir otro zip |
-| `cache/` | descripciones, cruces, resumen y sugerencias ya pagados | solo con la casilla de la caché |
+| `actual/salidas/` | los tres archivos para descargar | con «Borrar soportes», al subir otro zip o a los `CALIDAD_REVISOR_RETENCION_DIAS` |
+| `cache/` | descripciones, cruces, resumen y sugerencias ya pagados | con la casilla de la caché o, cada entrada, a los `CALIDAD_REVISOR_RETENCION_DIAS` |
+
+Al arrancar el servicio, si una corrida quedó cortada (o no hay estado), se
+borran los soportes y el zip a medio subir: hay que volver a subirlo. Con
+`CALIDAD_REVISOR_ACTIVO=false` se borra todo lo del revisor, al arrancar y en
+la primera petición a su API.
 
 El zip llega como cuerpo de la petición, no como formulario: así no pasa por
 archivos temporales fuera del volumen. Nada sale a otro servicio que no sea la
@@ -153,15 +161,27 @@ contenido.
 
 - **Una corrida a la vez** por servicio. Mientras corre no se puede subir otro
   zip ni borrar. Si el servicio se reinicia a mitad, la corrida queda
-  «interrumpida» y se puede volver a iniciar: lo ya pagado está en la caché.
+  «interrumpida»: se vuelve a subir el zip y lo ya pagado sale de la caché.
+  El estado vive en memoria del proceso: **exige un solo worker de uvicorn**
+  (así arranca hoy el Dockerfile).
 - **Tope por corrida** (`CALIDAD_REVISOR_TOPE_USD`, 10 USD): se revisa la
   estimación antes de empezar y, durante la corrida, cada llamada reserva su
-  costo máximo (la salida completa y 50 000 tokens de entrada). Si lo gastado
-  más lo reservado pasa del tope, la corrida se detiene y las salidas traen lo
-  que alcanzó. El script usa el mismo tope (`--tope`).
+  costo máximo según el tamaño real de la petición: el texto a 2,5 caracteres
+  por token, 5000 tokens por página de PDF y 3300 por imagen, cobrados a 1,25x
+  (escritura en caché) y a la tarifa del modelo más caro (por si responde el
+  modelo de respaldo), más la salida completa. Si lo gastado más lo reservado
+  pasa del tope, la llamada no sale, la corrida se detiene y las salidas traen
+  lo que alcanzó. El script usa el mismo tope (`--tope`).
+- **Archivos dentro de la carpeta**: no se abre ningún archivo de más de 50 MB
+  ni un xlsx o docx que declare más de 200 MB descomprimido. Los zip internos
+  se leen en trozos, con 50 MB por archivo y un presupuesto común de 2 GB y
+  5000 archivos; lo que pasa de ahí queda en el inventario con su nota, sin
+  abrir.
+- **Trabajo pesado en hilos**: PDF, imágenes, Excel, Word, salidas y borrados
+  corren fuera del event loop para no frenar las demás peticiones.
 - **Zip**: se rechaza entero si trae rutas que salen de la carpeta (`../`,
   rutas absolutas, `C:`), enlaces simbólicos, más de
-  `CALIDAD_REVISOR_MAX_ARCHIVOS` archivos o más de
+  `CALIDAD_REVISOR_MAX_ARCHIVOS` entradas (carpetas incluidas) o más de
   `CALIDAD_REVISOR_MAX_DESCOMPRIMIDO_MB` descomprimido (se cuentan los bytes
   escritos, no los declarados).
 
@@ -174,6 +194,7 @@ contenido.
 | `CALIDAD_REVISOR_MAX_MB` | `500` | Tamaño máximo del zip |
 | `CALIDAD_REVISOR_MAX_DESCOMPRIMIDO_MB` | `2000` | Máximo descomprimido |
 | `CALIDAD_REVISOR_MAX_ARCHIVOS` | `5000` | Máximo de archivos en el zip |
+| `CALIDAD_REVISOR_RETENCION_DIAS` | `30` | Días que se guardan salidas y caché |
 | `CALIDAD_REVISOR_DIR` | junto a la base | Carpeta del volumen |
 | `ANTHROPIC_API_KEY` | — | La del servicio de calidad |
 
@@ -185,7 +206,7 @@ Todas bajo `/api/web/calidad/revisor`, con sesión de calidad o admin:
 |---|---|
 | `GET /revisor` | Estado: carga, estimación, pasos, costo, resumen y descargas listas |
 | `POST /revisor/soportes?programa=…` | Cuerpo: el zip. Descomprime, inventaría y estima |
-| `POST /revisor/correr` | `{"confirmo_costo": true}`. Vuelve a estimar y lanza en segundo plano |
+| `POST /revisor/correr` | `{"confirmo_costo": true, "carga_id": …, "costo_usd": …}`. Verifica la carga y el costo vistos, vuelve a estimar y lanza en segundo plano |
 | `GET /revisor/descargar/{inventario,cruce,borrador}` | Descarga una salida |
 | `DELETE /revisor[?cache=true]` | Borra soportes y salidas (y la caché) |
 
@@ -223,6 +244,12 @@ Opus 5.5, 4 / 20 USD. `--estimar` usa supuestos holgados y da una cota alta.
 Piloto de MCMA (153 archivos, 19 acciones): 5,91 USD la primera corrida
 completa, en unos 7 minutos (Sonnet unos 4,3 USD; Opus unos 1,6 USD). Rehacer
 xlsx, cruces y sugerencias costó 1,87 USD.
+
+La clave de cada descripción incluye ahora la descripción y el indicador de su
+acción (antes solo el código): el mismo archivo con el mismo código en otro
+programa ya no reutiliza una descripción hecha con otro contexto. Por eso una
+caché hecha antes de este cambio no sirve y la primera corrida vuelve a pagar
+las descripciones (unos 4 USD para un plan como el de MCMA).
 
 Después de esta revisión, la primera corrida sobre una caché anterior vuelve a
 pagar los cruces, el resumen y las sugerencias (la clave ahora incluye el
