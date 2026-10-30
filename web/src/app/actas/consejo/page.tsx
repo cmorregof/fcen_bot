@@ -89,6 +89,8 @@ function Leido({ d }: { d: Decision }) {
 function Duda({ d, ocupado, accion }: { d: Decision; ocupado: boolean; accion: (ruta: string, json?: object) => void }) {
   const [elegido, setElegido] = useState<string>(d.candidatos[0] ? String(d.candidatos[0].id) : "");
   const [otro, setOtro] = useState("");
+  const [reemplazar, setReemplazar] = useState(false);
+  const yaDecidido = (d.motivo ?? "").includes("ya tiene una decisión");
   const pendiente = d.estado === "pendiente";
   const casoId = elegido === "otro" ? Number(otro) : Number(elegido);
   return (
@@ -126,12 +128,18 @@ function Duda({ d, ocupado, accion }: { d: Decision; ocupado: boolean; accion: (
               ) : null}
             </>
           ) : null}
+          {yaDecidido && d.cruce !== "no_verificado" ? (
+            <label>
+              <input type="checkbox" checked={reemplazar} onChange={(e) => setReemplazar(e.target.checked)} /> Reemplazar la decisión del
+              Consejo que ya está registrada en ese caso
+            </label>
+          ) : null}
           <div className="botones">
             {d.cruce !== "no_verificado" ? (
               <button
                 type="button"
-                disabled={ocupado || !casoId}
-                onClick={() => accion(`/decisiones/${d.id}/confirmar`, { caso_id: casoId })}
+                disabled={ocupado || !casoId || (yaDecidido && !reemplazar)}
+                onClick={() => accion(`/decisiones/${d.id}/confirmar`, { caso_id: casoId, reemplazar })}
               >
                 Asignar a este caso
               </button>
