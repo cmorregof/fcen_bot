@@ -30,6 +30,8 @@ const COLUMNAS: { clave: string; titulo: string }[] = [
   { clave: "dias_comite_p90", titulo: "Días a la recomendación (p90)" },
   { clave: "dias_consejo_mediana", titulo: "Días al Consejo (mediana)" },
   { clave: "dias_consejo_p90", titulo: "Días al Consejo (p90)" },
+  { clave: "sin_fecha_recomendacion", titulo: "Recomendados sin fecha" },
+  { clave: "fechas_inconsistentes", titulo: "Fechas inconsistentes" },
   { clave: "fuera_plazo_comite", titulo: "Fuera de plazo (comité)" },
   { clave: "fuera_plazo_consejo", titulo: "Fuera de plazo (Consejo)" },
 ];
@@ -52,6 +54,8 @@ export default function PaginaIndicadores() {
   const { token, sesiones } = useSesion();
   const t = token("actas");
   const [periodo, setPeriodo] = useState("");
+  // El Excel se pide con el periodo de la última consulta, no con lo escrito.
+  const [consultado, setConsultado] = useState("");
   const [reporte, setReporte] = useState<Reporte | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -63,6 +67,7 @@ export default function PaginaIndicadores() {
       setCargando(true);
       try {
         setReporte(await llamar<Reporte>("actas", `/actas/indicadores?periodo=${encodeURIComponent(p)}`, { token: t }));
+        setConsultado(p);
       } catch (e) {
         setReporte(null);
         setError((e as Error).message);
@@ -80,7 +85,7 @@ export default function PaginaIndicadores() {
   const descargar = async () => {
     if (!reporte) return;
     try {
-      const datos = await llamar<Blob>("actas", `/actas/indicadores/xlsx?periodo=${encodeURIComponent(periodo)}`, {
+      const datos = await llamar<Blob>("actas", `/actas/indicadores/xlsx?periodo=${encodeURIComponent(consultado)}`, {
         token: t,
       });
       guardarArchivo(datos, `indicadores-actas-${reporte.periodo.desde}.xlsx`);

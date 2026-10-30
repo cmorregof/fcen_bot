@@ -685,8 +685,14 @@ async def descargar_indicadores(
     usuario: _Indicadores, db: Db, periodo: str = ""
 ) -> Response:
     reporte = await _reporte_indicadores(usuario, db, periodo)
+    try:
+        contenido = indicadores.xlsx(reporte)
+    except indicadores.ConfigIndicadoresError:
+        raise HTTPException(
+            503, "No se pudo armar el Excel: revise config/indicadores.yaml."
+        ) from None
     return Response(
-        content=indicadores.xlsx(reporte),
+        content=contenido,
         media_type=indicadores.MIME_XLSX,
         headers={
             "Content-Disposition": (

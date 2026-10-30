@@ -139,7 +139,8 @@ FUENTES: dict[str, Fuente] = {
     "pendientes_acta": Fuente(
         "Pendientes de acta del Consejo",
         "Casos recomendados por el comité sin decisión confirmada desde el acta "
-        "del Consejo, más los aplazados. Nunca se cuentan como aprobados.",
+        "del Consejo, más todos los aplazados por el Consejo (tengan o no "
+        "recomendación registrada). Nunca se cuentan como aprobados.",
         f"{_BOTON}, cruzado con {_ACTA[0].lower() + _ACTA[1:]}.",
     ),
     "dias_comite_mediana": Fuente(
@@ -183,6 +184,21 @@ FUENTES: dict[str, Fuente] = {
         "casos sin fecha de recomendación, sin fecha en el acta o con la fecha "
         "del acta anterior al registro de la recomendación.",
         "Las mismas fechas de la mediana.",
+    ),
+    "sin_fecha_recomendacion": Fuente(
+        "Recomendados sin fecha de recomendación",
+        "Casos recomendados antes de que MemorIA guardara la fecha de la "
+        "recomendación. Cuentan como recomendados, pero quedan fuera de los "
+        "días y de los plazos: la fecha no se inventa.",
+        _BOTON + ".",
+    ),
+    "fechas_inconsistentes": Fuente(
+        "Decididos con fechas inconsistentes",
+        "Casos decididos cuya acta del Consejo tiene fecha anterior al registro "
+        "de la recomendación. Quedan fuera de los días de la recomendación a la "
+        "decisión.",
+        "Fecha del clic en el botón de recomendación y fecha de la sesión del "
+        "acta del Consejo confirmada.",
     ),
     "fuera_plazo_comite": Fuente(
         "Fuera de plazo en el comité",
@@ -322,6 +338,7 @@ def ayuda_periodo() -> str:
     )
 
 
+_ANO_MIN, _ANO_MAX = 2000, 2100
 _RE_MES = re.compile(r"^(\d{4})-(\d{1,2})$")
 _RE_ANO = re.compile(r"^(\d{4})$")
 
@@ -363,11 +380,11 @@ def periodo_de(texto: str, hoy: date) -> Periodo:
         return periodo
     if m := _RE_MES.match(t):
         ano, numero = int(m.group(1)), int(m.group(2))
-        if 1 <= numero <= 12 and ano >= 2000:
+        if 1 <= numero <= 12 and _ANO_MIN <= ano <= _ANO_MAX:
             return mes(ano, numero)
     elif m := _RE_ANO.match(t):
         ano = int(m.group(1))
-        if ano >= 2000:
+        if _ANO_MIN <= ano <= _ANO_MAX:
             return Periodo(f"año {ano}", date(ano, 1, 1), date(ano + 1, 1, 1))
     raise PeriodoInvalido(f"No reconozco el periodo «{t}». {ayuda_periodo()}")
 
@@ -537,6 +554,10 @@ class Indicadores:
     consejo_aplazo: int = 0
     consejo_otro: int = 0
     pendientes_acta: int = 0
+    # Recomendados antes de que MemorIA guardara la fecha: fuera de los días.
+    sin_fecha_recomendacion: int = 0
+    # Decididos con el acta anterior a la recomendación: fuera de los días.
+    fechas_inconsistentes: int = 0
     dias_comite: Estadistica = field(default_factory=Estadistica)
     dias_consejo: Estadistica = field(default_factory=Estadistica)
     # None: el plazo no está configurado en config/solicitudes.yaml.
@@ -569,6 +590,8 @@ class Indicadores:
             "dias_consejo_mediana": self.dias_consejo.mediana,
             "dias_consejo_p90": self.dias_consejo.p90,
             "dias_consejo_casos": self.dias_consejo.casos,
+            "sin_fecha_recomendacion": self.sin_fecha_recomendacion,
+            "fechas_inconsistentes": self.fechas_inconsistentes,
             "fuera_plazo_comite": self.fuera_plazo_comite,
             "fuera_plazo_consejo": self.fuera_plazo_consejo,
         }
@@ -583,6 +606,13 @@ def _decidido(f: FilaCaso) -> bool:
     return f.consejo in _DECISION
 
 
+def _pendiente_acta(f: FilaCaso) -> bool:
+    """Recomendado sin decisión del acta, o aplazado (con o sin recomendación)."""
+    if f.consejo == SentidoConsejo.APLAZO:
+        return True
+    return _recomendado(f) and not _decidido(f)
+
+
 def calcular(
     filas: Iterable[FilaCaso], hoy: date, plazos: solicitudes.Plazos
 ) -> Indicadores:
@@ -591,6 +621,7 @@ def calcular(
     dias_consejo: list[int] = []
     fuera_comite = 0
     fuera_consejo = 0
+    fechas_inconsistentes = 0
     for f in filas:
         if _recomendado(f) and f.recomendado is not None:
             dias_comite.append((f.recomendado - f.solicitud).days)
@@ -601,6 +632,9 @@ def calcular(
             and f.acta_fecha >= f.recomendado
         ):
             dias_consejo.append((f.acta_fecha - f.recomendado).days)
+        elif _decidido(f) and f.recomendado is not None and f.acta_fecha is not None:
+            # El acta es anterior al registro de la recomendación.
+            fechas_inconsistentes += 1
         if plazos.comite:
             # Sin recomendación, el reloj del comité sigue corriendo hasta hoy.
             fin: date | None
@@ -626,7 +660,11 @@ def calcular(
         consejo_aplazo=sum(f.consejo == SentidoConsejo.APLAZO for f in filas),
         consejo_otro=sum(f.consejo == SentidoConsejo.OTRO for f in filas),
         # Sin decisión confirmada desde el acta, la recomendación sigue pendiente.
-        pendientes_acta=sum(_recomendado(f) and not _decidido(f) for f in filas),
+        pendientes_acta=sum(_pendiente_acta(f) for f in filas),
+        sin_fecha_recomendacion=sum(
+            _recomendado(f) and f.recomendado is None for f in filas
+        ),
+        fechas_inconsistentes=fechas_inconsistentes,
         dias_comite=estadistica(dias_comite),
         dias_consejo=estadistica(dias_consejo),
         fuera_plazo_comite=fuera_comite if plazos.comite else None,
@@ -767,9 +805,19 @@ def lineas_total(r: Reporte) -> list[str]:
         + (f", otra decisión {i.consejo_otro}" if i.consejo_otro else "")
         + f"); aplazó {i.consejo_aplazo} [3]",
         f"• Pendientes de acta del Consejo: {i.pendientes_acta} [4]",
-        f"• Días de la solicitud a la recomendación: {_est(i.dias_comite)} [5]",
+        f"• Días de la solicitud a la recomendación: {_est(i.dias_comite)} [5]"
+        + (
+            f"; {i.sin_fecha_recomendacion} recomendados sin fecha quedan fuera"
+            if i.sin_fecha_recomendacion
+            else ""
+        ),
         f"• Días de la recomendación a la decisión del Consejo: "
-        f"{_est(i.dias_consejo)} [6]",
+        f"{_est(i.dias_consejo)} [6]"
+        + (
+            f"; {i.fechas_inconsistentes} con fechas inconsistentes quedan fuera"
+            if i.fechas_inconsistentes
+            else ""
+        ),
         f"• Fuera de plazo: comité {_plazo(i.fuera_plazo_comite, plazos.comite)}; "
         f"Consejo {_plazo(i.fuera_plazo_consejo, plazos.consejo)} [7]",
     ]

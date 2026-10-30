@@ -28,7 +28,7 @@ El periodo se escribe así:
 | Texto | Periodo |
 |---|---|
 | `2026-10` | Un mes calendario |
-| `2026` | Un año calendario |
+| `2026` | Un año calendario (de 2000 a 2100) |
 | vacío, `actual` o el valor de `PERIODO_ACTUAL` (p. ej. `2026-2S`) | Desde `PERIODO_INICIO` (primer día de clases) hasta hoy |
 
 Los periodos académicos anteriores no se pueden pedir por nombre, porque MemorIA solo conoce la fecha de inicio del periodo en curso. Para esos casos se piden los meses.
@@ -46,17 +46,19 @@ Los periodos académicos anteriores no se pueden pedir por nombre, porque MemorI
 | `consejo_no_aprobo` | El Consejo no aprobó | — | Acta del Consejo confirmada |
 | `consejo_aplazo` | El Consejo aplazó | Siguen pendientes de acta | Acta del Consejo confirmada |
 | `consejo_otro` | Otra decisión del Consejo | Decisiones que no son aprobó, no aprobó ni aplazó | Acta del Consejo confirmada |
-| `pendientes_acta` | Pendientes de acta del Consejo | Recomendados sin decisión confirmada desde el acta, más los aplazados | Botón + acta del Consejo |
+| `pendientes_acta` | Pendientes de acta del Consejo | Recomendados sin decisión confirmada desde el acta, más todos los aplazados (tengan o no recomendación registrada) | Botón + acta del Consejo |
 | `dias_comite_mediana` | Días de la solicitud a la recomendación (mediana) | Días calendario entre la fecha de la solicitud y el registro de la recomendación | Ver «Fechas» |
 | `dias_comite_p90` | Ídem, percentil 90 | Ver «Mediana y percentil 90» | Ver «Fechas» |
 | `dias_comite_casos` | Casos que entran en ese cálculo | — | — |
 | `dias_consejo_mediana` | Días de la recomendación a la decisión del Consejo (mediana) | Días calendario entre el registro de la recomendación y la fecha de la sesión que consta en el acta. Solo decididos, sin aplazados | Ver «Fechas» |
 | `dias_consejo_p90` | Ídem, percentil 90 | — | Ver «Fechas» |
 | `dias_consejo_casos` | Casos que entran en ese cálculo | — | — |
+| `sin_fecha_recomendacion` | Recomendados sin fecha de recomendación | Recomendados antes de que MemorIA guardara la fecha. Cuentan como recomendados, pero no entran en los días ni en los plazos | Botón de la administrativa |
+| `fechas_inconsistentes` | Decididos con fechas inconsistentes | Decididos cuya acta tiene fecha anterior al registro de la recomendación. No entran en los días de la recomendación a la decisión | Botón + acta del Consejo |
 | `fuera_plazo_comite` | Fuera de plazo en el comité | Recomendados después del plazo, o sin recomendación y con el plazo ya vencido a la fecha de corte | `config/solicitudes.yaml`, `plazos.comite` |
 | `fuera_plazo_consejo` | Fuera de plazo en el Consejo | Decididos después del plazo desde la recomendación, o pendientes de acta (incluidos los aplazados) con el plazo ya vencido | `config/solicitudes.yaml`, `plazos.consejo` |
 
-Las mismas definiciones están en el código (`FUENTES`). Cada mensaje de Telegram las cita con números ([1] a [7]), la web las muestra bajo cada cifra y el Excel las trae en la pestaña «fuentes».
+Las mismas definiciones están en el código (`FUENTES`). Cada mensaje de Telegram las cita con números ([1] a [7]), la web las muestra bajo cada cifra y el Excel las trae en la pestaña «fuentes». Si `config/indicadores.yaml` tiene un error, Telegram envía las cifras y avisa que no pudo armar el Excel, y la web responde 503 en la descarga.
 
 ### Dimensiones
 
@@ -73,9 +75,13 @@ Cada indicador sale para el total y por grupo:
 ### Fechas
 
 - **Fecha de la solicitud.** Es la fecha del correo o del formato que se leyó en la ficha. Si no se leyó, o si es posterior al registro del caso (mala lectura), se usa la fecha de registro.
-- **Fecha de la recomendación.** Es el momento en que la administrativa registró la recomendación con el botón, en Telegram o en la web. Se guarda en `casos.recomendado`, una columna nueva, en UTC; los indicadores la convierten a la fecha de Bogotá. Volver a marcar el mismo sentido no la cambia. Cambiar el sentido la actualiza. Volver a «Pendiente» la borra.
-  - Los casos recomendados antes de esta versión no tienen esa fecha: cuentan como recomendados, pero no entran en los días ni en el plazo del comité.
-- **Fecha de la decisión.** Es la fecha de la sesión que consta en el acta del Consejo confirmada (`decisiones_consejo.acta_fecha`). Sin fecha en el acta, el caso no entra en los días. Tampoco entra si la fecha del acta es anterior al registro de la recomendación (dato inconsistente).
+- **Fecha de la recomendación.** Es el momento en que la administrativa registró la recomendación con el botón, en Telegram o en la web. Se guarda en `casos.recomendado`, una columna nueva, en UTC; los indicadores la convierten a la fecha de Bogotá. Solo un cambio real de sentido la mueve:
+  - volver a marcar el mismo sentido no la cambia;
+  - cambiar el sentido la actualiza;
+  - volver a «Pendiente» la borra;
+  - si el caso ya tiene una decisión del Consejo registrada (incluido un aplazamiento), no se mueve, para que los días hasta el acta se midan con la fecha original.
+  - Los casos recomendados antes de esta versión no tienen esa fecha, y no se les inventa una, ni siquiera si se vuelve a pulsar el mismo botón. Cuentan como recomendados, pero no entran en los días ni en el plazo del comité: salen en `sin_fecha_recomendacion`.
+- **Fecha de la decisión.** Es la fecha de la sesión que consta en el acta del Consejo confirmada (`decisiones_consejo.acta_fecha`). Sin fecha en el acta, el caso no entra en los días. Tampoco entra si la fecha del acta es anterior al registro de la recomendación: ese caso se cuenta en `fechas_inconsistentes`.
 
 ### Mediana y percentil 90
 
@@ -95,7 +101,12 @@ Cada indicador sale para el total y por grupo:
 
 El comité no tiene esta pantalla. En Telegram, las administrativas tampoco tienen `/indicadores`: reciben el reporte mensual de su área.
 
-El reporte mensual lo dispara `.github/workflows/reporte-mensual.yml` con `POST /internal/reporte-mensual`, igual que el resumen semanal. Se apaga con `REPORTE_MENSUAL_ACTIVO=false`. El envío es el de `resumen.enviar_a`: si falla uno, sigue con los demás.
+El reporte mensual lo dispara `.github/workflows/reporte-mensual.yml` con `POST /internal/reporte-mensual`, igual que el resumen semanal. Está **apagado por defecto**: se enciende con `REPORTE_MENSUAL_ACTIVO=true`. El envío es el de `resumen.enviar_a`: si falla uno, sigue con los demás.
+
+El envío es idempotente:
+- la tabla `reportes_mensuales` guarda cada mes ya enviado, y una nueva corrida del workflow para ese mes responde `ya_enviado: true` sin reenviar;
+- si nadie recibió el reporte (no hay destinatarios o Telegram está caído), el mes no queda registrado y se puede volver a intentar;
+- el workflow corre sin permisos sobre el repositorio (`permissions: {}`) y con `concurrency`, para que dos corridas no se pisen.
 
 El resumen semanal de la decanatura muestra, además, las actas del Consejo confirmadas en la semana, con instancia, número, fecha y conteo por sentido.
 

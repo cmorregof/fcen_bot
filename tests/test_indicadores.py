@@ -624,3 +624,154 @@ async def test_resumen_semanal_trae_las_actas_de_la_semana(
     assert "acta 15 del 2026-10-17: aprobó 0, no aprobó 1" in texto
     assert "2026-09-01" not in texto
     assert NOMBRE not in texto
+
+
+# ---------------------------------------------------------------------------
+# Revisión del PR #19
+# ---------------------------------------------------------------------------
+
+
+async def _recomendado(db: aiosqlite.Connection, caso_id: int) -> object:
+    cur = await db.execute("SELECT recomendado FROM casos WHERE id = ?", (caso_id,))
+    fila = await cur.fetchone()
+    assert fila is not None
+    return fila[0]
+
+
+async def test_caso_viejo_sin_fecha_no_recibe_la_de_hoy(
+    db: aiosqlite.Connection,
+) -> None:
+    # Recomendado antes de que existiera la columna: sin fecha.
+    viejo = await _caso(db, sentido=Sentido.APROBAR, recomendado=None)
+    await repo.set_sentido(db, viejo, Sentido.APROBAR)  # mismo botón otra vez
+    assert await _recomendado(db, viejo) is None
+    r = await indicadores.reporte(db, OCTUBRE, HOY)
+    assert r.total.dias_comite.casos == 0
+    assert r.total.sin_fecha_recomendacion == 1
+    assert "1 recomendados sin fecha quedan fuera" in indicadores.formatear(r)
+    # Un cambio real de sentido sí registra la fecha.
+    await repo.set_sentido(db, viejo, Sentido.NO_APROBAR)
+    assert await _recomendado(db, viejo) is not None
+
+
+async def test_cambiar_el_sentido_despues_del_acta_no_mueve_la_fecha(
+    db: aiosqlite.Connection,
+) -> None:
+    caso_id = await _caso(
+        db, sentido=Sentido.APROBAR, recomendado="2026-10-03 15:00:00"
+    )
+    await _acta(db, caso_id, SentidoConsejo.APROBO, "2026-10-13")
+    await repo.set_sentido(db, caso_id, Sentido.NO_APROBAR)
+    assert await _recomendado(db, caso_id) == "2026-10-03 15:00:00"
+    await repo.set_sentido(db, caso_id, Sentido.PENDIENTE)
+    assert await _recomendado(db, caso_id) == "2026-10-03 15:00:00"
+    r = await indicadores.reporte(db, OCTUBRE, HOY)
+    assert r.total.dias_consejo.casos == 1
+
+
+async def test_fechas_inconsistentes_se_cuentan_aparte(
+    db: aiosqlite.Connection,
+) -> None:
+    caso_id = await _caso(
+        db, sentido=Sentido.APROBAR, recomendado="2026-10-20 15:00:00"
+    )
+    await _acta(db, caso_id, SentidoConsejo.APROBO, "2026-10-13")  # antes
+    r = await indicadores.reporte(db, OCTUBRE, HOY)
+    assert r.total.decididos_consejo == 1
+    assert r.total.dias_consejo.casos == 0
+    assert r.total.fechas_inconsistentes == 1
+    assert "1 con fechas inconsistentes quedan fuera" in indicadores.formatear(r)
+
+
+async def test_aplazado_sin_recomendacion_es_pendiente_de_acta(
+    db: aiosqlite.Connection,
+) -> None:
+    caso_id = await _caso(db)  # sin recomendación registrada
+    await _acta(db, caso_id, SentidoConsejo.APLAZO)
+    t = (await indicadores.reporte(db, OCTUBRE, HOY)).total
+    assert (t.recomendados, t.consejo_aplazo, t.pendientes_acta) == (0, 1, 1)
+    assert t.consejo_aprobo == 0 and t.decididos_consejo == 0
+
+
+@pytest.mark.parametrize("texto", ["9999-12", "9999", "2101-01", "10000"])
+def test_anos_fuera_de_rango_son_periodo_invalido(texto: str) -> None:
+    with pytest.raises(indicadores.PeriodoInvalido):
+        indicadores.periodo_de(texto, HOY)
+
+
+async def test_ano_fuera_de_rango_en_telegram_y_web(
+    db: aiosqlite.Connection, tg: TelegramFalso, web: TestClient
+) -> None:
+    await bot.manejar_update(db, _update(DECANA, "/indicadores 9999-12"))
+    assert "No reconozco el periodo" in tg.textos()[0]
+    decana = await _token("decana2@unal.edu.co", "decanatura")
+    r = web.get("/api/web/actas/indicadores?periodo=9999-12", headers=decana)
+    assert r.status_code == 422
+
+
+def test_la_web_descarga_el_periodo_consultado() -> None:
+    pagina = (RAIZ / "web" / "src" / "app" / "indicadores" / "page.tsx").read_text(
+        "utf-8"
+    )
+    assert "indicadores/xlsx?periodo=${encodeURIComponent(consultado)}" in pagina
+    assert "setConsultado(p)" in pagina
+
+
+async def test_excel_roto_avisa_en_telegram_y_la_web(
+    db: aiosqlite.Connection,
+    tg: TelegramFalso,
+    web: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def roto(*a: object, **kw: object) -> bytes:
+        raise indicadores.ConfigIndicadoresError("config/indicadores.yaml roto")
+
+    monkeypatch.setattr(indicadores, "xlsx", roto)
+    await bot.manejar_update(db, _update(DECANA, "/indicadores 2026-10"))
+    textos = tg.textos()
+    assert "Indicadores del servicio de actas" in textos[0]
+    assert "No pude armar el Excel" in textos[1]
+    assert tg.documentos == []
+    decana = await _token("decana3@unal.edu.co", "decanatura")
+    r = web.get("/api/web/actas/indicadores/xlsx?periodo=2026-10", headers=decana)
+    assert r.status_code == 503
+
+
+def test_reporte_mensual_apagado_por_defecto() -> None:
+    assert type(settings).model_fields["reporte_mensual_activo"].default is False
+
+
+async def test_reporte_mensual_no_se_repite_en_un_rerun(
+    db: aiosqlite.Connection, tg: TelegramFalso
+) -> None:
+    await _personas(db)
+    primera = await reporte_mensual.enviar(db, HOY)
+    assert primera["enviados"] == 3
+    segunda = await reporte_mensual.enviar(db, HOY)
+    assert segunda == {
+        "activo": True,
+        "mes": "2026-10",
+        "ya_enviado": True,
+        "enviados": 0,
+    }
+    assert len(tg.mensajes) == 3
+    # El mes siguiente sí sale.
+    tercera = await reporte_mensual.enviar(db, date(2026, 12, 1))
+    assert tercera["mes"] == "2026-11" and tercera["enviados"] == 3
+
+
+async def test_reporte_mensual_sin_destinatarios_se_puede_reintentar(
+    db: aiosqlite.Connection, tg: TelegramFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "vicedecanatura_telegram_ids", "")
+    assert (await reporte_mensual.enviar(db, HOY))["enviados"] == 0
+    monkeypatch.setattr(settings, "vicedecanatura_telegram_ids", str(VICEDECANA))
+    assert (await reporte_mensual.enviar(db, HOY))["enviados"] == 1
+
+
+def test_workflow_sin_permisos_y_con_concurrencia() -> None:
+    flujo = yaml.safe_load(
+        (RAIZ / ".github" / "workflows" / "reporte-mensual.yml").read_text("utf-8")
+    )
+    assert flujo["permissions"] == {}
+    assert flujo["concurrency"]["group"] == "reporte-mensual"

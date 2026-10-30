@@ -42,6 +42,10 @@ columnas:
     encabezado: Días recomendación a decisión del Consejo (percentil 90)
   - clave: dias_consejo_casos
     encabezado: Casos con días recomendación a decisión
+  - clave: sin_fecha_recomendacion
+    encabezado: Recomendados sin fecha de recomendación
+  - clave: fechas_inconsistentes
+    encabezado: Decididos con fechas inconsistentes
   - clave: fuera_plazo_comite
     encabezado: Fuera de plazo en el comité
   - clave: fuera_plazo_consejo

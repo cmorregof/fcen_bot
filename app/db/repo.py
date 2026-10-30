@@ -402,14 +402,20 @@ async def set_programa(db: aiosqlite.Connection, caso_id: int, programa: str) ->
 
 
 async def set_sentido(db: aiosqlite.Connection, caso_id: int, sentido: Sentido) -> None:
-    # `recomendado` guarda cuándo se registró la recomendación (indicadores):
-    # volver a marcar el mismo sentido no la mueve; volver a «pendiente» la borra.
+    # `recomendado` guarda cuándo se registró la recomendación (indicadores).
+    # Solo un cambio real de sentido la mueve: volver a marcar el mismo sentido
+    # no la cambia (ni se la inventa a un caso viejo sin fecha) y volver a
+    # «pendiente» la borra. Con decisión del Consejo ya registrada no se mueve:
+    # los días de la recomendación al acta se miden con la fecha original.
     await db.execute(
         """
         UPDATE casos SET
             recomendado = CASE
+                WHEN EXISTS (
+                    SELECT 1 FROM decisiones_consejo d WHERE d.caso_id = casos.id
+                ) THEN recomendado
                 WHEN :sentido = :pendiente THEN NULL
-                WHEN sentido = :sentido AND recomendado IS NOT NULL THEN recomendado
+                WHEN sentido = :sentido THEN recomendado
                 ELSE CURRENT_TIMESTAMP END,
             sentido = :sentido,
             actualizado = CURRENT_TIMESTAMP

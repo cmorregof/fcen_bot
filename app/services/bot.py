@@ -350,11 +350,25 @@ async def _indicadores(db: aiosqlite.Connection, chat_id: int, argumento: str) -
         await telegram.send_message(chat_id, escape(str(exc)))
         return
     reporte = await indicadores.reporte(db, periodo, hoy)
+    # El Excel se arma antes de enviar: si config/indicadores.yaml falla, se
+    # avisa en vez de cortar después del texto.
+    archivo: bytes | None = None
+    try:
+        archivo = indicadores.xlsx(reporte)
+    except indicadores.ConfigIndicadoresError:
+        logger.exception("No pude armar el Excel de indicadores")
     await telegram.send_message(chat_id, indicadores.formatear(reporte))
+    if archivo is None:
+        await telegram.send_message(
+            chat_id,
+            "No pude armar el Excel: config/indicadores.yaml tiene un error. "
+            "Las cifras de arriba no cambian.",
+        )
+        return
     await telegram.send_document(
         chat_id,
         nombre=indicadores.nombre_xlsx(reporte),
-        contenido=indicadores.xlsx(reporte),
+        contenido=archivo,
         mime=indicadores.MIME_XLSX,
         caption="Los mismos indicadores en Excel, con la pestaña «fuentes».",
     )

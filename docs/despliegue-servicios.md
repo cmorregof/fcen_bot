@@ -110,7 +110,7 @@ Configura las variables en la pestaña **Variables** de cada servicio en Railway
 | `RESUMEN_CALIDAD_URL`, `RESUMEN_ADMISION_URL` | URL pública de cada servicio | No aplica | No aplica | Actas pide ahí los conteos agregados de calidad y admisión (nunca lee su base) |
 | `ADMIN_TELEGRAM_IDS` | Ids de Telegram de los administradores, separados por comas | No aplica | No aplica | Pueden usar `/indicadores`, igual que la decanatura |
 | `VICEDECANATURA_TELEGRAM_IDS` | Ids de Telegram de la Vicedecanatura Académica | No aplica | No aplica | Reciben el consolidado del reporte mensual de indicadores |
-| `REPORTE_MENSUAL_ACTIVO` | `true` (por defecto) o `false` | No aplica | No aplica | `false` apaga el reporte mensual del día 1; `/indicadores` y la web siguen disponibles |
+| `REPORTE_MENSUAL_ACTIVO` | `false` (por defecto) o `true` | No aplica | No aplica | `true` enciende el reporte mensual del día 1; `/indicadores` y la web funcionan igual |
 | `INDICADORES_PATH` | No definir | No aplica | No aplica | Otro archivo de columnas del Excel de indicadores (por defecto `config/indicadores.yaml`) |
 
 > [!CAUTION]
@@ -221,5 +221,6 @@ Definiciones y lo que falta de la plantilla de Calidad: `docs/indicadores.md`.
 - `/indicadores [periodo]` en Telegram responde solo a `DECANATURA_TELEGRAM_IDS` y `ADMIN_TELEGRAM_IDS`, con las cifras de toda la Facultad y el Excel.
 - En la web, la pantalla «Indicadores» (`/indicadores`) es para decanatura y admin (toda la Facultad) y para cada administrativa (solo su área).
 - El día 1 de cada mes a las 7:30 a. m. (hora de Bogotá), el workflow `reporte-mensual.yml` llama a `POST /internal/reporte-mensual` con `INTERNAL_CRON_SECRET`. Cada administrativa registrada en el bot recibe las cifras de su área del mes anterior; los ids de `VICEDECANATURA_TELEGRAM_IDS` reciben el consolidado. Usa los mismos secrets de GitHub Actions que el resumen semanal.
-- `REPORTE_MENSUAL_ACTIVO=false` lo apaga: la ruta responde `activo: false` y no envía nada.
+- Está apagado por defecto: con `REPORTE_MENSUAL_ACTIVO` en `false` la ruta responde `activo: false` y no envía nada. Se enciende con `true`.
+- Si el reporte de un mes ya salió, una nueva corrida responde `ya_enviado: true` y no lo repite.
 - Como con la decanatura, cada persona de la Vicedecanatura debe abrir el bot y enviar `/start` una vez.

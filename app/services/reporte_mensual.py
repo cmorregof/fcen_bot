@@ -48,6 +48,17 @@ async def enviar(db: aiosqlite.Connection, hoy: date) -> dict[str, object]:
     if not settings.reporte_mensual_activo:
         return {"activo": False, "enviados": 0}
     mes = indicadores.mes_anterior(hoy)
+    clave_mes = mes.desde.strftime("%Y-%m")
+    # Idempotente: si el reporte de ese mes ya salió, un re-run no lo repite.
+    # Se reclama el mes antes de enviar para que dos corridas a la vez no
+    # envíen las dos.
+    cur = await db.execute(
+        "INSERT OR IGNORE INTO reportes_mensuales (mes, enviados) VALUES (?, 0)",
+        (clave_mes,),
+    )
+    await db.commit()
+    if cur.rowcount != 1:
+        return {"activo": True, "mes": clave_mes, "ya_enviado": True, "enviados": 0}
     areas: dict[str, int] = {}
     for clave in DIRECCIONES:
         ids = [u.telegram_id for u in await repo.usuarios_de(db, clave)]
@@ -60,10 +71,22 @@ async def enviar(db: aiosqlite.Connection, hoy: date) -> dict[str, object]:
         if vicedecanatura
         else 0
     )
+    enviados = sum(areas.values()) + consolidado
+    if enviados:
+        await db.execute(
+            "UPDATE reportes_mensuales SET enviados = ?, enviado = CURRENT_TIMESTAMP"
+            " WHERE mes = ?",
+            (enviados, clave_mes),
+        )
+    else:
+        # Nadie lo recibió (sin destinatarios o Telegram caído): se puede
+        # volver a intentar.
+        await db.execute("DELETE FROM reportes_mensuales WHERE mes = ?", (clave_mes,))
+    await db.commit()
     return {
         "activo": True,
-        "mes": mes.desde.strftime("%Y-%m"),
+        "mes": clave_mes,
         "areas": areas,
         "vicedecanatura": consolidado,
-        "enviados": sum(areas.values()) + consolidado,
+        "enviados": enviados,
     }

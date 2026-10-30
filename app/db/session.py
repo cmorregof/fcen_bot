@@ -96,6 +96,14 @@ _ESQUEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_casos_estado ON casos(estado, programa)",
+    # Reporte mensual ya enviado (AAAA-MM): un re-run del cron no lo repite.
+    """
+    CREATE TABLE IF NOT EXISTS reportes_mensuales (
+        mes        TEXT PRIMARY KEY,
+        enviados   INTEGER NOT NULL,
+        enviado    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
     # Actas del Consejo (Facultad, Sede o Superior) y su cruce con los casos.
     """
     CREATE TABLE IF NOT EXISTS actas_consejo (

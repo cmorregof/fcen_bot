@@ -61,8 +61,9 @@ class Settings(BaseSettings):
     # Vicedecanatura Académica: ids de Telegram que reciben el consolidado del
     # reporte mensual de indicadores.
     vicedecanatura_telegram_ids: str = ""
-    # El cron del día 1 no envía el reporte mensual si esto es false.
-    reporte_mensual_activo: bool = True
+    # El cron del día 1 solo envía el reporte mensual si esto es true. Apagado
+    # por defecto: se enciende cuando el área y la Vicedecanatura lo aprueben.
+    reporte_mensual_activo: bool = False
     # Columnas del Excel de indicadores (mientras llega la plantilla oficial de
     # Calidad; ver docs/indicadores.md).
     indicadores_path: Path = RAIZ / "config" / "indicadores.yaml"
