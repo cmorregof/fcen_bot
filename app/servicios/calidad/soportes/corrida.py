@@ -27,6 +27,7 @@ import asyncio
 import json
 import logging
 import shutil
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -59,7 +60,9 @@ DESCARGAS: dict[str, tuple[str, str]] = {
 }
 
 _tarea: asyncio.Task[None] | None = None
-_ocupado = False  # una carga, un lanzamiento o un borrado en curso
+_ocupado = False  # una carga, un lanzamiento, un borrado o una limpieza
+# `limpiar` corre en un hilo: tomar y soltar `_ocupado` va con este cerrojo.
+_cerrojo = threading.Lock()
 _ultima_limpieza = 0.0
 
 
@@ -78,6 +81,48 @@ class NoSePuede(Exception):
 
 def base() -> Path:
     return calidad_settings.revisor_dir or settings.db_path.parent / "revisor"
+
+
+# Lo único que el revisor crea y borra dentro de `base()`.
+_PROPIAS = ("actual", "cache")
+
+
+class CarpetaNoDedicada(Exception):
+    """`CALIDAD_REVISOR_DIR` no es una carpeta solo para el revisor."""
+
+
+def validar_base() -> Path:
+    """`base()` debe ser una carpeta dedicada: ni `DATA_DIR`, ni la carpeta de
+    la base, ni una que la contenga. Así ningún borrado alcanza la base."""
+    carpeta = base().resolve()
+    db = settings.db_path.resolve()
+    prohibidas = {
+        settings.data_dir.resolve(),
+        db.parent,
+        Path(carpeta.anchor),
+        Path.home().resolve(),
+    }
+    if carpeta in prohibidas or db.is_relative_to(carpeta):
+        raise CarpetaNoDedicada(
+            "CALIDAD_REVISOR_DIR debe ser una carpeta solo para el revisor, "
+            "sin la base de datos del servicio."
+        )
+    return carpeta
+
+
+def _tomar() -> bool:
+    global _ocupado
+    with _cerrojo:
+        if _ocupado or corriendo():
+            return False
+        _ocupado = True
+        return True
+
+
+def _soltar() -> None:
+    global _ocupado
+    with _cerrojo:
+        _ocupado = False
 
 
 def _actual() -> Path:
@@ -173,10 +218,8 @@ async def recibir(
 
     Reemplaza la carga anterior (soportes y salidas), nunca la caché.
     """
-    global _ocupado
-    if corriendo() or _ocupado:
+    if not _tomar():
         raise Ocupado
-    _ocupado = True
     try:
         await asyncio.to_thread(shutil.rmtree, _actual(), True)
         _actual().mkdir(parents=True)
@@ -198,7 +241,7 @@ async def recibir(
         await asyncio.to_thread(shutil.rmtree, _actual(), True)
         raise
     finally:
-        _ocupado = False
+        _soltar()
 
 
 def _preparar(
@@ -263,10 +306,9 @@ async def lanzar(
     subió respecto al que confirmó (`costo_visto`). Todo se verifica con el
     cerrojo tomado: otra carga no puede colarse en medio.
     """
-    global _tarea, _ocupado
-    if corriendo() or _ocupado:
+    global _tarea
+    if not _tomar():
         raise Ocupado
-    _ocupado = True
     try:
         estado = leer_estado()
         if (
@@ -314,7 +356,7 @@ async def lanzar(
         _guardar(estado)
         _tarea = asyncio.create_task(_correr(estado, archivos, acciones, cliente))
     finally:
-        _ocupado = False
+        _soltar()
 
 
 def _sin_derivados(estado: dict[str, Any]) -> dict[str, Any]:
@@ -383,54 +425,73 @@ async def _correr(
 
 async def borrar(*, con_cache: bool = False) -> None:
     """Borra soportes, salidas y estado; con `con_cache`, también la caché."""
-    global _ocupado
-    if corriendo() or _ocupado:
+    if not _tomar():
         raise Ocupado
-    _ocupado = True
     try:
+        validar_base()
         await asyncio.to_thread(shutil.rmtree, _actual(), True)
         if con_cache:
             await asyncio.to_thread(shutil.rmtree, base() / "cache", True)
     finally:
-        _ocupado = False
+        _soltar()
 
 
 def limpiar(*, al_arrancar: bool = False) -> None:
     """Retención de datos en el volumen. Síncrona: llamarla en un hilo.
 
+    Solo toca `actual/` y `cache/` dentro de una carpeta dedicada
+    (`validar_base`), y con el cerrojo tomado.
     - Interruptor apagado: borra todo lo del revisor.
     - Al arrancar: si la corrida quedó cortada («corriendo») o no hay estado,
       borra los soportes y el zip a medio subir.
-    - Siempre: borra la carga (salidas incluidas) y las entradas de la caché
-      con más de `revisor_retencion_dias`.
+    - Una carga subida y nunca lanzada: a las `revisor_retencion_carga_horas`.
+    - Salidas y caché: a los `revisor_retencion_dias`.
     """
     global _ultima_limpieza
     _ultima_limpieza = time.monotonic()
-    if not calidad_settings.revisor_activo:
-        if base().exists():
-            shutil.rmtree(base(), ignore_errors=True)
-        return
-    if corriendo() or _ocupado:
-        return
-    ruta_estado = _actual() / "estado.json"
-    if al_arrancar:
-        try:
-            cortada = (
-                json.loads(ruta_estado.read_text(encoding="utf-8")).get("estado")
-                == "corriendo"
-            )
-        except (OSError, json.JSONDecodeError):
-            cortada = True
-        if cortada:
-            shutil.rmtree(_soportes(), ignore_errors=True)
-            (_actual() / "subida.zip").unlink(missing_ok=True)
-    limite = time.time() - calidad_settings.revisor_retencion_dias * 86400
     try:
-        if ruta_estado.stat().st_mtime < limite:
-            shutil.rmtree(_actual(), ignore_errors=True)
+        raiz = validar_base()
+    except CarpetaNoDedicada as exc:
+        logger.error("No se limpia el revisor: %s", exc)
+        return
+    if not raiz.is_dir():
+        return
+    if not _tomar():
+        return
+    try:
+        _limpiar(raiz, al_arrancar)
+    finally:
+        _soltar()
+
+
+def _limpiar(raiz: Path, al_arrancar: bool) -> None:
+    if not calidad_settings.revisor_activo:
+        for nombre in _PROPIAS:
+            shutil.rmtree(raiz / nombre, ignore_errors=True)
+        try:
+            raiz.rmdir()  # solo si quedó vacía
+        except OSError:
+            pass
+        return
+    actual = raiz / "actual"
+    ruta_estado = actual / "estado.json"
+    try:
+        estado = json.loads(ruta_estado.read_text(encoding="utf-8")).get("estado")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        estado = None
+    if al_arrancar and estado in (None, "corriendo"):
+        shutil.rmtree(actual / "soportes", ignore_errors=True)
+        (actual / "subida.zip").unlink(missing_ok=True)
+    ahora = time.time()
+    limite = ahora - calidad_settings.revisor_retencion_dias * 86400
+    limite_carga = ahora - calidad_settings.revisor_retencion_carga_horas * 3600
+    try:
+        modificado = ruta_estado.stat().st_mtime
+        if modificado < limite or (estado == "cargado" and modificado < limite_carga):
+            shutil.rmtree(actual, ignore_errors=True)
     except OSError:
         pass
-    carpeta_cache = base() / "cache"
+    carpeta_cache = raiz / "cache"
     if carpeta_cache.is_dir():
         for entrada in carpeta_cache.glob("*.json"):
             try:

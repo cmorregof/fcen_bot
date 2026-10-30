@@ -129,7 +129,8 @@ class ClienteAnthropic:
             error = error_corto(exc)
             if es_fatal(exc):
                 self.detenido = f"corrida detenida: {error}"
-            logger.warning("Falló la llamada al modelo: %s", error)
+            # Solo el tipo: el texto del error puede citar contenido enviado.
+            logger.warning("Falló la llamada al modelo: %s", type(exc).__name__)
             return Respuesta(None, error=error, llamada=False)
 
         uso = resp.usage
