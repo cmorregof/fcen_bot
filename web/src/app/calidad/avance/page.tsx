@@ -126,7 +126,7 @@ export default function BorradorAvance() {
       setEstado(
         await llamar<Estado>("calidad", "/calidad/avance/generar", {
           token: t,
-          json: { programa, corte, confirmo_costo: true },
+          json: { programa, corte, confirmo_costo: true, costo_usd: est?.costo_usd },
         }),
       );
       setEst(null);

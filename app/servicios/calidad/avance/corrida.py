@@ -17,9 +17,10 @@ import asyncio
 import json
 import logging
 import shutil
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.servicios.calidad import reloj
 from app.servicios.calidad.avance import borrador as bor
@@ -135,17 +136,39 @@ def estimacion(acciones: list[AccionCorte]) -> dict[str, Any]:
     }
 
 
+class _SinModelo:
+    """Cuando ninguna acción va al modelo no hace falta la API key."""
+
+    async def llamar(self, **_: Any) -> Any:
+        raise RuntimeError("esta corrida no debía llamar al modelo")
+
+
 async def lanzar(
-    pg: PlanGuardado, corte: date, cliente: ClienteModelo, usuario: str
+    pg: PlanGuardado,
+    corte: date,
+    crear_cliente: Callable[[], ClienteModelo],
+    usuario: str,
+    costo_confirmado: float,
 ) -> None:
+    """`costo_confirmado`: la cifra que la persona vio y aceptó. Si la
+    estimación de ahora es otra, no corre. El cliente se crea al final, ya
+    validados el tope y la corrida en curso."""
     global _tarea
     if corriendo():
         raise Ocupado
-    acciones, nombres = preparar(pg, corte)
-    est = estimacion(acciones)
+    acciones, nombres = await asyncio.to_thread(preparar, pg, corte)
+    est = await asyncio.to_thread(estimacion, acciones)
     if est["excede_tope"]:
         raise NoSePuede(est["excede_tope"])
-    shutil.rmtree(base(), ignore_errors=True)
+    if abs(est["costo_usd"] - costo_confirmado) > 0.005:
+        raise NoSePuede(
+            f"La estimación cambió ({est['costo_usd']:.2f} USD, no "
+            f"{costo_confirmado:.2f}). Vuelva a estimar y confirmar."
+        )
+    cliente: ClienteModelo = (
+        crear_cliente() if est["al_modelo"] else cast(ClienteModelo, _SinModelo())
+    )
+    await asyncio.to_thread(shutil.rmtree, base(), True)
     estado: dict[str, Any] = {
         "estado": "corriendo",
         "programa": pg.programa,

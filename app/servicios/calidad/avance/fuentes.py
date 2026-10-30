@@ -14,7 +14,9 @@ pregunta nada al modelo.
 
 from __future__ import annotations
 
+import calendar
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -36,7 +38,7 @@ CORREO = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 TELEFONO = re.compile(r"(?<!\d)(?:\+?57)?\s?3\d{2}[\s-]?\d{3}[\s-]?\d{4}(?!\d)")
 # «profesor Juan Pérez», «la doctora Ana Gómez»: un título seguido de un nombre.
 TITULO_Y_NOMBRE = re.compile(
-    r"\b(?:profesora?|docente|director[a]?|coordinador[a]?|ingenier[oa]|"
+    r"\b(?i:profesora?|docente|director[a]?|coordinador[a]?|ingenier[oa]|"
     r"doctor[a]?|dr|dra|mg|phd|sr|sra|se[ñn]or[a]?|estudiante)\.?\s+"
     r"[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+"
 )
@@ -53,7 +55,14 @@ _CARGOS = {
         "departamento escuela maestría maestria doctorado posgrado pregrado "
         "curricular grupo equipo ejemplo ficticio universidad nacional manizales "
         "investigación investigacion extensión extension acreditación acreditacion "
-        "autoevaluación autoevaluacion sistema servicio apoyo gestión gestion"
+        "autoevaluación autoevaluacion sistema servicio apoyo gestión gestion "
+        "ciencias exactas naturales ingeniería ingenieria arquitectura "
+        "administración administracion humanas económicas economicas sociales "
+        "salud artes educación educacion física fisica química quimica "
+        "matemáticas matematicas biología biologia geología geologia "
+        "estadística estadistica computación computacion ambiental biotecnología "
+        "biotecnologia ecología ecologia currículo curriculo plan mejoramiento "
+        "sede nacional colombia caldas"
     ).split()
 }
 _ENLACES = {"de", "del", "la", "el", "los", "las", "y", "e", "en", "para", "con"}
@@ -66,6 +75,8 @@ class Fuente:
     texto: str  # lo que ve el modelo
     ref: str  # lo que lee la persona: hoja y fila, enlace o soporte
     nueva: bool = False
+    # La acción en el plan: da el % declarado pero no respalda hechos.
+    contexto: bool = False
 
 
 @dataclass
@@ -76,6 +87,11 @@ class AccionCorte:
     fuentes: list[Fuente] = field(default_factory=list)
     existente: str = ""  # lo que el plan ya trae escrito para este corte
     anterior: date | None = None  # el corte anterior que el plan conoce
+    # Textos del plan ya sin nombres, correos ni teléfonos: son los únicos que
+    # viajan al modelo y a las salidas.
+    objetivo_texto: str = ""
+    descripcion: str = ""
+    indicador: str = ""
 
     @property
     def hay_evidencia_nueva(self) -> bool:
@@ -119,13 +135,46 @@ def nombres_en_plan(pg: PlanGuardado) -> set[str]:
     return nombres
 
 
+def _plano(texto: str) -> tuple[str, list[int]]:
+    """Minúsculas y sin tildes, con la posición original de cada carácter."""
+    salida: list[str] = []
+    mapa: list[int] = []
+    for i, ch in enumerate(texto):
+        for d in unicodedata.normalize("NFKD", ch):
+            if not unicodedata.combining(d):
+                salida.append(d.lower())
+                mapa.append(i)
+    return "".join(salida), mapa
+
+
+def _tramos(texto: str, nombres: set[str]) -> list[tuple[int, int]]:
+    """Dónde aparece cada nombre como palabra completa, sin importar tildes
+    ni mayúsculas. Posiciones del texto original."""
+    plano, mapa = _plano(texto)
+    tramos: list[tuple[int, int]] = []
+    for nombre in nombres:
+        buscado = _plano(nombre)[0].strip()
+        if not buscado:
+            continue
+        for m in re.finditer(rf"(?<!\w){re.escape(buscado)}(?!\w)", plano):
+            tramos.append((mapa[m.start()], mapa[m.end() - 1] + 1))
+    return tramos
+
+
 def ocultar(texto: str, nombres: set[str]) -> str:
-    """Quita correos, teléfonos y los nombres conocidos antes de mandar texto."""
+    """Quita nombres conocidos, títulos con nombre, correos y teléfonos antes
+    de mandar o mostrar texto del plan o de los soportes."""
+    fusion: list[list[int]] = []
+    for ini, fin in sorted(_tramos(texto, nombres)):
+        if fusion and ini <= fusion[-1][1]:
+            fusion[-1][1] = max(fusion[-1][1], fin)
+        else:
+            fusion.append([ini, fin])
+    for ini, fin in reversed(fusion):
+        texto = texto[:ini] + "[responsable]" + texto[fin:]
+    texto = TITULO_Y_NOMBRE.sub("[persona]", texto)
     texto = CORREO.sub("[correo]", texto)
-    texto = TELEFONO.sub("[teléfono]", texto)
-    for nombre in sorted(nombres, key=len, reverse=True):
-        texto = re.sub(re.escape(nombre), "[responsable]", texto, flags=re.I)
-    return texto
+    return TELEFONO.sub("[teléfono]", texto)
 
 
 def con_nombre_de_persona(texto: str, nombres: set[str]) -> bool:
@@ -133,8 +182,7 @@ def con_nombre_de_persona(texto: str, nombres: set[str]) -> bool:
     un título seguido de un nombre."""
     if CORREO.search(texto) or TELEFONO.search(texto) or TITULO_Y_NOMBRE.search(texto):
         return True
-    plano = plegar(texto)
-    return any(plegar(n) in plano for n in nombres)
+    return bool(_tramos(texto, nombres))
 
 
 # ---------------------------------------------------------------------------
@@ -217,8 +265,14 @@ def _una(
         a,
         objetivo,
         corte,
-        existente=" ".join(c.descripcion for c in actuales if c.descripcion).strip(),
+        existente=ocultar(
+            " ".join(c.descripcion for c in actuales if c.descripcion).strip(),
+            nombres,
+        ),
         anterior=anterior,
+        objetivo_texto=ocultar(objetivo.texto, nombres),
+        descripcion=ocultar(a.descripcion, nombres),
+        indicador=ocultar(a.indicador, nombres),
     )
     n = {"P": 0, "C": 0, "E": 0}
 
@@ -226,12 +280,26 @@ def _una(
         n[prefijo] += 1
         return f"{prefijo}{n[prefijo]}"
 
-    def agregar(prefijo: str, tipo: str, texto: str, ref: str, nueva: bool) -> None:
+    def agregar(
+        prefijo: str,
+        tipo: str,
+        texto: str,
+        ref: str,
+        nueva: bool,
+        contexto: bool = False,
+    ) -> None:
         ac.fuentes.append(
-            Fuente(nuevo(prefijo), tipo, ocultar(_recorte(texto), nombres), ref, nueva)
+            Fuente(
+                nuevo(prefijo),
+                tipo,
+                ocultar(_recorte(texto), nombres),
+                ref,
+                nueva,
+                contexto,
+            )
         )
 
-    # La acción en el plan: fuente de contexto, nunca evidencia nueva.
+    # La acción en el plan: contexto, nunca evidencia nueva ni respaldo de hechos.
     partes = [f"avance declarado en el plan: {_pct(a.avance)}"]
     if a.fecha_inicio or a.fecha_fin:
         partes.append(f"fechas {a.fecha_inicio or '?'} a {a.fecha_fin or '?'}")
@@ -239,7 +307,14 @@ def _una(
         partes.append("tiene reprogramaciones")
     if a.marcas:
         partes.append("marcas del plan: " + ", ".join(a.marcas))
-    agregar("P", "plan", "Acción en el plan: " + "; ".join(partes), a.origen, False)
+    agregar(
+        "P",
+        "plan",
+        "Acción en el plan: " + "; ".join(partes),
+        a.origen,
+        False,
+        contexto=True,
+    )
 
     for t in a.tareas:
         hecha = _hecha(t)
@@ -258,7 +333,9 @@ def _una(
             "plan",
             "Tarea del cronograma: " + "; ".join(datos),
             f"«{t.hoja}» fila {t.fila}",
-            hecha and _en_ventana(t, corte, anterior),
+            # El cronograma trae fechas planeadas, no la fecha en que se cumplió
+            # cada tarea: sirve de contexto, no de evidencia nueva.
+            False,
         )
 
     for c in previos[-MAX_CORTES_PREVIOS:]:
@@ -304,14 +381,14 @@ def _una(
                     f"Enlace de la tarea «{t.descripcion}» en el cronograma "
                     f"(no se ve su contenido): {url}",
                     url,
-                    _hecha(t) and _en_ventana(t, corte, anterior),
+                    False,
                 )
     for s in pg.soportes.get(a.codigo, []):
         if s.tipo != "enlace" or s.valor in vistos:
             continue
         vistos.add(s.valor)
         registrado = s.creado[:10]
-        nueva = anterior is None or registrado > anterior.isoformat()
+        nueva = _entre(_fecha_iso(registrado), anterior, corte)
         agregar(
             "E",
             "enlace",
@@ -321,8 +398,9 @@ def _una(
             nueva,
         )
 
-    # Soportes que el revisor ya describió. No tienen fecha de registro: cuentan
-    # como evidencia disponible, y la persona decide si son de este corte.
+    # Soportes que el revisor ya describió. Son nuevos solo si la fecha del
+    # documento cae por completo entre el corte anterior (exclusivo) y este;
+    # sin fecha legible son contexto.
     for id_, d in soportes_revisor.get(a.codigo, []):
         texto = f"Soporte descrito por el revisor: {d.que_es}"
         if d.fecha_documento:
@@ -337,7 +415,8 @@ def _una(
                 "soporte",
                 ocultar(_recorte(texto), nombres),
                 f"soporte {id_} del inventario del revisor",
-                not d.ilegible_o_incompleto,
+                not d.ilegible_o_incompleto
+                and _periodo_en(d.fecha_documento, anterior, corte),
             )
         )
     return ac
@@ -347,13 +426,39 @@ def _hecha(t: TareaCronograma) -> bool:
     return bool(t.ok) or (t.avance is not None and t.avance >= 100)
 
 
-def _en_ventana(t: TareaCronograma, corte: date, anterior: date | None) -> bool:
-    """La tarea termina después del corte anterior y a más tardar en este."""
+def _fecha_iso(texto: str) -> date | None:
+    try:
+        return date.fromisoformat(texto)
+    except ValueError:
+        return None
+
+
+def _entre(fecha: date | None, anterior: date | None, corte: date) -> bool:
+    """anterior < fecha <= corte, con la fecha real; sin fecha, no es nueva."""
     return (
-        t.fecha_fin is not None
-        and t.fecha_fin <= corte
-        and (anterior is None or t.fecha_fin > anterior)
+        fecha is not None and fecha <= corte and (anterior is None or fecha > anterior)
     )
+
+
+def _periodo_en(texto: str, anterior: date | None, corte: date) -> bool:
+    """«AAAA-MM-DD», «AAAA-MM» o «AAAA»: el periodo entero está en la ventana."""
+    m = re.fullmatch(r"\s*(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?\s*", texto or "")
+    if not m:
+        return False
+    anio, mes, dia = int(m[1]), int(m[2] or 0), int(m[3] or 0)
+    try:
+        if dia:
+            ini = fin = date(anio, mes, dia)
+        elif mes:
+            ini, fin = (
+                date(anio, mes, 1),
+                date(anio, mes, calendar.monthrange(anio, mes)[1]),
+            )
+        else:
+            ini, fin = date(anio, 1, 1), date(anio, 12, 31)
+    except ValueError:
+        return False
+    return fin <= corte and (anterior is None or ini > anterior)
 
 
 def _pct(valor: float | None) -> str:

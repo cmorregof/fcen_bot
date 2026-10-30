@@ -456,12 +456,17 @@ class PedidoAvance(BaseModel):
 async def avance_estimar(cuerpo: PedidoAvance, _: _Avance, db: Db) -> dict[str, object]:
     """Cuenta qué acciones irían al modelo y cuánto costaría. No lo llama."""
     pg = await _cargar(db, cuerpo.programa)
-    acciones, _nombres = avance.preparar(pg, _fecha_corte(cuerpo.corte))
-    return {"programa": pg.programa, **avance.estimacion(acciones)}
+    acciones, _nombres = await asyncio.to_thread(
+        avance.preparar, pg, _fecha_corte(cuerpo.corte)
+    )
+    est = await asyncio.to_thread(avance.estimacion, acciones)
+    return {"programa": pg.programa, **est}
 
 
 class ConfirmacionAvance(PedidoAvance):
     confirmo_costo: bool = False
+    # La cifra que la persona vio en la estimación.
+    costo_usd: float | None = None
 
 
 @router.post("/avance/generar")
@@ -470,12 +475,16 @@ async def avance_generar(
 ) -> dict[str, object]:
     """Lanza el borrador en segundo plano, solo si la persona confirmó el costo
     y la estimación cabe en el tope."""
-    if not cuerpo.confirmo_costo:
+    if not cuerpo.confirmo_costo or cuerpo.costo_usd is None:
         raise HTTPException(400, "Confirme el costo estimado antes de generar.")
     pg = await _cargar(db, cuerpo.programa)
     try:
         await avance.lanzar(
-            pg, _fecha_corte(cuerpo.corte), avance.crear_cliente(), usuario.correo
+            pg,
+            _fecha_corte(cuerpo.corte),
+            avance.crear_cliente,
+            usuario.correo,
+            cuerpo.costo_usd,
         )
     except avance.Ocupado as exc:
         raise HTTPException(409, _AVANCE_OCUPADO) from exc

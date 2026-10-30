@@ -68,11 +68,9 @@ def borrador_docx(ruta: Path, b: Borrador) -> None:
         if ac.objetivo.codigo != objetivo_actual:
             objetivo_actual = ac.objetivo.codigo
             doc.add_heading(
-                limpio(f"Objetivo {ac.objetivo.codigo}. {ac.objetivo.texto}"), 2
+                limpio(f"Objetivo {ac.objetivo.codigo}. {ac.objetivo_texto}"), 2
             )
-        doc.add_heading(
-            limpio(f"Acción {ac.accion.codigo}. {ac.accion.descripcion}"), 3
-        )
+        doc.add_heading(limpio(f"Acción {ac.accion.codigo}. {ac.descripcion}"), 3)
         meta = doc.add_paragraph()
         meta.add_run("Avance declarado en el plan: ").bold = True
         avance = ac.accion.avance
@@ -115,8 +113,8 @@ def revision_xlsx(ruta: Path, b: Borrador) -> None:
             ws,
             [
                 ac.accion.codigo,
-                f"{ac.objetivo.codigo}. {ac.objetivo.texto}",
-                ac.accion.descripcion,
+                f"{ac.objetivo.codigo}. {ac.objetivo_texto}",
+                ac.descripcion,
                 ac.accion.avance,
                 SIN_EVIDENCIA_NUEVA if a.sin_evidencia_nueva else a.parrafo,
                 "\n".join(_fuentes(a)),

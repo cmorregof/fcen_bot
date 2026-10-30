@@ -15,17 +15,24 @@ Depende de la plantilla institucional (#14–#17) y del revisor de soportes de l
 No se manda al modelo ningún responsable, correo ni teléfono, y los nombres de personas que el plan trae en los campos de responsables se reemplazan por «[responsable]».
 
 ## Evidencia nueva
-Se decide **sin modelo**. Una acción tiene evidencia nueva en el corte si hay: una tarea cumplida cuya fecha de fin cae entre el corte anterior (exclusivo) y este; un enlace en el corte que no estaba en cortes anteriores; un enlace registrado con `/evidencia` después del corte anterior; o un soporte descrito por el revisor. Sin corte anterior cuenta todo lo anterior al corte.
+Se decide **sin modelo** y solo con fechas reales: es nueva la fuente cuya fecha cae en `corte anterior < fecha <= corte`. Cuenta: un enlace registrado con `/evidencia` en esa ventana (fecha de registro); un enlace en la columna del corte que no estaba en cortes anteriores; un soporte del revisor cuya «fecha del documento» (día, mes o año completo) cae por entero en la ventana. Sin fecha legible, la fuente es contexto y no cuenta. Las tareas del cronograma son contexto: su fecha es la planeada, no la de cumplimiento.
 
-Si no hay ninguna, el borrador dice «Sin evidencia nueva en el corte.» (citando el % declarado en el plan) y **no se llama al modelo**.
+Si no hay ninguna fuente nueva, el borrador dice «Sin evidencia nueva en el corte.» (citando el % declarado) y **no se llama al modelo**.
 
 ## Citas y verificación
-Cada frase termina con sus citas. Un verificador determinista (`avance/borrador.py::verificar`, en la línea de `soportes/verificador.py`) comprueba que:
-1. la frase cite al menos una fuente;
-2. todas las citas existan en el catálogo de esa acción;
-3. no nombre a una persona (nombres del plan, correos, teléfonos o «profesor + nombre»).
+Cada frase termina con sus citas. Un verificador determinista (`avance/borrador.py::verificar`, en la línea de `soportes/verificador.py`) rechaza la frase que:
+1. no cita ninguna fuente en el texto, o cuyo campo `citas` no coincide con las del texto;
+2. cita una fuente que no existe para esa acción;
+3. trae cifras, fechas o enlaces que no están literalmente en las fuentes que cita (o un % distinto del declarado o de los de esas fuentes);
+4. se apoya solo en `[P1]` (la acción en el plan, que es contexto) sin restituir una cifra suya;
+5. nombra a una persona.
 
-La frase que no cumple **no entra al texto propuesto**: sale aparte, con ⚠ y el motivo («no se afirma»).
+La frase rechazada **no entra al texto propuesto**: sale aparte con ⚠ y el motivo. Si nombraba a una persona se reemplaza por «[frase omitida: menciona a una persona]»: ni las salidas ni la caché guardan el texto original.
+
+Límite: las cifras escritas con letras («cuarenta») no se comparan.
+
+## Privacidad
+Todo texto del plan (objetivo, acción, indicador, cortes, tareas) y de las descripciones del revisor pasa por `ocultar` antes de ir al modelo o a las salidas: nombres de los campos de responsables (sin importar tildes ni mayúsculas, palabra completa), «título + nombre», correos y teléfonos.
 
 ## Salidas
 - `borrador_avance.docx`: encabezado «BORRADOR — propuesta…», una sección por objetivo y acción, el párrafo propuesto, sus fuentes con hoja y fila, y las frases sin fuente marcadas.
@@ -36,10 +43,10 @@ El texto aprobado se carga a mano en el plan o en el sistema de autoevaluación.
 ## Desde la web: Calidad → «Borrador de avance del corte»
 1. Elegir programa y fecha de corte (la pantalla lista los cortes del plan y el próximo).
 2. **Estimar el costo**: dice cuántas acciones irían al modelo y cuántas no. No llama al modelo.
-3. Confirmar el costo y **generar** (corre en segundo plano).
+3. Confirmar el costo y **generar** (corre en segundo plano). La confirmación va atada a la cifra mostrada: si la estimación cambió, hay que volver a estimar.
 4. Descargar el Word y el Excel. «Borrar» quita las salidas.
 
-API (rol `calidad` o `admin`): `GET /calidad/avance`, `GET /calidad/avance/cortes?programa=`, `POST /calidad/avance/estimar`, `POST /calidad/avance/generar` (exige `confirmo_costo`), `GET /calidad/avance/descargar/{docx|xlsx}`, `DELETE /calidad/avance`.
+API (rol `calidad` o `admin`): `GET /calidad/avance`, `GET /calidad/avance/cortes?programa=`, `POST /calidad/avance/estimar`, `POST /calidad/avance/generar` (exige `confirmo_costo` y el `costo_usd` mostrado), `GET /calidad/avance/descargar/{docx|xlsx}`, `DELETE /calidad/avance`.
 
 ## Variables de entorno
 | Variable | Por defecto | Uso |
@@ -56,6 +63,6 @@ Usa `CALIDAD_REVISOR_DIR` (o la carpeta junto a la base) para salidas y caché, 
 4. Que Calidad pruebe con un programa real fuera del repositorio y confirme el estilo de las frases.
 
 ## Límites conocidos
-- Los soportes del revisor no tienen fecha de registro: cuentan como evidencia disponible y Calidad decide si son de este corte.
+- Los soportes del revisor solo cuentan como nuevos si el modelo leyó una fecha del documento.
 - Los nombres se detectan por los campos de responsables del plan y por patrones («profesor + nombre»); un nombre ajeno al plan escrito sin título puede pasar. Calidad revisa cada texto antes de aprobarlo.
 - No compara el % declarado con el del corte anterior.

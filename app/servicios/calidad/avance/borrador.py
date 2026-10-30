@@ -13,15 +13,19 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.servicios.calidad.avance.fuentes import (
+    PATRON_CITA,
     AccionCorte,
+    Fuente,
     citas_en_texto,
     con_nombre_de_persona,
+    ocultar,
 )
 from app.servicios.calidad.soportes.cliente import ClienteConTope, ClienteModelo
 from app.servicios.calidad.soportes.describir import Cache
@@ -39,6 +43,16 @@ CARACTERES_POR_TOKEN = 3
 MOTIVO_SIN_CITA = "no cita ninguna fuente"
 MOTIVO_CITA_INVALIDA = "cita una fuente que no existe para esta acción"
 MOTIVO_NOMBRE = "menciona a una persona; use solo el cargo o la dependencia"
+MOTIVO_CITAS_NO_COINCIDEN = "las citas del campo no coinciden con las del texto"
+MOTIVO_DATO_SIN_FUENTE = (
+    "trae cifras, fechas o enlaces que no están en las fuentes que cita"
+)
+MOTIVO_SOLO_CONTEXTO = (
+    "solo cita la acción en el plan (contexto): no respalda ese hecho"
+)
+# Lo que queda de una frase que nombraba a una persona: ni la salida ni la
+# caché guardan el texto original.
+OMITIDA = "[frase omitida: menciona a una persona]"
 
 SISTEMA = """Eres asistente de la oficina de calidad académica de una facultad \
 universitaria. Redactas una PROPUESTA de la descripción de avance de una acción \
@@ -50,7 +64,11 @@ decides si la acción se cumplió.
 Reglas:
 - Usa solo las fuentes numeradas que se te dan. No supongas hechos que no están.
 - Cada frase termina citando sus fuentes con su ID entre corchetes, p. ej. \
-[P2] o [P2, E1]. Cita solo IDs de la lista. Una frase sin cita no se usa.
+[P2] o [P2, E1], y el campo `citas` repite esos mismos IDs. Cita solo IDs de la \
+lista. Una frase sin cita no se usa.
+- Las cifras, fechas y enlaces de una frase deben aparecer tal cual en las fuentes \
+que cita; si no están, no los escribas. [P1] solo da el % declarado: no respalda \
+que algo se haya hecho.
 - [P] es el plan y el cronograma; [C] es lo escrito en un corte anterior; [E] es \
 un enlace registrado: solo prueba que el enlace existe, no sabes qué contiene; \
 [S] es la descripción de un soporte: di «según la descripción del soporte».
@@ -161,9 +179,9 @@ def texto_para_modelo(ac: AccionCorte) -> str:
     partes = [
         f"Corte que se describe: {ac.corte.isoformat()}. "
         f"Corte anterior: {ac.anterior or 'ninguno registrado'}.",
-        f"Objetivo: {ac.objetivo.texto}",
-        f"Acción {a.codigo}: {a.descripcion}",
-        f"Indicador de cumplimiento: {a.indicador}",
+        f"Objetivo: {ac.objetivo_texto}",
+        f"Acción {a.codigo}: {ac.descripcion}",
+        f"Indicador de cumplimiento: {ac.indicador}",
         "",
         "Fuentes (cita solo estas):",
     ]
@@ -174,29 +192,96 @@ def texto_para_modelo(ac: AccionCorte) -> str:
     return "\n".join(partes)
 
 
+_NUMERO = re.compile(r"\d+(?:[.,]\d+)?")
+_PORCENTAJE = re.compile(r"(\d+(?:[.,]\d+)?)\s?%")
+_URL = re.compile(r"https?://[^\s)\]]+")
+
+
+def _numeros(texto: str) -> set[str]:
+    """Cifras de un texto, sin ceros a la izquierda ni coma decimal."""
+    salida: set[str] = set()
+    for n in _NUMERO.findall(texto):
+        n = n.replace(",", ".")
+        salida.add(str(int(float(n))) if float(n).is_integer() else n)
+    return salida
+
+
+def _hechos_sin_fuente(
+    ac: AccionCorte, texto: str, citadas: list[str], catalogo: dict[str, Fuente]
+) -> str:
+    """Motivo si la frase afirma datos que sus fuentes no traen, o si solo cita
+    el contexto del plan; vacío si pasa. Comparación literal, sin modelo."""
+    fuentes_citadas = [catalogo[c] for c in citadas]
+    respaldo = " ".join(f"{f.texto} {f.ref}" for f in fuentes_citadas)
+    cabecera = f"{ac.accion.codigo} {ac.corte} {ac.anterior or ''}"
+    permitidas = _numeros(respaldo) | _numeros(cabecera)
+    sin_citas = PATRON_CITA.sub("", texto)
+    for url in _URL.findall(sin_citas):
+        if url.rstrip(".,;") not in respaldo:
+            return MOTIVO_DATO_SIN_FUENTE
+    cifras = _numeros(_URL.sub("", sin_citas))
+    if not cifras <= permitidas:
+        return MOTIVO_DATO_SIN_FUENTE
+    declarado = ac.accion.avance
+    for p in _PORCENTAJE.findall(sin_citas):
+        valor = float(p.replace(",", "."))
+        en_fuentes = any(
+            float(q.replace(",", ".")) == valor for q in _PORCENTAJE.findall(respaldo)
+        )
+        if not en_fuentes and (declarado is None or valor != declarado):
+            return MOTIVO_DATO_SIN_FUENTE
+    if all(f.contexto for f in fuentes_citadas) and not cifras:
+        return MOTIVO_SOLO_CONTEXTO
+    return ""
+
+
+def depurar(frases: list[FraseAvance], nombres: set[str]) -> list[FraseAvance]:
+    """Antes de guardar en la caché o mostrar: la frase que nombra a una persona
+    se reemplaza por un marcador; el resto pierde correos y teléfonos."""
+    salida: list[FraseAvance] = []
+    for f in frases:
+        if con_nombre_de_persona(f.texto, nombres):
+            salida.append(FraseAvance(texto=OMITIDA, citas=[]))
+        else:
+            salida.append(f)
+    return salida
+
+
 def verificar(
     ac: AccionCorte, frases: list[FraseAvance], nombres: set[str]
 ) -> list[FraseVerificada]:
-    """Determinista: cada frase cita al menos una fuente de la acción, todas
-    sus citas existen y no nombra personas."""
+    """Determinista. La frase pasa si:
+    1. cita en el texto al menos una fuente y el campo `citas` coincide;
+    2. todas las citas existen en el catálogo de la acción;
+    3. cifras, fechas y enlaces están literalmente en las fuentes que cita, y
+       el % es el declarado o está en ellas;
+    4. no se apoya solo en el contexto del plan, ni nombra a una persona."""
     catalogo = ac.por_id()
     salida: list[FraseVerificada] = []
     for f in frases:
         texto = " ".join(f.texto.split())
         if not texto:
             continue
-        citadas: list[str] = []
-        for c in [*citas_en_texto(texto), *(x.strip().strip("[]") for x in f.citas)]:
-            if c and c not in citadas:
-                citadas.append(c)
-        if not citadas:
-            salida.append(FraseVerificada(texto, [], MOTIVO_SIN_CITA))
-        elif any(c not in catalogo for c in citadas):
-            salida.append(FraseVerificada(texto, [], MOTIVO_CITA_INVALIDA))
-        elif con_nombre_de_persona(texto, nombres):
-            salida.append(FraseVerificada(texto, citadas, MOTIVO_NOMBRE))
+        if texto == OMITIDA or con_nombre_de_persona(texto, nombres):
+            salida.append(FraseVerificada(OMITIDA, [], MOTIVO_NOMBRE))
+            continue
+        texto = ocultar(texto, nombres)
+        en_texto = list(dict.fromkeys(citas_en_texto(texto)))
+        en_campo = list(
+            dict.fromkeys(x.strip().strip("[]") for x in f.citas if x.strip())
+        )
+        if not en_texto:
+            motivo = MOTIVO_SIN_CITA
+        elif set(en_texto) != set(en_campo):
+            motivo = MOTIVO_CITAS_NO_COINCIDEN
+        elif any(c not in catalogo for c in en_texto):
+            motivo = MOTIVO_CITA_INVALIDA
         else:
-            salida.append(FraseVerificada(texto, citadas))
+            motivo = _hechos_sin_fuente(ac, texto, en_texto, catalogo)
+        if motivo:
+            salida.append(FraseVerificada(texto, [], motivo))
+        else:
+            salida.append(FraseVerificada(texto, en_texto))
     return salida
 
 
@@ -229,6 +314,7 @@ class Estimacion:
 
 
 def estimar(acciones: list[AccionCorte], cache: Cache) -> Estimacion:
+    # Lee la caché del disco: desde el event loop se llama con to_thread.
     """Costo de llamar al modelo solo por las acciones con evidencia nueva que
     no estén ya en la caché."""
     p_in, p_out = PRECIOS_USD_POR_MILLON[MODELO_AVANCE]
@@ -268,7 +354,7 @@ async def _proponer(
 ) -> AccionBorrador:
     clave = _clave(texto)
     propuesta: AvanceAccion | None = None
-    guardado = cache.leer(clave)
+    guardado = await asyncio.to_thread(cache.leer, clave)
     if guardado and guardado.get("datos"):
         try:
             propuesta = AvanceAccion.model_validate(guardado["datos"])
@@ -292,7 +378,11 @@ async def _proponer(
         else:
             try:
                 propuesta = AvanceAccion.model_validate(resp.entrada)
-                cache.guardar(clave, {"datos": propuesta.model_dump(mode="json")})
+                # A la caché no entra el texto de una frase que nombra a una persona.
+                propuesta.frases = depurar(propuesta.frases, nombres)
+                await asyncio.to_thread(
+                    cache.guardar, clave, {"datos": propuesta.model_dump(mode="json")}
+                )
             except ValidationError:
                 error = "el modelo devolvió datos no válidos"
     if propuesta is None:

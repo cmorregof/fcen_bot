@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import pytest
 from docx import Document
 from openpyxl import load_workbook
 from pydantic import BaseModel
@@ -253,3 +254,185 @@ async def test_salidas_docx_y_xlsx(tmp_path: Path) -> None:
     assert (
         ws.data_validations.dataValidation[0].formula1 == '"Aprobado,Editar,Descartar"'
     )
+
+
+# ---------------------------------------------------------------------------
+# Revisión del PR: nombres en salidas y caché, texto del plan, hechos sin fuente
+# ---------------------------------------------------------------------------
+
+
+def todo_el_texto(carpeta: Path) -> str:
+    """Todo lo que quedó en disco: docx, xlsx (XML interno) y caché."""
+    import zipfile
+
+    partes: list[str] = []
+    for ruta in carpeta.rglob("*"):
+        if not ruta.is_file():
+            continue
+        if ruta.suffix in (".docx", ".xlsx"):
+            with zipfile.ZipFile(ruta) as z:
+                partes += [z.read(n).decode("utf-8", "ignore") for n in z.namelist()]
+        else:
+            partes.append(ruta.read_text(encoding="utf-8", errors="ignore"))
+    return "\n".join(partes)
+
+
+async def test_el_nombre_no_aparece_en_ninguna_parte(tmp_path: Path) -> None:
+    pg = guardado(PERSONA)
+    a0 = pg.plan.acciones[0]
+    a0.descripcion = f"Publicar piezas con {PERSONA}"
+    a0.indicador = "Escribir a zoila@ejemplo.test o al 3105551234"
+    pg.plan.objetivos[0].texto = "Objetivo a cargo de zoila ficticia pérez"
+    a0.cortes[-1].descripcion = f"{PERSONA.upper()} hizo la jornada"
+    con_enlace(pg, a0.codigo, "https://ejemplo.invalid/drive/nuevo", "2026-10-01T10:00")
+    acciones = armar(pg)
+    prompt = bor.texto_para_modelo(accion(acciones, a0.codigo))
+    modelo = ModeloFalso(
+        [
+            {"texto": f"{PERSONA} publicó la pieza [P1].", "citas": ["P1"]},
+            {"texto": "Hay un enlace nuevo [E3].", "citas": ["E3"]},
+        ]
+    )
+    cache = Cache(tmp_path / "cache")
+    b = await bor.generar(
+        "Ejemplo",
+        CORTE.isoformat(),
+        acciones,
+        fuentes.nombres_en_plan(pg),
+        modelo,
+        cache,
+    )
+    salidas.borrador_docx(tmp_path / "salida" / "b.docx", b)
+    salidas.revision_xlsx(tmp_path / "salida" / "r.xlsx", b)
+    texto = prompt + "\n".join(modelo.textos) + todo_el_texto(tmp_path)
+    for secreto in (
+        "Zoila",
+        "ZOILA",
+        "zoila",
+        "Ficticia",
+        "3105551234",
+        "ejemplo.test",
+    ):
+        assert secreto not in texto, secreto
+    a = next(x for x in b.acciones if x.base.accion.codigo == a0.codigo)
+    assert a.rechazadas[0].texto == bor.OMITIDA
+    assert a.rechazadas[0].motivo == bor.MOTIVO_NOMBRE
+
+
+def test_ocultar_ignora_tildes_y_mayusculas_y_exige_palabra_completa() -> None:
+    nombres = {"Zoila Ficticia Pérez"}
+    assert (
+        fuentes.ocultar("ZOILA FICTICIA PEREZ firmó", nombres) == "[responsable] firmó"
+    )
+    assert fuentes.ocultar("zoila ficticia pérez.", nombres) == "[responsable]."
+    assert fuentes.ocultar("Ana Gómez", {"Ana Gómez"}) == "[responsable]"
+    assert fuentes.ocultar("Mariana Gómez", {"Ana Gómez"}) == "Mariana Gómez"
+    assert fuentes.ocultar("el profesor Juan Gómez", set()) == "el [persona]"
+    assert fuentes.con_nombre_de_persona("ZOILA FICTICIA PEREZ", nombres)
+
+
+def test_cargos_e_instituciones_no_son_nombres() -> None:
+    pg = guardado()
+    pg.plan.acciones[0].responsables = (
+        "Facultad de Ciencias Exactas y Naturales, Dirección del programa, "
+        "Oficina de Calidad; Comité Asesor"
+    )
+    assert fuentes.nombres_en_plan(pg) == set()
+    texto = "La Facultad de Ciencias Exactas publicó la pieza"
+    assert fuentes.ocultar(texto, fuentes.nombres_en_plan(pg)) == texto
+
+
+def verificar(
+    texto: str, citas: list[str], pg: PlanGuardado | None = None
+) -> bor.FraseVerificada:
+    pg = pg or guardado()
+    con_enlace(pg, "1.1.1", "https://ejemplo.invalid/drive/nuevo", "2026-10-01T10:00")
+    ac = accion(armar(pg), "1.1.1")
+    return bor.verificar(ac, [bor.FraseAvance(texto=texto, citas=citas)], set())[0]
+
+
+@pytest.mark.parametrize(
+    ("texto", "citas", "motivo"),
+    [
+        ("40 asistentes el 12 de octubre [P1].", ["P1"], bor.MOTIVO_DATO_SIN_FUENTE),
+        ("El avance es de 75 % [P1].", ["P1"], bor.MOTIVO_DATO_SIN_FUENTE),
+        (
+            "Hay un enlace https://otro.invalid/x [E3].",
+            ["E3"],
+            bor.MOTIVO_DATO_SIN_FUENTE,
+        ),
+        ("Se hizo la jornada [P1].", ["P1"], bor.MOTIVO_SOLO_CONTEXTO),
+        ("Se hizo la jornada.", ["P1"], bor.MOTIVO_SIN_CITA),
+        ("Se hizo la jornada [P1] [E3].", ["P1"], bor.MOTIVO_CITAS_NO_COINCIDEN),
+        ("Se hizo la jornada [P1].", ["P1", "E3"], bor.MOTIVO_CITAS_NO_COINCIDEN),
+        ("Se hizo la jornada [P99].", ["P99"], bor.MOTIVO_CITA_INVALIDA),
+    ],
+)
+def test_verificador_no_acepta_hechos_sin_fuente(
+    texto: str, citas: list[str], motivo: str
+) -> None:
+    f = verificar(texto, citas)
+    assert not f.valida and f.motivo == motivo
+
+
+def test_verificador_acepta_lo_que_esta_literal_en_las_fuentes() -> None:
+    # El % declarado de la 1.1.1 es 60; el enlace está en [E3]; el código de la
+    # acción y las fechas del corte también son legítimos.
+    assert verificar("El plan declara 60 % de avance [P1].", ["P1"]).valida
+    assert verificar(
+        "Se registró https://ejemplo.invalid/drive/nuevo [E3].", ["E3"]
+    ).valida
+    assert verificar("Para la acción 1.1.1 hay un enlace nuevo [E3].", ["E3"]).valida
+
+
+def test_novedad_solo_con_fecha_real_dentro_de_la_ventana() -> None:
+    pg = guardado()
+    # 1.1.2 no tiene cortes: ventana abierta por la izquierda, cerrada en el corte.
+    con_enlace(pg, "1.1.2", "https://ejemplo.invalid/despues", "2026-12-15T10:00")
+    con_enlace(pg, "1.2.1", "https://ejemplo.invalid/antes", "2026-05-21T10:00")
+    acciones = armar(pg)
+    assert not accion(acciones, "1.1.2").hay_evidencia_nueva  # después del corte
+    assert not accion(acciones, "1.2.1").hay_evidencia_nueva  # ni > corte anterior
+    # Las tareas cumplidas no cuentan: su fecha es la planeada, no la real.
+    assert not accion(acciones, "1.1.1").hay_evidencia_nueva
+
+
+@pytest.mark.parametrize(
+    ("fecha", "nueva"),
+    [
+        ("2026-09-10", True),
+        ("2026-09", True),
+        ("2026-11", True),  # termina el 30 de noviembre = el corte
+        ("2026-12", False),  # después del corte
+        ("2026-05-21", False),  # el día del corte anterior no es nuevo
+        ("2026-05", False),  # el mes cruza el corte anterior
+        ("2025", False),
+        ("2026", False),  # el año entero pasa del corte
+        ("", False),
+        ("hace poco", False),
+    ],
+)
+def test_soporte_del_revisor_es_nuevo_segun_su_fecha(fecha: str, nueva: bool) -> None:
+    desc = DescripcionArchivo(
+        que_es="Acta ficticia",
+        fecha_documento=fecha,
+        que_prueba="Una jornada",
+        ilegible_o_incompleto=False,
+        observacion="",
+    )
+    a = accion(armar(guardado(), soportes={"1.2.1": [("S001", desc)]}), "1.2.1")
+    assert next(f for f in a.fuentes if f.id == "S001").nueva is nueva
+
+
+def test_soporte_del_revisor_pasa_por_el_filtro_de_nombres() -> None:
+    desc = DescripcionArchivo(
+        que_es="Acta firmada por la profesora Ana Gómez, ana@ejemplo.test",
+        fecha_documento="2026-09",
+        que_prueba="Llamar al 3105551234",
+        ilegible_o_incompleto=False,
+        observacion="",
+    )
+    a = accion(armar(guardado(), soportes={"1.2.1": [("S001", desc)]}), "1.2.1")
+    texto = next(f for f in a.fuentes if f.id == "S001").texto
+    for secreto in ("Ana", "ana@", "3105551234"):
+        assert secreto not in texto

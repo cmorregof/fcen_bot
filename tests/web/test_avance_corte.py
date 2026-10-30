@@ -32,6 +32,7 @@ CORTE = "2026-11-30"
 class ModeloFalso:
     def __init__(self) -> None:
         self.llamadas = 0
+        self.clientes = 0  # veces que se pidió el cliente de la API
 
     async def llamar(
         self,
@@ -58,7 +59,12 @@ def falso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ModeloFalso:
     monkeypatch.setattr(calidad_settings, "avance_tope_usd", 2.0)
     monkeypatch.setattr(calidad_settings, "revisor_dir", tmp_path / "volumen")
     monkeypatch.setattr(avance, "_tarea", None)
-    monkeypatch.setattr(avance, "crear_cliente", lambda: modelo)
+
+    def crear() -> ModeloFalso:
+        modelo.clientes += 1
+        return modelo
+
+    monkeypatch.setattr(avance, "crear_cliente", crear)
     return modelo
 
 
@@ -149,15 +155,26 @@ async def test_flujo_completo_estimar_confirmar_generar_descargar(
         )
         assert malo.status_code == 400
 
-        # Sin confirmar el costo, no corre.
+        # Sin confirmar el costo, o sin la cifra mostrada, no corre.
         r = c.post(
             f"{RUTA}/generar", json={"programa": "alfa", "corte": CORTE}, headers=cab
         )
         assert r.status_code == 400 and falso.llamadas == 0
+        pedido = {"programa": "alfa", "corte": CORTE, "confirmo_costo": True}
+        assert c.post(f"{RUTA}/generar", json=pedido, headers=cab).status_code == 400
+        # La confirmación va atada a la cifra: otra cifra, no corre.
+        r = c.post(f"{RUTA}/generar", json={**pedido, "costo_usd": 0.0}, headers=cab)
+        assert r.status_code == 409 and "La estimación cambió" in r.json()["detail"]
+        assert falso.llamadas == 0 and falso.clientes == 0
 
         r = c.post(
             f"{RUTA}/generar",
-            json={"programa": "alfa", "corte": CORTE, "confirmo_costo": True},
+            json={
+                "programa": "alfa",
+                "corte": CORTE,
+                "confirmo_costo": True,
+                "costo_usd": est["costo_usd"],
+            },
             headers=cab,
         )
         assert r.status_code == 200, r.text
@@ -210,11 +227,16 @@ async def test_tope_de_costo_no_deja_generar(
         assert "pasa del tope" in r.json()["excede_tope"]
         r = c.post(
             f"{RUTA}/generar",
-            json={"programa": "alfa", "corte": CORTE, "confirmo_costo": True},
+            json={
+                "programa": "alfa",
+                "corte": CORTE,
+                "confirmo_costo": True,
+                "costo_usd": 0.0,
+            },
             headers=cab,
         )
         assert r.status_code == 409 and "pasa del tope" in r.json()["detail"]
-        assert falso.llamadas == 0
+        assert falso.llamadas == 0 and falso.clientes == 0
         assert c.get(RUTA, headers=cab).json()["estado"] == "vacio"
 
 
