@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.api.web import auth
@@ -17,6 +18,9 @@ from app.servicios.calidad.config import calidad_settings
 from app.servicios.calidad.db import init_calidad
 from app.servicios.calidad.plan import Estado, PlanGuardado
 from app.servicios.calidad.plantilla import Accion
+from app.servicios.calidad.soportes import corrida
+from app.servicios.calidad.soportes.carga import ZipNoValido
+from app.servicios.calidad.soportes.plan_acciones import desde_plantilla
 
 router = APIRouter(prefix="/calidad")
 
@@ -277,3 +281,128 @@ async def cifras_tablero(db: aiosqlite.Connection) -> dict[str, object]:
             for p in planes
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Revisión de soportes para el cierre del plan (docs/calidad/cierre.md)
+# ---------------------------------------------------------------------------
+
+AVISO_APAGADO = (
+    "Pendiente del aval de tratamiento de datos. "
+    "La revisión de soportes está apagada en este servicio."
+)
+_OCUPADO = "Hay una revisión en curso. Espere a que termine."
+
+
+async def _revisor_activo(usuario: _Calidad) -> Usuario:
+    # Primero el rol (en `_Calidad`), luego el interruptor. Apagado, además,
+    # se borra lo que hubiera quedado en el volumen.
+    if not calidad_settings.revisor_activo:
+        if corrida.base().exists():
+            await asyncio.to_thread(corrida.limpiar)
+        raise HTTPException(403, AVISO_APAGADO)
+    try:
+        corrida.validar_base()
+    except corrida.CarpetaNoDedicada as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return usuario
+
+
+_Revisor = Annotated[Usuario, Depends(_revisor_activo)]
+
+
+def _estado_revisor() -> dict[str, object]:
+    return {
+        **corrida.leer_estado(),
+        "tope_usd": calidad_settings.revisor_tope_usd,
+        "max_mb": calidad_settings.revisor_max_mb,
+        "retencion_dias": calidad_settings.revisor_retencion_dias,
+    }
+
+
+@router.get("/revisor")
+async def revisor_estado(_: _Revisor) -> dict[str, object]:
+    """En qué va la revisión: carga, estimación, pasos y descargas."""
+    await corrida.limpiar_de_vez_en_cuando()
+    return _estado_revisor()
+
+
+@router.post("/revisor/soportes")
+async def revisor_subir(
+    programa: str, request: Request, usuario: _Revisor, db: Db
+) -> dict[str, object]:
+    """Recibe el zip como cuerpo de la petición (no multipart: así no pasa por
+    archivos temporales fuera del volumen) y estima archivos y costo. No
+    llama al modelo."""
+    pg = await _cargar(db, programa)
+    acciones = desde_plantilla(pg.plan)
+    maximo = calidad_settings.revisor_max_mb * 1_000_000
+    largo = request.headers.get("content-length", "")
+    if largo.isdigit() and int(largo) > maximo:
+        raise HTTPException(
+            413, f"El zip pesa más de {calidad_settings.revisor_max_mb} MB."
+        )
+    try:
+        await corrida.recibir(request.stream(), pg.programa, acciones, usuario.correo)
+    except corrida.Ocupado as exc:
+        raise HTTPException(409, _OCUPADO) from exc
+    except ZipNoValido as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return _estado_revisor()
+
+
+class Confirmacion(BaseModel):
+    confirmo_costo: bool = False
+    # La carga y el costo que la persona vio en pantalla.
+    carga_id: str = ""
+    costo_usd: float = 0.0
+
+
+@router.post("/revisor/correr")
+async def revisor_correr(
+    cuerpo: Confirmacion, usuario: _Revisor, db: Db
+) -> dict[str, object]:
+    """Lanza la revisión en segundo plano, solo si la persona confirmó el costo
+    y la estimación cabe en el tope."""
+    if not cuerpo.confirmo_costo or not cuerpo.carga_id:
+        raise HTTPException(400, "Confirme el costo estimado antes de iniciar.")
+    estado = corrida.leer_estado()
+    if not estado.get("programa"):
+        raise HTTPException(409, "Primero suba el zip de soportes.")
+    pg = await _cargar(db, str(estado["programa"]))
+    try:
+        # `lanzar` vuelve a comprobar, con el cerrojo, que la carga sigue
+        # siendo la que la persona vio y que es de este programa.
+        await corrida.lanzar(
+            desde_plantilla(pg.plan),
+            corrida.crear_cliente(),
+            usuario.correo,
+            programa=pg.programa,
+            carga_id=cuerpo.carga_id,
+            costo_visto=cuerpo.costo_usd,
+        )
+    except corrida.Ocupado as exc:
+        raise HTTPException(409, _OCUPADO) from exc
+    except corrida.NoSePuede as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _estado_revisor()
+
+
+@router.get("/revisor/descargar/{clave}")
+async def revisor_descargar(clave: str, _: _Revisor) -> FileResponse:
+    encontrado = corrida.descarga(clave)
+    if encontrado is None:
+        raise HTTPException(404, "Ese archivo no está listo.")
+    ruta, nombre, tipo = encontrado
+    return FileResponse(ruta, media_type=tipo, filename=nombre)
+
+
+@router.delete("/revisor")
+async def revisor_borrar(_: _Revisor, cache: bool = False) -> dict[str, object]:
+    """Borra soportes y salidas; con `cache=true`, también las descripciones
+    guardadas (la próxima corrida las vuelve a pagar)."""
+    try:
+        await corrida.borrar(con_cache=cache)
+    except corrida.Ocupado as exc:
+        raise HTTPException(409, _OCUPADO) from exc
+    return _estado_revisor()
