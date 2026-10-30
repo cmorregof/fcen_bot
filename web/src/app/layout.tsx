@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BannerPractica } from "@/components/BannerPractica";
 import { Cabecera } from "@/components/Cabecera";
 import { ProveedorSesion } from "@/lib/sesion";
 import "./globals.css";
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body>
         <ProveedorSesion>
+          <BannerPractica />
           <Cabecera />
           <main>{children}</main>
         </ProveedorSesion>
