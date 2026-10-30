@@ -28,7 +28,7 @@ from app.schemas.consejo import (
     EstadoDecision,
     Instancia,
 )
-from app.services import borrador, casos, consejo
+from app.services import borrador, casos, consejo, indicadores
 
 router = APIRouter(prefix="/actas")
 
@@ -633,3 +633,48 @@ async def tablero(_: _Lectura, db: Db) -> dict[str, object]:
             for d, c in sorted(por_area.items())
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Indicadores (solo cifras): decanatura y admin ven la Facultad; cada
+# administrativa, solo su área.
+# ---------------------------------------------------------------------------
+
+_Indicadores = Annotated[
+    Usuario, Depends(auth.requiere("administrativa", "decanatura", "admin"))
+]
+
+
+async def _reporte_indicadores(
+    usuario: Usuario, db: Db, periodo: str
+) -> indicadores.Reporte:
+    alcance = _direccion(usuario) if usuario.rol == "administrativa" else None
+    hoy = indicadores.hoy_local()
+    try:
+        elegido = indicadores.periodo_de(periodo, hoy)
+    except indicadores.PeriodoInvalido as exc:
+        raise HTTPException(422, str(exc)) from None
+    return await indicadores.reporte(db, elegido, hoy, alcance)
+
+
+@router.get("/indicadores")
+async def ver_indicadores(
+    usuario: _Indicadores, db: Db, periodo: str = ""
+) -> dict[str, object]:
+    return indicadores.a_json(await _reporte_indicadores(usuario, db, periodo))
+
+
+@router.get("/indicadores/xlsx")
+async def descargar_indicadores(
+    usuario: _Indicadores, db: Db, periodo: str = ""
+) -> Response:
+    reporte = await _reporte_indicadores(usuario, db, periodo)
+    return Response(
+        content=indicadores.xlsx(reporte),
+        media_type=indicadores.MIME_XLSX,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{indicadores.nombre_xlsx(reporte)}"'
+            )
+        },
+    )

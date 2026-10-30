@@ -40,6 +40,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     roles: ["comite"],
   },
   {
+    ruta: "/indicadores",
+    titulo: "Indicadores",
+    descripcion: "Casos, recomendaciones, decisiones del Consejo y tiempos de respuesta, con Excel.",
+    servicio: "actas",
+    roles: ["administrativa", "decanatura", "admin"],
+  },
+  {
     ruta: "/calidad",
     titulo: "Estado del plan",
     descripcion: "Ver objetivos, acciones y % de avance del plan por programa.",
