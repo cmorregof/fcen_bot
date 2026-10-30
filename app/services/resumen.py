@@ -13,8 +13,9 @@ es una decisión: el caso sigue pendiente y se cuenta aparte.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from html import escape
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -26,7 +27,7 @@ from app.core.config import settings
 from app.core.programas import PROGRAMAS
 from app.integrations import telegram
 from app.schemas.caso import EstadoCaso, Sentido
-from app.schemas.consejo import SentidoConsejo
+from app.schemas.consejo import NOMBRE_INSTANCIA, Instancia, SentidoConsejo
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ AYUDA = (
     "Este bot le envía a la decanatura un resumen de los casos estudiantiles de "
     "los comités asesores: cifras por programa y por estado, sin nombres.\n\n"
     "/resumen — el resumen ahora\n"
+    "/indicadores [periodo] — tiempos de respuesta y decisiones del Consejo, "
+    "con Excel (periodo: 2026-10, 2026 o vacío para el periodo en curso)\n"
     "Cada lunes en la mañana llega solo."
 )
 
@@ -64,6 +67,15 @@ _MAS_ANTIGUOS = 3
 
 def es_decanatura(telegram_id: int) -> bool:
     return telegram_id in settings.ids_decanatura
+
+
+def es_admin(telegram_id: int) -> bool:
+    return telegram_id in settings.ids_admin
+
+
+def puede_ver_indicadores(telegram_id: int) -> bool:
+    """/indicadores: decanatura y administradores (ADMIN_TELEGRAM_IDS)."""
+    return es_decanatura(telegram_id) or es_admin(telegram_id)
 
 
 @dataclass
@@ -103,6 +115,16 @@ class SinMovimiento:
 
 
 @dataclass
+class ActaSemana:
+    """Decisiones confirmadas en la semana desde una misma acta del Consejo."""
+
+    instancia: str
+    numero: str | None
+    fecha: str | None
+    conteo: dict[SentidoConsejo, int] = field(default_factory=dict)
+
+
+@dataclass
 class CifrasActas:
     total: Conteo = field(default_factory=Conteo)
     por_programa: dict[str, Conteo] = field(default_factory=dict)
@@ -110,6 +132,7 @@ class CifrasActas:
     sin_movimiento: int = 0
     con_error: int = 0
     sin_programa: int = 0
+    actas_semana: list[ActaSemana] = field(default_factory=list)
 
 
 def _etapa(estado: EstadoCaso, sentido: Sentido) -> str:
@@ -176,7 +199,34 @@ async def cifras_actas(db: aiosqlite.Connection, ahora: datetime) -> CifrasActas
             cifras.sin_programa += 1
     activos.sort(key=lambda s: (-s.dias, s.caso_id))
     cifras.mas_antiguos = [s for s in activos if s.dias > 0][:_MAS_ANTIGUOS]
+    cifras.actas_semana = await actas_de_la_semana(db, ahora)
     return cifras
+
+
+async def actas_de_la_semana(
+    db: aiosqlite.Connection, ahora: datetime
+) -> list[ActaSemana]:
+    """Decisiones del Consejo confirmadas en MemorIA en los últimos 7 días,
+    por acta (instancia, número y fecha). Solo conteos."""
+    desde = (ahora - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    cur = await db.execute(
+        "SELECT instancia, acta_numero, acta_fecha, sentido, COUNT(*)"
+        " FROM decisiones_consejo WHERE confirmado >= ?"
+        " GROUP BY instancia, acta_numero, acta_fecha, sentido"
+        " ORDER BY acta_fecha, acta_numero",
+        (desde,),
+    )
+    actas: dict[tuple[str, str | None, str | None], ActaSemana] = {}
+    for instancia, numero, fecha, sentido, n in await cur.fetchall():
+        try:
+            nombre = NOMBRE_INSTANCIA[Instancia(instancia)]
+        except ValueError:
+            nombre = str(instancia)
+        acta = actas.setdefault(
+            (nombre, numero, fecha), ActaSemana(nombre, numero, fecha)
+        )
+        acta.conteo[SentidoConsejo(sentido)] = int(n)
+    return list(actas.values())
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +351,21 @@ def _consejo(c: Conteo) -> str:
     )
 
 
+def _linea_acta(a: ActaSemana) -> str:
+    acta = f"acta {a.numero}" if a.numero else "acta sin número"
+    fecha = f" del {a.fecha}" if a.fecha else ""
+    c = a.conteo
+    texto = (
+        f"• {escape(a.instancia)}, {escape(acta)}{escape(fecha)}: aprobó "
+        f"{c.get(SentidoConsejo.APROBO, 0)}, no aprobó "
+        f"{c.get(SentidoConsejo.NO_APROBO, 0)}, aplazó "
+        f"{c.get(SentidoConsejo.APLAZO, 0)}"
+    )
+    if c.get(SentidoConsejo.OTRO):
+        texto += f", otra decisión {c[SentidoConsejo.OTRO]}"
+    return texto + "."
+
+
 def formatear(
     cifras: CifrasActas, hoy: date, otros: list[Externo] | None = None
 ) -> str:
@@ -330,6 +395,9 @@ def formatear(
             cifras.por_programa.items(), key=lambda kv: (kv[0] == _SIN_PROGRAMA, kv[0])
         )
         lineas += [f"• {escape(n)}: {_detalle(c)}" for n, c in orden]
+    if cifras.actas_semana:
+        lineas += ["", "<b>Actas del Consejo registradas esta semana</b>"]
+        lineas += [_linea_acta(a) for a in cifras.actas_semana]
     if cifras.mas_antiguos:
         lineas += ["", "<b>Más antiguos sin movimiento</b>"]
         lineas += [
@@ -381,19 +449,25 @@ async def armar(db: aiosqlite.Connection) -> str:
     return formatear(await cifras_actas(db, ahora), hoy, await externos())
 
 
+async def enviar_a(ids: Iterable[int], texto: str) -> int:
+    """Envía el mismo texto a cada id. Un envío fallido no detiene a los demás.
+    Devuelve cuántos salieron. Lo usan el resumen semanal y el reporte mensual."""
+    enviados = 0
+    for chat_id in sorted(set(ids)):
+        try:
+            await telegram.send_message(chat_id, texto)
+            enviados += 1
+        except Exception:
+            logger.exception("No pude enviar el mensaje a %s", chat_id)
+    return enviados
+
+
 async def enviar_semanal(db: aiosqlite.Connection) -> dict[str, object]:
-    """Para el cron del lunes. Un envío fallido no detiene a los demás."""
+    """Para el cron del lunes."""
     if not settings.resumen_semanal_activo:
         return {"activo": False, "enviados": 0}
     ids = sorted(settings.ids_decanatura)
     if not ids:
         return {"activo": True, "enviados": 0}
-    texto = await armar(db)
-    enviados = 0
-    for chat_id in ids:
-        try:
-            await telegram.send_message(chat_id, texto)
-            enviados += 1
-        except Exception:
-            logger.exception("No pude enviar el resumen a %s", chat_id)
+    enviados = await enviar_a(ids, await armar(db))
     return {"activo": True, "enviados": enviados, "destinatarios": len(ids)}
