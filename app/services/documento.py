@@ -31,6 +31,7 @@ from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
+from app.core import solicitudes
 from app.core.programas import Miembro, Programa
 from app.normativa.base import NormaCitada, normas_para
 from app.schemas.caso import (
@@ -742,6 +743,16 @@ def _recomendacion(
     _equivalencias(doc, item)
 
 
+def _nota_destinatario(doc: DocumentoDocx, item: CasoDocumento) -> None:
+    """Si el trámite no lo decide el Consejo de Facultad (config/solicitudes.yaml),
+    una nota en amarillo pide revisar el destinatario. La redacción del oficio
+    no cambia."""
+    for instancia in solicitudes.fuera_de_facultad(item.extraccion.tipos):
+        p = _p(doc, "FCEN Cuerpo")
+        _marcador(p, f"Este trámite lo decide el {instancia}: revise el destinatario.")
+        _vacio(doc, "FCEN Cuerpo")
+
+
 def _caso(
     doc: DocumentoDocx,
     datos: DatosOficio,
@@ -764,6 +775,7 @@ def _caso(
         # En el oficio la recomendación se lee primero (pedido del Consejo de
         # Facultad, 28-oct-2026); después, la solicitud y el análisis.
         _recomendacion(doc, datos, item, numero, "FCEN Caso")
+        _nota_destinatario(doc, item)
         _solicitud(doc, item, None, "FCEN Cuerpo")
         _analisis(doc, item, periodo)
 

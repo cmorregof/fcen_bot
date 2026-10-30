@@ -2,6 +2,10 @@
 
 Cada regla cita la norma de donde sale. Las reglas no deciden: producen
 alertas para la administrativa y datos para el ANÁLISIS del acta.
+
+Los umbrales (carga mínima, semanas límite, créditos disciplinares para el
+Trabajo de Grado, mínimo de jurados) están en config/solicitudes.yaml, que
+edita la Vicedecanatura Académica; cada uno cita su norma o su fuente.
 """
 
 from __future__ import annotations
@@ -10,6 +14,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
+from app.core import solicitudes
 from app.core.programas import Programa, normalizar
 from app.schemas.caso import (
     Alerta,
@@ -19,13 +24,7 @@ from app.schemas.caso import (
     TipoSolicitud,
 )
 
-CARGA_MINIMA = 10  # Acuerdo 008 de 2008 del CSU, art. 10
-SEMANA_LIMITE_ASIGNATURAS = 10  # Acuerdo 027 de 2024, art. 1 (num. 3)
-SEMANA_LIMITE_TDG_ACTIVIDADES = 13  # Acuerdo 027 de 2024, art. 1 (num. 3 y 4)
-SEMANA_LIMITE_TRASLADO = 7  # Acuerdo 089 de 2014, art. 2 (antes de la semana 7)
-# No es norma: instrucción del Consejo de Facultad (reunión del 28-oct-2026).
-# Se configura con JURADOS_MINIMO.
-JURADOS_MINIMO = 6
+# Los jurados se recomiendan, no se proponen: no es norma.
 INSTRUCCION_JURADOS = "instrucción del Consejo de Facultad, 28-oct-2026"
 
 _COLUMNAS = ("exigidos", "aprobados", "pendientes", "inscritos", "cursados")
@@ -166,11 +165,12 @@ def creditos_tras_solicitud(
 
 
 def completar_tipos(extraccion: ExtraccionCaso) -> ExtraccionCaso:
-    """Agrega «carga mínima» cuando el estudiante quedaría con menos de 10 créditos.
+    """Agrega «carga mínima» cuando el estudiante quedaría por debajo de ella.
 
-    Art. 10 del Acuerdo 008 de 2008: inscribir menos de diez créditos requiere
-    autorización del Consejo de Facultad, aunque el estudiante no lo pida con
-    ese nombre (p. ej., quien solo inscribe Trabajo de Grado).
+    Art. 10 del Acuerdo 008 de 2008: inscribir menos de la carga mínima
+    requiere autorización del Consejo de Facultad, aunque el estudiante no lo
+    pida con ese nombre (p. ej., quien solo inscribe Trabajo de Grado). El
+    valor sale de config/solicitudes.yaml.
     """
     sia = extraccion.sia
     if sia is None or TipoSolicitud.CARGA_MINIMA in extraccion.tipos:
@@ -180,7 +180,7 @@ def completar_tipos(extraccion: ExtraccionCaso) -> ExtraccionCaso:
         return extraccion
     tras = creditos_tras_solicitud(extraccion, inscritos)
     final = tras if tras is not None else inscritos
-    if final >= CARGA_MINIMA:
+    if final >= solicitudes.actual().umbrales.carga_minima.valor:
         return extraccion
     return extraccion.model_copy(
         update={"tipos": [*extraccion.tipos, TipoSolicitud.CARGA_MINIMA]}
@@ -234,12 +234,17 @@ def analizar(
     periodo_inicio: date | None,
     hay_imagenes: bool,
     texto_original: str | None = None,
-    jurados_minimo: int = JURADOS_MINIMO,
+    jurados_minimo: int | None = None,
 ) -> Analisis:
     """`texto_original` es el texto pegado del caso; sin él no se verifica la
-    cita. `jurados_minimo` sale de la configuración (JURADOS_MINIMO)."""
+    cita. Si `jurados_minimo` es None, sale de la variable JURADOS_MINIMO o,
+    si no está definida, de config/solicitudes.yaml."""
     a = Analisis()
     tipos = set(extraccion.tipos)
+    config = solicitudes.actual()
+    umbrales = config.umbrales
+    if jurados_minimo is None:
+        jurados_minimo = solicitudes.jurados_minimo()
 
     # Identificación
     doc = (extraccion.documento or "").strip()
@@ -338,7 +343,9 @@ def analizar(
             a.agregar(
                 "aviso",
                 f"La solicitud trae {n} jurado{'' if n == 1 else 's'}; se presentan "
-                f"mínimo {jurados_minimo} ({INSTRUCCION_JURADOS}; no es norma).",
+                f"mínimo {jurados_minimo} ({umbrales.jurados_minimo.cita}"
+                + ("" if umbrales.jurados_minimo.norma else "; no es norma")
+                + ").",
             )
         if _PROPONE.search(extraccion.objeto_solicitud):
             a.agregar(
@@ -384,19 +391,25 @@ def analizar(
             if a.creditos_tras_solicitud is not None
             else a.creditos_inscritos
         )
-        if final < CARGA_MINIMA:
+        carga = umbrales.carga_minima
+        if final < carga.valor:
             if TipoSolicitud.CARGA_MINIMA in tipos:
+                ruta = config.ruta(TipoSolicitud.CARGA_MINIMA)
+                quien = (
+                    "quién la autoriza está por confirmar"
+                    if ruta.por_confirmar
+                    else f"la autoriza el {ruta.nombre_decide}"
+                )
                 a.agregar(
                     "info",
                     f"Quedaría con {final} créditos inscritos, por debajo de la carga "
-                    f"mínima de {CARGA_MINIMA} (art. 10 del Acuerdo 008 de 2008): la "
-                    "autoriza el Consejo de Facultad.",
+                    f"mínima de {carga.valor} ({carga.cita}): {quien}.",
                 )
             else:
                 a.agregar(
                     "aviso",
                     f"Quedaría con {final} créditos inscritos, por debajo de la carga "
-                    f"mínima de {CARGA_MINIMA}, y la solicitud no pide carga mínima.",
+                    f"mínima de {carga.valor}, y la solicitud no pide carga mínima.",
                 )
 
     # Semana del periodo (Acuerdo 027 de 2024; Acuerdo 089 de 2014 para traslados)
@@ -422,53 +435,53 @@ def analizar(
                     "verificar la semana límite.",
                 )
         else:
-            if TipoSolicitud.TRASLADO in tipos and a.semana >= SEMANA_LIMITE_TRASLADO:
+            sem_asig = umbrales.semana_limite_asignaturas
+            sem_tdg = umbrales.semana_limite_tdg_actividades
+            sem_traslado = umbrales.semana_limite_traslado
+            if TipoSolicitud.TRASLADO in tipos and a.semana >= sem_traslado.valor:
                 a.agregar(
                     "aviso",
                     f"Llegó en la semana {a.semana}; el traslado se presenta antes de la "
-                    "semana 7 (art. 2 del Acuerdo 089 de 2014).",
+                    f"semana {sem_traslado.valor} ({sem_traslado.cita}).",
                 )
             # Trabajo de Grado (en cualquier modalidad) y actividades académicas:
             # semana 13. Demás asignaturas: semana 10.
-            limite: int | None = None
+            limite: solicitudes.Umbral | None = None
             if tipos & {TipoSolicitud.TRABAJO_GRADO, TipoSolicitud.PAE}:
-                limite = SEMANA_LIMITE_TDG_ACTIVIDADES
+                limite = sem_tdg
             elif TipoSolicitud.INSCRIPCION_EXTEMPORANEA in tipos:
-                limite = SEMANA_LIMITE_ASIGNATURAS
+                limite = sem_asig
             if (
-                limite == SEMANA_LIMITE_TDG_ACTIVIDADES
+                limite is sem_tdg
                 and TipoSolicitud.INSCRIPCION_EXTEMPORANEA in tipos
-                and SEMANA_LIMITE_ASIGNATURAS < a.semana <= limite
+                and sem_asig.valor < a.semana <= sem_tdg.valor
             ):
                 a.agregar(
                     "aviso",
                     f"Llegó en la semana {a.semana}: el Trabajo de Grado se puede "
-                    "autorizar hasta la semana 13, pero las demás asignaturas solo "
-                    "hasta la 10 (Acuerdo 027 de 2024).",
+                    f"autorizar hasta la semana {sem_tdg.valor}, pero las demás "
+                    f"asignaturas solo hasta la {sem_asig.valor} ({sem_asig.cita}).",
                 )
-            if limite is not None and a.semana > limite:
+            if limite is not None and a.semana > limite.valor:
                 a.agregar(
                     "aviso",
                     f"Llegó en la semana {a.semana}; el Consejo de Facultad puede "
-                    f"autorizarla hasta la semana {limite} (Acuerdo 027 de 2024).",
+                    f"autorizarla hasta la semana {limite.valor} ({limite.cita}).",
                 )
 
     # Regla propia del programa para Trabajo de Grado
-    if (
-        programa
-        and programa.tdg_creditos_disciplinares
-        and TipoSolicitud.TRABAJO_GRADO in tipos
-    ):
-        a.disciplinares_exigidos_tdg = programa.tdg_creditos_disciplinares
+    exigidos = umbrales.tdg_creditos(programa.clave if programa else None)
+    if exigidos and TipoSolicitud.TRABAJO_GRADO in tipos:
+        a.disciplinares_exigidos_tdg = exigidos.valor
         if (
             a.disciplinares_aprobados is not None
-            and a.disciplinares_aprobados < programa.tdg_creditos_disciplinares
+            and a.disciplinares_aprobados < exigidos.valor
         ):
             pide_excepcion = TipoSolicitud.EXCEPCION_NORMA in tipos
             a.agregar(
                 "info" if pide_excepcion else "aviso",
                 f"Tiene {a.disciplinares_aprobados} de los "
-                f"{programa.tdg_creditos_disciplinares} créditos disciplinares que "
+                f"{exigidos.valor} créditos disciplinares que "
                 "exige el programa para inscribir Trabajo de Grado"
                 + (
                     "; la solicitud pide la excepción."
