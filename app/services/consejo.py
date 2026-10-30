@@ -73,25 +73,37 @@ def es_literal(fragmento: str, texto_acta: str) -> bool:
     return bool(buscado) and buscado in _espacios(texto_acta)
 
 
-_NO_APROBO = re.compile(
-    r"\bno\s+(se\s+)?(aprob|aprueb|autoriz|conced|avala)|\b(niega|negad|deneg|"
-    r"rechaz)"
+# Rechazo explícito, sin depender de dónde esté la negación.
+_RECHAZO = re.compile(
+    r"\b(niega|negad|neg[oó]|deneg|rechaz|improb|desaprueb|improceden|"
+    r"no\s+(es\s+)?procede)"
 )
 _APLAZO = re.compile(r"\b(aplaz|pospon|pospus)")
-_APROBO = re.compile(r"\b(aprob|aprueb|autoriz|conced|avala)")
+_VERBO_APROBAR = re.compile(r"^(aprob|aprueb|autoriz|conced|avala|aval[oó])")
+_NEGADORES = {"no", "ni", "nunca", "tampoco", "sin"}
+# Cuántas palabras antes del verbo puede estar la negación de su cláusula
+# («no se le aprueba», «no ha sido autorizada»).
+_VENTANA_NEGACION = 4
 
 
 def sentido_de(texto_decision: str) -> SentidoConsejo:
-    """Del texto literal al sentido, con palabras clave. Lo que no encaja es
-    «otro» y se muestra con su texto."""
+    """Del texto literal al sentido, con una regla fija. Una negación nunca
+    da «aprobó»: si niega el verbo es «no aprobó»; si hay una negación que no
+    se puede atar al verbo, es ambiguo y queda «otro», con su texto."""
     t = normalizar(texto_decision)
+    palabras = re.findall(r"[a-zñ]+", t)
+    hay_negacion = any(p in _NEGADORES for p in palabras)
     if _APLAZO.search(t):
-        return SentidoConsejo.APLAZO
-    if _NO_APROBO.search(t):
+        return SentidoConsejo.OTRO if hay_negacion else SentidoConsejo.APLAZO
+    if _RECHAZO.search(t):
         return SentidoConsejo.NO_APROBO
-    if _APROBO.search(t):
-        return SentidoConsejo.APROBO
-    return SentidoConsejo.OTRO
+    verbos = [i for i, p in enumerate(palabras) if _VERBO_APROBAR.match(p)]
+    if not verbos:
+        return SentidoConsejo.OTRO
+    for i in verbos:
+        if any(p in _NEGADORES for p in palabras[max(0, i - _VENTANA_NEGACION) : i]):
+            return SentidoConsejo.NO_APROBO
+    return SentidoConsejo.OTRO if hay_negacion else SentidoConsejo.APROBO
 
 
 def instancia_de(texto: str | None) -> Instancia | None:
@@ -118,6 +130,28 @@ def _tokens_nombre(nombre: str | None) -> list[str]:
 
 def _clave_nombre(nombre: str | None) -> str:
     return " ".join(sorted(_tokens_nombre(nombre)))
+
+
+def _numeros(fragmento: str) -> set[str]:
+    """Números del fragmento, con o sin puntos de miles (1.000.000.001)."""
+    return {_digitos(m.group()) for m in re.finditer(r"\d(?:[\d.]*\d)?", fragmento)}
+
+
+def _documento_en(documento: str, fragmento: str) -> bool:
+    return bool(documento) and documento in _numeros(fragmento)
+
+
+def _caso_en(numero: str, fragmento: str) -> bool:
+    """El número de caso aparece como «caso … 12» o «#12»."""
+    if not numero:
+        return False
+    patron = rf"(\bcaso\b[^\d]{{0,20}}|#\s*)0*{int(numero)}(?!\d)"
+    return re.search(patron, normalizar(fragmento)) is not None
+
+
+def _nombre_en(nombre: str | None, fragmento: str) -> bool:
+    tokens = _tokens_nombre(nombre)
+    return bool(tokens) and set(tokens) <= set(_tokens_nombre(fragmento))
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +191,31 @@ def _cruzar_una(
             "El texto de la decisión no está dentro del fragmento citado.",
         )
 
+    # Un identificador solo se usa si está en el fragmento: el modelo pudo
+    # tomarlo de otra fila del acta.
     doc = _digitos(d.documento)
     num = _digitos(d.numero_caso)
     nombre = _clave_nombre(d.nombre_estudiante)
+    ausentes = []
+    if doc and not _documento_en(doc, d.fragmento):
+        ausentes.append("el documento")
+        doc = ""
+    if num and not _caso_en(num, d.fragmento):
+        ausentes.append("el número de caso")
+        num = ""
+    if nombre and not _nombre_en(d.nombre_estudiante, d.fragmento):
+        ausentes.append("el nombre")
+        nombre = ""
+    if ausentes and not (doc or num or nombre):
+        return Propuesta(
+            d,
+            sentido,
+            Cruce.NO_VERIFICADO,
+            f"El fragmento no contiene {' ni '.join(ausentes)} del estudiante.",
+        )
+    nota_ausentes = (
+        f"El fragmento no contiene {' ni '.join(ausentes)} que leyó el modelo."
+    )
 
     def doc_de(c: Caso) -> str:
         return _digitos(c.extraccion.documento if c.extraccion else None)
@@ -173,7 +229,7 @@ def _cruzar_una(
     union = por_doc | por_num | por_nombre
 
     if not union:
-        propios = set(_tokens_nombre(d.nombre_estudiante))
+        propios = set(_tokens_nombre(d.nombre_estudiante if nombre else None))
         parecidos = tuple(
             sorted(
                 c.id
@@ -230,6 +286,17 @@ def _cruzar_una(
             sentido,
             Cruce.DUDOSO,
             "Solo coincide el nombre: el acta no trae documento ni número de caso.",
+            candidatos=(caso_id,),
+        )
+    if ausentes:
+        return Propuesta(d, sentido, Cruce.DUDOSO, nota_ausentes, candidatos=(caso_id,))
+    caso = next(c for c in casos if c.id == caso_id)
+    if caso.sentido == Sentido.PENDIENTE:
+        return Propuesta(
+            d,
+            sentido,
+            Cruce.DUDOSO,
+            f"El caso #{caso_id} no tiene recomendación del comité registrada.",
             candidatos=(caso_id,),
         )
     previo = decididos.get(caso_id)
@@ -381,6 +448,12 @@ async def leer_y_registrar(
             "No pude leer texto en el acta. Si es un PDF escaneado, pida la "
             "versión digital (PDF con texto o Word)."
         )
+    if len(texto) > settings.acta_consejo_max_caracteres:
+        raise ErrorActa(
+            f"El acta tiene {len(texto):,} caracteres y el máximo es "
+            f"{settings.acta_consejo_max_caracteres:,}. Suba solo la sección de "
+            "asuntos estudiantiles, o divídala en partes.".replace(",", ".")
+        )
     estructurador = get_estructurador()
     if estructurador is None:
         raise ErrorActa("Falta configurar ANTHROPIC_API_KEY.")
@@ -403,6 +476,13 @@ async def leer_y_registrar(
     )
     leida = validar(resultado, ActaLeida)
     if leida is None:
+        if resultado.error and "incompleta" in resultado.error:
+            # stop_reason == "max_tokens": la lista de decisiones quedó cortada.
+            raise ErrorActa(
+                "El acta es demasiado larga para leerla de una vez: la lectura "
+                "quedó cortada y se perderían decisiones. No se registró nada. "
+                "Suba la sección de asuntos estudiantiles en partes."
+            )
         raise ErrorActa(f"No pude leer el acta: {resultado.error or 'sin resultado'}.")
     return await registrar_acta(
         db,
@@ -498,6 +578,64 @@ async def _get_fila(db: aiosqlite.Connection, decision_id: int) -> FilaDecision 
     return _fila(r) if r else None
 
 
+async def fila_visible(
+    db: aiosqlite.Connection, fila: FilaDecision, acta: Acta, direccion: str | None
+) -> bool:
+    """Quien no es admin solo ve y toca las decisiones cuyo caso o candidatos
+    son de su área. Una decisión sin caso ni candidatos solo la ve el área que
+    subió el acta (en un acta subida por admin, solo admin)."""
+    if direccion is None:
+        return True
+    if acta.direccion not in (None, direccion):
+        return False
+    ids = ({fila.caso_id} if fila.caso_id else set()) | set(fila.candidatos)
+    if not ids:
+        return acta.direccion == direccion
+    marcas = ",".join("?" for _ in ids)
+    cur = await db.execute(
+        f"SELECT 1 FROM casos WHERE id IN ({marcas}) AND direccion = ? LIMIT 1",
+        (*ids, direccion),
+    )
+    return await cur.fetchone() is not None
+
+
+async def _fila_de_su_area(
+    db: aiosqlite.Connection, decision_id: int, direccion: str | None
+) -> tuple[FilaDecision, Acta]:
+    fila = await _get_fila(db, decision_id)
+    acta = await get_acta(db, fila.acta_id) if fila else None
+    if (
+        fila is None
+        or acta is None
+        or not await fila_visible(db, fila, acta, direccion)
+    ):
+        raise ErrorActa("No encontré esa decisión en su área.")
+    if fila.estado != EstadoDecision.PENDIENTE:
+        raise ErrorActa("Esa decisión ya se revisó.")
+    return fila, acta
+
+
+async def _tomar(
+    db: aiosqlite.Connection,
+    fila_id: int,
+    estado: EstadoDecision,
+    persona: str,
+    caso_id: int | None = None,
+) -> None:
+    """Pasa la decisión de pendiente a revisada en una sola sentencia: si dos
+    clics llegan a la vez, solo uno la toma."""
+    cur = await db.execute(
+        "UPDATE acta_consejo_decisiones SET estado = ?, "
+        "caso_id = COALESCE(?, caso_id), revisado_por = ?, "
+        "revisado = CURRENT_TIMESTAMP WHERE id = ? AND estado = ?",
+        (estado.value, caso_id, persona, fila_id, EstadoDecision.PENDIENTE.value),
+    )
+    if cur.rowcount != 1:
+        # Sin rollback: es la primera escritura de esta llamada, y en una
+        # conexión compartida desharía la del clic que sí la tomó.
+        raise ErrorActa("Esa decisión ya se revisó.")
+
+
 async def aplicar(
     db: aiosqlite.Connection,
     decision_id: int,
@@ -505,23 +643,18 @@ async def aplicar(
     caso_id: int | None,
     persona: str,
     direccion: str | None,
+    reemplazar: bool = False,
 ) -> DecisionConsejo:
     """Registra en el caso la decisión del acta. Solo la llama una persona
     (botón o pantalla). `direccion` es el alcance de quien confirma (None:
-    todas las áreas). Un caso dudoso exige que la persona elija el caso."""
-    fila = await _get_fila(db, decision_id)
-    if fila is None:
-        raise ErrorActa("No encontré esa decisión.")
-    acta = await get_acta(db, fila.acta_id)
-    assert acta is not None
-    if direccion is not None and acta.direccion not in (None, direccion):
-        raise ErrorActa("Esa acta no es de su área.")
-    if fila.estado != EstadoDecision.PENDIENTE:
-        raise ErrorActa("Esa decisión ya se revisó.")
+    todas las áreas). Un caso dudoso exige que la persona elija el caso. Una
+    decisión final ya registrada solo se reemplaza con `reemplazar`, y nunca
+    por un aplazamiento."""
+    fila, acta = await _fila_de_su_area(db, decision_id, direccion)
     if fila.cruce == Cruce.NO_VERIFICADO:
         raise ErrorActa(
-            "El fragmento no aparece literal en el acta: no se puede registrar. "
-            "Descártela y revise el acta."
+            "La decisión no se pudo verificar contra el texto del acta: no se "
+            "puede registrar. Descártela y revise el acta."
         )
     elegido = caso_id if caso_id is not None else fila.caso_id
     if elegido is None:
@@ -534,6 +667,21 @@ async def aplicar(
         or (alcance is not None and caso.direccion != alcance)
     ):
         raise ErrorActa(f"El caso #{elegido} no está disponible en su área.")
+    previa = await repo.decision_consejo(db, caso.id)
+    if previa is not None and previa.sentido != SentidoConsejo.APLAZO:
+        if fila.sentido == SentidoConsejo.APLAZO:
+            raise ErrorActa(
+                f"El caso #{caso.id} ya tiene una decisión del Consejo "
+                f"({ETIQUETA_SENTIDO_CONSEJO[previa.sentido].lower()}); un "
+                "aplazamiento no la reemplaza."
+            )
+        if not reemplazar:
+            raise ErrorActa(
+                f"El caso #{caso.id} ya tiene una decisión del Consejo "
+                f"({ETIQUETA_SENTIDO_CONSEJO[previa.sentido].lower()}, acta "
+                f"{previa.acta_numero or 'sin número'}). Confirme que quiere "
+                "reemplazarla."
+            )
     decision = DecisionConsejo(
         caso_id=caso.id,
         instancia=acta.instancia,
@@ -544,6 +692,7 @@ async def aplicar(
         fragmento=fila.leida.fragmento,
         confirmado_por=persona,
     )
+    await _tomar(db, fila.id, EstadoDecision.APLICADA, persona, caso.id)
     await db.execute(
         """
         INSERT INTO decisiones_consejo (caso_id, acta_id, decision_id, instancia,
@@ -572,15 +721,12 @@ async def aplicar(
             persona,
         ),
     )
-    await db.execute(
-        "UPDATE casos SET estado = ?, actualizado = CURRENT_TIMESTAMP WHERE id = ?",
-        (EstadoCaso.DECIDIDO_CONSEJO.value, caso.id),
-    )
-    await db.execute(
-        "UPDATE acta_consejo_decisiones SET estado = ?, caso_id = ?, "
-        "revisado_por = ?, revisado = CURRENT_TIMESTAMP WHERE id = ?",
-        (EstadoDecision.APLICADA.value, caso.id, persona, fila.id),
-    )
+    # Un aplazamiento no es decisión: el caso sigue en su estado y en curso.
+    if decision.sentido != SentidoConsejo.APLAZO:
+        await db.execute(
+            "UPDATE casos SET estado = ?, actualizado = CURRENT_TIMESTAMP WHERE id = ?",
+            (EstadoCaso.DECIDIDO_CONSEJO.value, caso.id),
+        )
     await db.commit()
     await avisar(db, caso, decision)
     return decision
@@ -593,20 +739,8 @@ async def descartar(
     persona: str,
     direccion: str | None,
 ) -> None:
-    fila = await _get_fila(db, decision_id)
-    if fila is None:
-        raise ErrorActa("No encontré esa decisión.")
-    acta = await get_acta(db, fila.acta_id)
-    assert acta is not None
-    if direccion is not None and acta.direccion not in (None, direccion):
-        raise ErrorActa("Esa acta no es de su área.")
-    if fila.estado != EstadoDecision.PENDIENTE:
-        raise ErrorActa("Esa decisión ya se revisó.")
-    await db.execute(
-        "UPDATE acta_consejo_decisiones SET estado = ?, revisado_por = ?, "
-        "revisado = CURRENT_TIMESTAMP WHERE id = ?",
-        (EstadoDecision.DESCARTADA.value, persona, fila.id),
-    )
+    fila, _ = await _fila_de_su_area(db, decision_id, direccion)
+    await _tomar(db, fila.id, EstadoDecision.DESCARTADA, persona)
     await db.commit()
 
 

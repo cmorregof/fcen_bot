@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     extraction_max_tokens: int = 8000
     # El acta del Consejo trae muchas decisiones: salida más larga.
     acta_consejo_max_tokens: int = 16000
+    # Tope del texto del acta que se envía al modelo (unas 40 páginas).
+    acta_consejo_max_caracteres: int = 150_000
     extraction_timeout_seconds: float = 90.0
     # Lado mayor de las imágenes antes de enviarlas al modelo (controla tokens).
     max_image_side: int = 1568
