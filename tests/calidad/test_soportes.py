@@ -19,6 +19,7 @@ from pypdf import PdfWriter
 from app.servicios.calidad.soportes import contenido
 from app.servicios.calidad.soportes.cliente import Respuesta
 from app.servicios.calidad.soportes.describir import Cache
+from app.servicios.calidad.soportes.indice import leer_indice
 from app.servicios.calidad.soportes.inventario import accion_de_ruta, inventariar
 from app.servicios.calidad.soportes.modelos import (
     Accion,
@@ -360,6 +361,11 @@ async def test_corrida_completa_cache_y_salidas(carpeta: Path, tmp_path: Path) -
     c11 = next(c for c in informe.cruces if c.accion.codigo == "1.1")
     assert any(not e.valida and e.cita == "S999" for e in c11.verificacion)
     assert informe.uso.costo() > 0
+
+    # El revisor deja un índice por programa para citar los soportes por su ID.
+    indice = leer_indice(Cache(salidas / ".cache"), "Programa Ficticio")
+    assert sum(len(v) for v in indice.values()) == len(no_zip)
+    assert "seminario_ficticio.pdf" not in json.dumps(indice, default=str)
 
     # Las tres salidas.
     inv = load_workbook(informe.salidas["inventario"])["Inventario"]

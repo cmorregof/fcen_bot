@@ -40,5 +40,11 @@ class CalidadSettings(BaseSettings):
     # base del servicio (en Railway, /data/calidad/revisor).
     revisor_dir: Path | None = None
 
+    # Borrador de la descripción de avance de un corte. Apagado por defecto: manda
+    # al modelo contenido del plan (tareas, cortes anteriores, enlaces).
+    avance_activo: bool = False
+    # Ningún borrador gasta más de esto en la API (USD).
+    avance_tope_usd: float = 2.0
+
 
 calidad_settings = CalidadSettings()
