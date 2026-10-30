@@ -53,7 +53,13 @@ _CANDIDATOS = (EstadoCaso.LISTO, EstadoCaso.CERRADO, EstadoCaso.DECIDIDO_CONSEJO
 
 
 class ErrorActa(Exception):
-    """El acta no se pudo leer; el mensaje se muestra tal cual."""
+    """El acta no se pudo leer o la decisión no se pudo aplicar; el mensaje se
+    muestra tal cual. `sin_cambios`: no se escribió nada, no hay que revertir
+    (en una conexión compartida, revertir desharía lo de otra llamada)."""
+
+    def __init__(self, mensaje: str, *, sin_cambios: bool = False) -> None:
+        super().__init__(mensaje)
+        self.sin_cambios = sin_cambios
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +79,12 @@ def es_literal(fragmento: str, texto_acta: str) -> bool:
     return bool(buscado) and buscado in _espacios(texto_acta)
 
 
-# Rechazo explícito, sin depender de dónde esté la negación.
+# Rechazo explícito, palabra completa: «negociación», «negocio» o
+# «rechazable» no son rechazos.
 _RECHAZO = re.compile(
-    r"\b(niega|negad|neg[oó]|deneg|rechaz|improb|desaprueb|improceden|"
-    r"no\s+(es\s+)?procede)"
+    r"\b(niegan?|negad[oa]s?|nego|negar|denieg(a|an)|denegad[oa]s?|denego|"
+    r"denegar|rechaz(a|an|ad[oa]s?|o|ar)|improbad[oa]s?|desaprueb(a|an)|"
+    r"desaprobad[oa]s?|improcedentes?)\b|\bno\s+(es\s+)?procede"
 )
 _APLAZO = re.compile(r"\b(aplaz|pospon|pospus)")
 _VERBO_APROBAR = re.compile(r"^(aprob|aprueb|autoriz|conced|avala|aval[oó])")
@@ -95,14 +103,17 @@ def sentido_de(texto_decision: str) -> SentidoConsejo:
     hay_negacion = any(p in _NEGADORES for p in palabras)
     if _APLAZO.search(t):
         return SentidoConsejo.OTRO if hay_negacion else SentidoConsejo.APLAZO
-    if _RECHAZO.search(t):
-        return SentidoConsejo.NO_APROBO
+    rechazo = _RECHAZO.search(t) is not None
     verbos = [i for i, p in enumerate(palabras) if _VERBO_APROBAR.match(p)]
-    if not verbos:
-        return SentidoConsejo.OTRO
     for i in verbos:
         if any(p in _NEGADORES for p in palabras[max(0, i - _VENTANA_NEGACION) : i]):
             return SentidoConsejo.NO_APROBO
+    if rechazo:
+        # «Se aprueba el recurso contra el rechazo anterior»: aprobar y
+        # rechazo juntos, sin negar el verbo, es ambiguo.
+        return SentidoConsejo.OTRO if verbos else SentidoConsejo.NO_APROBO
+    if not verbos:
+        return SentidoConsejo.OTRO
     return SentidoConsejo.OTRO if hay_negacion else SentidoConsejo.APROBO
 
 
@@ -578,6 +589,23 @@ async def _get_fila(db: aiosqlite.Connection, decision_id: int) -> FilaDecision 
     return _fila(r) if r else None
 
 
+async def texto_acta(db: aiosqlite.Connection, acta_id: int) -> str:
+    cur = await db.execute("SELECT texto FROM actas_consejo WHERE id = ?", (acta_id,))
+    r = await cur.fetchone()
+    return str(r[0]) if r else ""
+
+
+def asignable_a_mano(fila: FilaDecision, texto: str) -> bool:
+    """Una decisión sin verificar se puede asignar a mano si lo que se
+    registraría es literal: el fragmento está en el acta y la decisión en el
+    fragmento. Solo faltó verificar a quién se refiere."""
+    return (
+        fila.cruce == Cruce.NO_VERIFICADO
+        and es_literal(fila.leida.fragmento, texto)
+        and es_literal(fila.leida.texto_decision, fila.leida.fragmento)
+    )
+
+
 async def fila_visible(
     db: aiosqlite.Connection, fila: FilaDecision, acta: Acta, direccion: str | None
 ) -> bool:
@@ -631,9 +659,8 @@ async def _tomar(
         (estado.value, caso_id, persona, fila_id, EstadoDecision.PENDIENTE.value),
     )
     if cur.rowcount != 1:
-        # Sin rollback: es la primera escritura de esta llamada, y en una
-        # conexión compartida desharía la del clic que sí la tomó.
-        raise ErrorActa("Esa decisión ya se revisó.")
+        # Es la primera escritura de esta llamada: nada que revertir.
+        raise ErrorActa("Esa decisión ya se revisó.", sin_cambios=True)
 
 
 async def aplicar(
@@ -651,7 +678,9 @@ async def aplicar(
     decisión final ya registrada solo se reemplaza con `reemplazar`, y nunca
     por un aplazamiento."""
     fila, acta = await _fila_de_su_area(db, decision_id, direccion)
-    if fila.cruce == Cruce.NO_VERIFICADO:
+    if fila.cruce == Cruce.NO_VERIFICADO and not (
+        caso_id is not None and asignable_a_mano(fila, await texto_acta(db, acta.id))
+    ):
         raise ErrorActa(
             "La decisión no se pudo verificar contra el texto del acta: no se "
             "puede registrar. Descártela y revise el acta."
@@ -692,8 +721,39 @@ async def aplicar(
         fragmento=fila.leida.fragmento,
         confirmado_por=persona,
     )
-    await _tomar(db, fila.id, EstadoDecision.APLICADA, persona, caso.id)
-    await db.execute(
+    try:
+        await _tomar(db, fila.id, EstadoDecision.APLICADA, persona, caso.id)
+        await _guardar_decision(db, decision, acta.id, fila.id, reemplazar)
+        # Un aplazamiento no es decisión: el caso sigue en su estado y en curso.
+        if decision.sentido != SentidoConsejo.APLAZO:
+            await db.execute(
+                "UPDATE casos SET estado = ?, actualizado = CURRENT_TIMESTAMP "
+                "WHERE id = ?",
+                (EstadoCaso.DECIDIDO_CONSEJO.value, caso.id),
+            )
+        await db.commit()
+    except ErrorActa as exc:
+        if not exc.sin_cambios:
+            await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
+    await avisar(db, caso, decision)
+    return decision
+
+
+async def _guardar_decision(
+    db: aiosqlite.Connection,
+    decision: DecisionConsejo,
+    acta_id: int,
+    fila_id: int,
+    reemplazar: bool,
+) -> None:
+    """Inserta la decisión. La condición sobre la previa va en la misma
+    sentencia: si otra confirmación registró una decisión final entre la
+    lectura y la escritura, no se pisa."""
+    cur = await db.execute(
         """
         INSERT INTO decisiones_consejo (caso_id, acta_id, decision_id, instancia,
             sentido, texto_decision, acta_numero, acta_fecha, fragmento,
@@ -707,29 +767,28 @@ async def aplicar(
             fragmento = excluded.fragmento,
             confirmado_por = excluded.confirmado_por,
             confirmado = CURRENT_TIMESTAMP
+        WHERE decisiones_consejo.sentido = 'aplazo'
+            OR (? AND excluded.sentido != 'aplazo')
         """,
         (
-            caso.id,
-            acta.id,
-            fila.id,
+            decision.caso_id,
+            acta_id,
+            fila_id,
             decision.instancia.value,
             decision.sentido.value,
             decision.texto_decision,
             decision.acta_numero,
             decision.acta_fecha,
             decision.fragmento,
-            persona,
+            decision.confirmado_por,
+            reemplazar,
         ),
     )
-    # Un aplazamiento no es decisión: el caso sigue en su estado y en curso.
-    if decision.sentido != SentidoConsejo.APLAZO:
-        await db.execute(
-            "UPDATE casos SET estado = ?, actualizado = CURRENT_TIMESTAMP WHERE id = ?",
-            (EstadoCaso.DECIDIDO_CONSEJO.value, caso.id),
+    if cur.rowcount != 1:
+        raise ErrorActa(
+            f"El caso #{decision.caso_id} ya tiene una decisión del Consejo. "
+            "Confirme que quiere reemplazarla."
         )
-    await db.commit()
-    await avisar(db, caso, decision)
-    return decision
 
 
 async def descartar(

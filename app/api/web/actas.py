@@ -380,21 +380,38 @@ async def _detalle_acta(
     db: Db, acta: consejo.Acta, usuario: Usuario
 ) -> dict[str, object]:
     alcance = _alcance(usuario)
+    texto = await consejo.texto_acta(db, acta.id)
     filas = []
     for f in await _filas_visibles(db, acta, alcance):
         candidatos = []
+        ajenos = False
         for i in f.candidatos:
             c = await repo.get_caso(db, i)
             if c is not None and (alcance is None or c.direccion == alcance):
                 candidatos.append(_caso_corto(c))
+            elif c is not None:
+                ajenos = True
         caso = await repo.get_caso(db, f.caso_id) if f.caso_id else None
         if caso is not None and alcance is not None and caso.direccion != alcance:
             caso = None
+            ajenos = True
+        leida = f.leida.model_dump(mode="json")
+        if ajenos:
+            # Puede ser de un caso de otra área: solo se muestra la decisión y
+            # los datos del candidato de su área, no lo que dice el acta.
+            leida = {
+                **{k: None for k in leida},
+                "texto_decision": f.leida.texto_decision,
+                "fragmento": "",
+            }
         filas.append(
             {
                 "id": f.id,
                 "orden": f.orden,
-                "leida": f.leida.model_dump(mode="json"),
+                "leida": leida,
+                "oculta": ajenos,
+                "asignable": f.cruce != Cruce.NO_VERIFICADO
+                or consejo.asignable_a_mano(f, texto),
                 "sentido": f.sentido.value,
                 "sentido_texto": ETIQUETA_SENTIDO_CONSEJO[f.sentido],
                 "cruce": f.cruce.value,

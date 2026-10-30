@@ -193,6 +193,13 @@ def test_el_acta_ficticia_contiene_los_fragmentos() -> None:
         ("Se declara improcedente", SentidoConsejo.NO_APROBO),
         ("Aprobado; no obstante, debe presentar el soporte", SentidoConsejo.OTRO),
         ("No se aplaza", SentidoConsejo.OTRO),
+        # Palabras que empiezan como un rechazo pero no lo son.
+        ("Se aprueba la negociación del plazo", SentidoConsejo.APROBO),
+        ("Aprobado el negocio jurídico", SentidoConsejo.APROBO),
+        ("Se aprueba el recurso contra el rechazo anterior", SentidoConsejo.OTRO),
+        ("El Consejo negó la solicitud", SentidoConsejo.NO_APROBO),
+        ("Rechazada por extemporánea", SentidoConsejo.NO_APROBO),
+        ("Denegado", SentidoConsejo.NO_APROBO),
     ],
 )
 def test_sentido_sale_del_texto_literal(texto: str, sentido: SentidoConsejo) -> None:
@@ -873,3 +880,156 @@ async def test_8_doble_clic_registra_una_sola_vez(
         ),
     )
     assert sum(len(d) for d in dobles) == 1  # quedaba un solo cruce exacto
+
+
+# ---------------------------------------------------------------------------
+# Segunda revisión del PR #16
+# ---------------------------------------------------------------------------
+
+
+async def test_b_decision_previa_se_ofrece_reemplazar_en_cualquier_fila(
+    db: aiosqlite.Connection, modelo: Any, web: TestClient
+) -> None:
+    uno, *_ = await _escenario(db)
+    adm = await _cabecera(db, "adm@unal.edu.co", "administrativa", DIRECCION)
+    base = "/api/web/actas/consejo"
+    primera = web.post(
+        base, headers=adm, files={"archivo": (ACTA.name, ACTA.read_bytes())}
+    ).json()
+    segunda = web.post(
+        base, headers=adm, files={"archivo": (ACTA.name, ACTA.read_bytes())}
+    ).json()
+    # El caso recibe su decisión después de subir la segunda: la fila de la
+    # segunda sigue como cruce exacto, sin motivo de «ya tiene una decisión».
+    f1, f2 = primera["cruzaron"][0], segunda["cruzaron"][0]
+    assert f2["motivo"] is None
+    r = web.post(
+        f"{base}/{primera['id']}/decisiones/{f1['id']}/confirmar", headers=adm, json={}
+    )
+    assert r.status_code == 200
+    url = f"{base}/{segunda['id']}/decisiones/{f2['id']}/confirmar"
+    r = web.post(url, headers=adm, json={})
+    assert r.status_code == 409 and "reemplazarla" in r.json()["detail"]
+    r = web.post(url, headers=adm, json={"reemplazar": True})
+    assert r.status_code == 200, r.text
+    caso = await repo.get_caso(db, uno)
+    assert caso is not None and caso.consejo is not None
+
+
+async def test_c_sin_verificar_con_fragmento_literal_se_asigna_a_mano(
+    db: aiosqlite.Connection, modelo: Any, web: TestClient
+) -> None:
+    *_, cuatro = await _escenario(db)
+    # El modelo atribuyó la fila 4.4 a otra persona: el fragmento es literal,
+    # pero el nombre y el documento no están en él.
+    modelo.salida.decisiones.append(
+        DecisionLeida(
+            nombre_estudiante="Persona Ficticia Cuatro",
+            documento="1000000004",
+            texto_decision="APROBADO",
+            fragmento=F_AUSENTE,
+        )
+    )
+    adm = await _cabecera(db, "adm@unal.edu.co", "administrativa", DIRECCION)
+    d = web.post(
+        "/api/web/actas/consejo",
+        headers=adm,
+        files={"archivo": (ACTA.name, ACTA.read_bytes())},
+    ).json()
+    sin_verificar = [f for f in d["en_duda"] if f["cruce"] == "no_verificado"]
+    inventado, atribuido = sin_verificar
+    assert inventado["asignable"] is False  # fragmento que no está en el acta
+    assert atribuido["asignable"] is True
+    url = f"/api/web/actas/consejo/{d['id']}/decisiones"
+    # Sin elegir caso no se aplica; eligiéndolo, sí.
+    assert (
+        web.post(f"{url}/{atribuido['id']}/confirmar", headers=adm, json={}).status_code
+        == 409
+    )
+    r = web.post(
+        f"{url}/{atribuido['id']}/confirmar", headers=adm, json={"caso_id": cuatro}
+    )
+    assert r.status_code == 200, r.text
+    r = web.post(
+        f"{url}/{inventado['id']}/confirmar", headers=adm, json={"caso_id": cuatro}
+    )
+    assert r.status_code == 409
+
+
+async def test_d_candidatos_de_dos_areas_no_muestran_el_acta(
+    db: aiosqlite.Connection, modelo: Any, web: TestClient
+) -> None:
+    _, _, tres, _ = await _escenario(db)
+    ajeno = await _caso(
+        db, "Persona Ficticia Tres", "1000000033", direccion="matematicas"
+    )
+    admin = await _cabecera(db, "admin@unal.edu.co", "admin", None)
+    adm = await _cabecera(db, "adm@unal.edu.co", "administrativa", DIRECCION)
+    d = web.post(
+        "/api/web/actas/consejo",
+        headers=admin,
+        files={"archivo": (ACTA.name, ACTA.read_bytes())},
+    ).json()
+    fila_admin = next(f for f in d["en_duda"] if f["leida"]["fragmento"] == F_TRES)
+    assert {c["id"] for c in fila_admin["candidatos"]} == {tres, ajeno}
+    assert fila_admin["oculta"] is False
+
+    d = web.get(f"/api/web/actas/consejo/{d['id']}", headers=adm).json()
+    fila = next(f for f in d["en_duda"] if f["id"] == fila_admin["id"])
+    assert fila["oculta"] is True
+    assert [c["id"] for c in fila["candidatos"]] == [tres]
+    assert fila["leida"]["fragmento"] == ""
+    assert fila["leida"]["nombre_estudiante"] is None
+    assert "1000000033" not in str(d)
+
+
+async def test_e_decision_previa_atomica_y_reversion(
+    db: aiosqlite.Connection, modelo: Any
+) -> None:
+    import asyncio
+
+    from app.db.session import connect
+
+    uno, *_ = await _escenario(db)
+    a = await _registrar(db)
+    b = await _registrar(db)
+    fa = (await consejo.decisiones_del_acta(db, a.acta_id))[0]
+    fb = (await consejo.decisiones_del_acta(db, b.acta_id))[0]
+
+    # Dos confirmaciones del mismo caso desde dos conexiones (dos peticiones).
+    c1, c2 = await connect(), await connect()
+    try:
+        resultados = await asyncio.gather(
+            consejo.aplicar(c1, fa.id, caso_id=None, persona="A", direccion=DIRECCION),
+            consejo.aplicar(c2, fb.id, caso_id=None, persona="B", direccion=DIRECCION),
+            return_exceptions=True,
+        )
+    finally:
+        await c1.close()
+        await c2.close()
+    errores = [r for r in resultados if isinstance(r, consejo.ErrorActa)]
+    assert len(errores) == 1 and "reemplazarla" in str(errores[0])
+    ganador = "A" if not isinstance(resultados[0], Exception) else "B"
+    assert (await repo.decision_consejo(db, uno)).confirmado_por == ganador  # type: ignore[union-attr]
+    # La fila del que perdió se revirtió: sigue pendiente, sin caso aplicado.
+    filas = {
+        f.id: f
+        for f in await consejo.decisiones_del_acta(db, a.acta_id)
+        + await consejo.decisiones_del_acta(db, b.acta_id)
+    }
+    perdedora = fb.id if ganador == "A" else fa.id
+    assert filas[perdedora].estado == EstadoDecision.PENDIENTE
+
+    # La guarda está en la sentencia misma, no solo en la lectura previa.
+    previa = await repo.decision_consejo(db, uno)
+    assert previa is not None
+    with pytest.raises(consejo.ErrorActa, match="reemplazarla"):
+        await consejo._guardar_decision(
+            db,
+            previa.model_copy(update={"confirmado_por": "C"}),
+            a.acta_id,
+            fa.id,
+            False,
+        )
+    await db.rollback()
+    assert (await repo.decision_consejo(db, uno)).confirmado_por == ganador  # type: ignore[union-attr]
