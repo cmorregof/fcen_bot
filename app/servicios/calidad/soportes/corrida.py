@@ -11,6 +11,14 @@ Una sola corrida a la vez por servicio. Todo vive en el volumen del servicio
 
 Nada sale a otro servicio que no sea la API de Anthropic. El modelo no decide:
 veredictos y porcentajes son propuestas para revisión humana.
+
+La corrida en curso y el cerrojo viven en variables de este módulo: exigen un
+solo proceso de uvicorn (como en el Dockerfile). Con varios workers, dos
+procesos podrían correr a la vez y cada uno vería un estado distinto.
+
+Retención: los soportes se borran al terminar la corrida y al arrancar si
+quedaron de una corrida cortada; salidas y caché, a los
+`CALIDAD_REVISOR_RETENCION_DIAS`. Con el interruptor apagado se borra todo.
 """
 
 from __future__ import annotations
@@ -19,6 +27,8 @@ import asyncio
 import json
 import logging
 import shutil
+import time
+import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -50,6 +60,7 @@ DESCARGAS: dict[str, tuple[str, str]] = {
 
 _tarea: asyncio.Task[None] | None = None
 _ocupado = False  # una carga, un lanzamiento o un borrado en curso
+_ultima_limpieza = 0.0
 
 
 class Ocupado(Exception):
@@ -167,7 +178,7 @@ async def recibir(
         raise Ocupado
     _ocupado = True
     try:
-        shutil.rmtree(_actual(), ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, _actual(), True)
         _actual().mkdir(parents=True)
         zip_ = _actual() / "subida.zip"
         maximo = calidad_settings.revisor_max_mb * 1_000_000
@@ -184,7 +195,7 @@ async def recibir(
             raise ZipNoValido("No llegó ningún archivo.")
         return await asyncio.to_thread(_preparar, zip_, programa, acciones, usuario)
     except BaseException:
-        shutil.rmtree(_actual(), ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, _actual(), True)
         raise
     finally:
         _ocupado = False
@@ -207,6 +218,8 @@ def _preparar(
         raise ZipNoValido("El zip no trae soportes.")
     estado: dict[str, Any] = {
         "estado": "cargado",
+        # La confirmación de costo queda atada a esta carga (ver `lanzar`).
+        "carga_id": uuid.uuid4().hex,
         "programa": programa,
         "cargado_por": usuario,
         "cargado": reloj.ahora().isoformat(timespec="seconds"),
@@ -228,23 +241,56 @@ def crear_cliente() -> ClienteModelo:
     return ClienteAnthropic(settings.anthropic_api_key, settings.anthropic_workspace_id)
 
 
-async def lanzar(acciones: list[Accion], cliente: ClienteModelo, usuario: str) -> None:
-    """Revisa de nuevo la estimación y deja la corrida en segundo plano."""
+def _inventario_y_estimacion(
+    acciones: list[Accion],
+) -> tuple[list[Archivo], dict[str, Any]]:
+    archivos = inventariar(_soportes())
+    return archivos, _estimacion(archivos, acciones)
+
+
+async def lanzar(
+    acciones: list[Accion],
+    cliente: ClienteModelo,
+    usuario: str,
+    *,
+    programa: str,
+    carga_id: str,
+    costo_visto: float,
+) -> None:
+    """Revisa de nuevo la estimación y deja la corrida en segundo plano.
+
+    Solo corre la carga que la persona vio (`carga_id`) y solo si el costo no
+    subió respecto al que confirmó (`costo_visto`). Todo se verifica con el
+    cerrojo tomado: otra carga no puede colarse en medio.
+    """
     global _tarea, _ocupado
     if corriendo() or _ocupado:
         raise Ocupado
-    estado = leer_estado()
-    if (
-        estado["estado"] not in ("cargado", "interrumpido")
-        or not estado["soportes_presentes"]
-    ):
-        raise NoSePuede("Primero suba el zip de soportes.")
     _ocupado = True
     try:
-        archivos = await asyncio.to_thread(inventariar, _soportes())
-        estimacion = _estimacion(archivos, acciones)
+        estado = leer_estado()
+        if (
+            estado["estado"] != "cargado"
+            or not estado["soportes_presentes"]
+            or estado.get("carga_id") != carga_id
+            or estado.get("programa") != programa
+        ):
+            raise NoSePuede(
+                "Los soportes cambiaron desde que usted vio el costo. "
+                "Revise la nueva estimación y confirme otra vez."
+            )
+        archivos, estimacion = await asyncio.to_thread(
+            _inventario_y_estimacion, acciones
+        )
         if estimacion["excede_tope"]:
             raise NoSePuede(estimacion["excede_tope"])
+        if estimacion["costo_usd"] > costo_visto + 0.005:
+            estado["estimacion"] = estimacion
+            _guardar(_sin_derivados(estado))
+            raise NoSePuede(
+                f"El costo estimado subió a {estimacion['costo_usd']:.2f} USD. "
+                "Revíselo y confirme otra vez."
+            )
         estado.update(
             estado="corriendo",
             estimacion=estimacion,
@@ -264,12 +310,20 @@ async def lanzar(acciones: list[Accion], cliente: ClienteModelo, usuario: str) -
             error="",
             resumen=None,
         )
-        for k in ("soportes_presentes", "descargas", "en_cache"):
-            estado.pop(k, None)
+        estado = _sin_derivados(estado)
         _guardar(estado)
         _tarea = asyncio.create_task(_correr(estado, archivos, acciones, cliente))
     finally:
         _ocupado = False
+
+
+def _sin_derivados(estado: dict[str, Any]) -> dict[str, Any]:
+    """Quita lo que `leer_estado` calcula al leer."""
+    return {
+        k: v
+        for k, v in estado.items()
+        if k not in ("soportes_presentes", "descargas", "en_cache")
+    }
 
 
 async def _correr(
@@ -307,7 +361,8 @@ async def _correr(
         )
         estado.update(estado="terminado", resumen=informe.resumen())
     except Exception as exc:
-        logger.exception("Falló la corrida del revisor de soportes")
+        # Solo el tipo: el mensaje o la traza podrían traer nombres de archivos.
+        logger.error("Falló la corrida del revisor de soportes: %s", type(exc).__name__)
         estado.update(
             estado="fallido",
             error=f"La revisión no terminó ({type(exc).__name__}). "
@@ -317,7 +372,7 @@ async def _correr(
         estado["costo_usd"] = round(uso.costo(), 2)
         estado["fin"] = reloj.ahora().isoformat(timespec="seconds")
         # Los soportes no se quedan en el volumen después de la corrida.
-        shutil.rmtree(_soportes(), ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, _soportes(), True)
         _guardar(estado)
 
 
@@ -326,13 +381,69 @@ async def _correr(
 # ---------------------------------------------------------------------------
 
 
-def borrar(*, con_cache: bool = False) -> None:
+async def borrar(*, con_cache: bool = False) -> None:
     """Borra soportes, salidas y estado; con `con_cache`, también la caché."""
+    global _ocupado
     if corriendo() or _ocupado:
         raise Ocupado
-    shutil.rmtree(_actual(), ignore_errors=True)
-    if con_cache:
-        shutil.rmtree(base() / "cache", ignore_errors=True)
+    _ocupado = True
+    try:
+        await asyncio.to_thread(shutil.rmtree, _actual(), True)
+        if con_cache:
+            await asyncio.to_thread(shutil.rmtree, base() / "cache", True)
+    finally:
+        _ocupado = False
+
+
+def limpiar(*, al_arrancar: bool = False) -> None:
+    """Retención de datos en el volumen. Síncrona: llamarla en un hilo.
+
+    - Interruptor apagado: borra todo lo del revisor.
+    - Al arrancar: si la corrida quedó cortada («corriendo») o no hay estado,
+      borra los soportes y el zip a medio subir.
+    - Siempre: borra la carga (salidas incluidas) y las entradas de la caché
+      con más de `revisor_retencion_dias`.
+    """
+    global _ultima_limpieza
+    _ultima_limpieza = time.monotonic()
+    if not calidad_settings.revisor_activo:
+        if base().exists():
+            shutil.rmtree(base(), ignore_errors=True)
+        return
+    if corriendo() or _ocupado:
+        return
+    ruta_estado = _actual() / "estado.json"
+    if al_arrancar:
+        try:
+            cortada = (
+                json.loads(ruta_estado.read_text(encoding="utf-8")).get("estado")
+                == "corriendo"
+            )
+        except (OSError, json.JSONDecodeError):
+            cortada = True
+        if cortada:
+            shutil.rmtree(_soportes(), ignore_errors=True)
+            (_actual() / "subida.zip").unlink(missing_ok=True)
+    limite = time.time() - calidad_settings.revisor_retencion_dias * 86400
+    try:
+        if ruta_estado.stat().st_mtime < limite:
+            shutil.rmtree(_actual(), ignore_errors=True)
+    except OSError:
+        pass
+    carpeta_cache = base() / "cache"
+    if carpeta_cache.is_dir():
+        for entrada in carpeta_cache.glob("*.json"):
+            try:
+                if entrada.stat().st_mtime < limite:
+                    entrada.unlink()
+            except OSError:
+                continue
+
+
+async def limpiar_de_vez_en_cuando() -> None:
+    """La limpieza por retención, como mucho una vez por hora."""
+    if time.monotonic() - _ultima_limpieza > 3600 or not _ultima_limpieza:
+        await asyncio.to_thread(limpiar)
 
 
 async def esperar() -> None:

@@ -74,11 +74,18 @@ class Cache:
         )
 
 
-def clave_descripcion(archivo: Archivo, modelo: str) -> str:
+def clave_descripcion(
+    archivo: Archivo, modelo: str, accion: Accion | None = None
+) -> str:
+    """La clave incluye lo que el texto al modelo dice de la acción
+    (descripción e indicador): el mismo archivo y el mismo código en otro
+    programa o en otro plan no reutilizan una descripción hecha con otro
+    contexto."""
     version = VERSION_PROMPT
     if archivo.tipo == "xlsx":
         version += "|" + VERSION_XLSX
-    base = f"{archivo.sha256}|{modelo}|{version}|{archivo.accion}"
+    contexto = f"{accion.descripcion}|{accion.indicador}" if accion else ""
+    base = f"{archivo.sha256}|{modelo}|{version}|{archivo.accion}|{contexto}"
     return "desc-" + hashlib.sha256(base.encode()).hexdigest()[:32]
 
 
@@ -133,6 +140,10 @@ def descripcion_zip(archivo: Archivo) -> DescripcionArchivo:
     )
 
 
+def _preparar(archivo: Archivo, carpeta: Path) -> contenido.Contenido:
+    return contenido.preparar(archivo, leer_bytes(carpeta, archivo))
+
+
 async def describir_uno(
     archivo: Archivo,
     carpeta: Path,
@@ -144,7 +155,7 @@ async def describir_uno(
 ) -> Descripcion:
     if archivo.tipo == "zip":
         return Descripcion(archivo.id, descripcion_zip(archivo))
-    clave = clave_descripcion(archivo, modelo)
+    clave = clave_descripcion(archivo, modelo, accion)
     guardado = cache.leer(clave)
     if guardado and guardado.get("datos"):
         try:
@@ -153,7 +164,9 @@ async def describir_uno(
         except ValidationError:
             pass
     try:
-        preparado = contenido.preparar(archivo, leer_bytes(carpeta, archivo))
+        # pypdf, PIL, openpyxl y python-docx son síncronos: van en un hilo
+        # para no frenar las demás peticiones del servicio.
+        preparado = await asyncio.to_thread(_preparar, archivo, carpeta)
     except Exception as exc:
         return Descripcion(archivo.id, None, f"no se pudo leer ({type(exc).__name__})")
     if not preparado.enviable:

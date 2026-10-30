@@ -21,6 +21,21 @@ from app.servicios.calidad.soportes.modelos import Archivo
 # «ACCION 1.3» (plan 2016) o «ACCIÓN 1.2.1» (plantilla institucional).
 PATRON_ACCION = re.compile(r"^\s*ACCI[OÓ]N\s*(\d+(?:\.\d+)+)", re.IGNORECASE)
 
+# Topes de lectura. Un soporte más grande no se abre: se lista con su nota.
+# Los xlsx y docx también son zip: antes de abrirlos se mira cuánto declaran
+# descomprimido (zipfile no lee más de lo declarado).
+MAX_BYTES_ARCHIVO = 50 * 1024 * 1024
+MAX_BYTES_OFFICE = 200 * 1024 * 1024
+# Presupuesto para TODO lo que traen los zip internos de una carpeta.
+MAX_BYTES_ANIDADOS = 2 * 1024 * 1024 * 1024
+MAX_MIEMBROS_ANIDADOS = 5000
+_BLOQUE = 1024 * 1024
+
+
+class ArchivoMuyGrande(ValueError):
+    pass
+
+
 # Archivos de sistema que no son soportes.
 NOMBRES_OMITIDOS = {"desktop.ini", "thumbs.db", ".ds_store", "icon\r"}
 EXTENSIONES_OMITIDAS = {".ini", ".db", ".lnk", ".tmp"}
@@ -131,8 +146,23 @@ def _fecha_office(datos: bytes, tipo: str) -> str | None:
     return creado.date().isoformat() if isinstance(creado, datetime) else None
 
 
+def office_seguro(datos: bytes, maximo: int | None = None) -> bool:
+    """Un xlsx/docx es un zip: True si lo que declara descomprimido cabe."""
+    maximo = MAX_BYTES_OFFICE if maximo is None else maximo
+    try:
+        with zipfile.ZipFile(io.BytesIO(datos)) as zf:
+            infos = zf.infolist()
+            return len(infos) <= 10_000 and sum(i.file_size for i in infos) <= maximo
+    except zipfile.BadZipFile:
+        return True  # no es zip: el lector fallará solo y sin gastar memoria
+
+
 def _completar_metadatos(archivo: Archivo, datos: bytes) -> None:
     archivo.sha256 = hashlib.sha256(datos).hexdigest()
+    if archivo.tipo in ("xlsx", "docx") and not office_seguro(datos):
+        archivo.nota = "descomprimido pasa del límite: no se abre"
+        archivo.tipo = "otro"
+        return
     if archivo.tipo == "pdf":
         paginas, fecha, nota = _fecha_pdf(datos)
         archivo.paginas, archivo.nota = paginas, nota
@@ -178,10 +208,12 @@ def inventariar(carpeta: Path) -> list[Archivo]:
     def nuevo_id() -> str:
         return f"S{len(archivos) + 1:03d}"
 
+    anidados = [0, 0]  # bytes y miembros leídos de los zip internos
+
     for ruta in _recorrer(carpeta):
         relativa = nfc(ruta.relative_to(carpeta).as_posix())
         tipo, ext = tipo_de(ruta.name)
-        datos = ruta.read_bytes()
+        tamano = ruta.stat().st_size
         archivo = Archivo(
             id=nuevo_id(),
             ruta=relativa,
@@ -189,10 +221,16 @@ def inventariar(carpeta: Path) -> list[Archivo]:
             accion=accion_de_ruta(relativa),
             tipo=tipo,
             extension=ext,
-            tamano=len(datos),
+            tamano=tamano,
         )
-        _completar_metadatos(archivo, datos)
         archivos.append(archivo)
+        if tamano > MAX_BYTES_ARCHIVO:
+            archivo.sha256 = _hash_en_trozos(ruta)
+            archivo.tipo = "otro"
+            archivo.nota = "pasa de 50 MB: no se abre"
+            continue
+        datos = ruta.read_bytes()
+        _completar_metadatos(archivo, datos)
         if tipo != "zip":
             continue
         try:
@@ -208,7 +246,32 @@ def inventariar(carpeta: Path) -> list[Archivo]:
                     continue
                 archivo.miembros.append(nombre_m)
                 tipo_m, ext_m = tipo_de(base)
-                datos_m = zf.read(info)
+                anidados[1] += 1
+                if anidados[1] > MAX_MIEMBROS_ANIDADOS:
+                    archivo.nota = (
+                        "demasiados archivos en los zip: no se abrió el resto"
+                    )
+                    break
+                if (
+                    info.file_size > MAX_BYTES_ARCHIVO
+                    or anidados[0] + info.file_size > MAX_BYTES_ANIDADOS
+                ):
+                    archivos.append(
+                        Archivo(
+                            id=nuevo_id(),
+                            ruta=f"{relativa}!/{nombre_m}",
+                            nombre=base,
+                            accion=archivo.accion,
+                            tipo="otro",
+                            extension=ext_m,
+                            tamano=info.file_size,
+                            dentro_de_zip=archivo.id,
+                            nota="descomprimido pasa del límite: no se abre",
+                        )
+                    )
+                    continue
+                datos_m = leer_miembro(zf, info)
+                anidados[0] += len(datos_m)
                 miembro = Archivo(
                     id=nuevo_id(),
                     ruta=f"{relativa}!/{nombre_m}",
@@ -230,15 +293,42 @@ def inventariar(carpeta: Path) -> list[Archivo]:
     return archivos
 
 
+def _hash_en_trozos(ruta: Path) -> str:
+    h = hashlib.sha256()
+    with ruta.open("rb") as f:
+        while bloque := f.read(_BLOQUE):
+            h.update(bloque)
+    return h.hexdigest()
+
+
+def leer_miembro(
+    zf: zipfile.ZipFile, info: zipfile.ZipInfo, maximo: int | None = None
+) -> bytes:
+    """Lee un miembro en trozos y corta si pasa de `maximo`."""
+    maximo = MAX_BYTES_ARCHIVO if maximo is None else maximo
+    partes: list[bytes] = []
+    total = 0
+    with zf.open(info) as f:
+        while bloque := f.read(_BLOQUE):
+            total += len(bloque)
+            if total > maximo:
+                raise ArchivoMuyGrande(info.filename)
+            partes.append(bloque)
+    return b"".join(partes)
+
+
 def leer_bytes(carpeta: Path, archivo: Archivo) -> bytes:
-    """Bytes del archivo, incluso si está dentro de un zip."""
+    """Bytes del archivo, incluso si está dentro de un zip, con tope."""
     if "!/" not in archivo.ruta:
-        return (carpeta / archivo.ruta).read_bytes()
+        ruta = carpeta / archivo.ruta
+        if ruta.stat().st_size > MAX_BYTES_ARCHIVO:
+            raise ArchivoMuyGrande(archivo.ruta)
+        return ruta.read_bytes()
     ruta_zip, miembro = archivo.ruta.split("!/", 1)
     with zipfile.ZipFile(carpeta / ruta_zip) as zf:
         for info in zf.infolist():
             if nombre_miembro_zip(info) == miembro:
-                return zf.read(info)
+                return leer_miembro(zf, info)
     raise FileNotFoundError(archivo.ruta)
 
 

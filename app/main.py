@@ -33,6 +33,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         from app.servicios.admision import fuentes
 
         precarga = asyncio.create_task(fuentes.precargar())
+    if settings.bot_servicio == "calidad":
+        from app.servicios.calidad.soportes import corrida
+
+        # Soportes de una corrida cortada, retención y purga si está apagado.
+        await asyncio.to_thread(corrida.limpiar, al_arrancar=True)
     yield
     if precarga is not None and not precarga.done():
         precarga.cancel()

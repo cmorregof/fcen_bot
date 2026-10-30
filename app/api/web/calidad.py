@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from typing import Annotated
 
@@ -293,9 +294,12 @@ AVISO_APAGADO = (
 _OCUPADO = "Hay una revisión en curso. Espere a que termine."
 
 
-def _revisor_activo(usuario: _Calidad) -> Usuario:
-    # Primero el rol (en `_Calidad`), luego el interruptor.
+async def _revisor_activo(usuario: _Calidad) -> Usuario:
+    # Primero el rol (en `_Calidad`), luego el interruptor. Apagado, además,
+    # se borra lo que hubiera quedado en el volumen.
     if not calidad_settings.revisor_activo:
+        if corrida.base().exists():
+            await asyncio.to_thread(corrida.limpiar)
         raise HTTPException(403, AVISO_APAGADO)
     return usuario
 
@@ -308,12 +312,14 @@ def _estado_revisor() -> dict[str, object]:
         **corrida.leer_estado(),
         "tope_usd": calidad_settings.revisor_tope_usd,
         "max_mb": calidad_settings.revisor_max_mb,
+        "retencion_dias": calidad_settings.revisor_retencion_dias,
     }
 
 
 @router.get("/revisor")
 async def revisor_estado(_: _Revisor) -> dict[str, object]:
     """En qué va la revisión: carga, estimación, pasos y descargas."""
+    await corrida.limpiar_de_vez_en_cuando()
     return _estado_revisor()
 
 
@@ -343,6 +349,9 @@ async def revisor_subir(
 
 class Confirmacion(BaseModel):
     confirmo_costo: bool = False
+    # La carga y el costo que la persona vio en pantalla.
+    carga_id: str = ""
+    costo_usd: float = 0.0
 
 
 @router.post("/revisor/correr")
@@ -351,15 +360,22 @@ async def revisor_correr(
 ) -> dict[str, object]:
     """Lanza la revisión en segundo plano, solo si la persona confirmó el costo
     y la estimación cabe en el tope."""
-    if not cuerpo.confirmo_costo:
+    if not cuerpo.confirmo_costo or not cuerpo.carga_id:
         raise HTTPException(400, "Confirme el costo estimado antes de iniciar.")
     estado = corrida.leer_estado()
     if not estado.get("programa"):
         raise HTTPException(409, "Primero suba el zip de soportes.")
     pg = await _cargar(db, str(estado["programa"]))
     try:
+        # `lanzar` vuelve a comprobar, con el cerrojo, que la carga sigue
+        # siendo la que la persona vio y que es de este programa.
         await corrida.lanzar(
-            desde_plantilla(pg.plan), corrida.crear_cliente(), usuario.correo
+            desde_plantilla(pg.plan),
+            corrida.crear_cliente(),
+            usuario.correo,
+            programa=pg.programa,
+            carga_id=cuerpo.carga_id,
+            costo_visto=cuerpo.costo_usd,
         )
     except corrida.Ocupado as exc:
         raise HTTPException(409, _OCUPADO) from exc
@@ -382,7 +398,7 @@ async def revisor_borrar(_: _Revisor, cache: bool = False) -> dict[str, object]:
     """Borra soportes y salidas; con `cache=true`, también las descripciones
     guardadas (la próxima corrida las vuelve a pagar)."""
     try:
-        corrida.borrar(con_cache=cache)
+        await corrida.borrar(con_cache=cache)
     except corrida.Ocupado as exc:
         raise HTTPException(409, _OCUPADO) from exc
     return _estado_revisor()
