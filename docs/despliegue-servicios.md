@@ -108,6 +108,10 @@ Configura las variables en la pestaña **Variables** de cada servicio en Railway
 | `RESUMEN_DIAS_SIN_MOVIMIENTO` | `7` (por defecto) | No aplica | No aplica | Días sin movimiento a partir de los cuales un caso sale como alerta |
 | `RESUMEN_SECRET` | Secreto hex compartido | El mismo valor | El mismo valor | Protege `GET /internal/cifras`; sin él, la ruta responde 403 y el resumen no trae calidad ni admisión |
 | `RESUMEN_CALIDAD_URL`, `RESUMEN_ADMISION_URL` | URL pública de cada servicio | No aplica | No aplica | Actas pide ahí los conteos agregados de calidad y admisión (nunca lee su base) |
+| `ADMIN_TELEGRAM_IDS` | Ids de Telegram de los administradores, separados por comas | No aplica | No aplica | Pueden usar `/indicadores`, igual que la decanatura |
+| `VICEDECANATURA_TELEGRAM_IDS` | Ids de Telegram de la Vicedecanatura Académica | No aplica | No aplica | Reciben el consolidado del reporte mensual de indicadores |
+| `REPORTE_MENSUAL_ACTIVO` | `true` (por defecto) o `false` | No aplica | No aplica | `false` apaga el reporte mensual del día 1; `/indicadores` y la web siguen disponibles |
+| `INDICADORES_PATH` | No definir | No aplica | No aplica | Otro archivo de columnas del Excel de indicadores (por defecto `config/indicadores.yaml`) |
 
 > [!CAUTION]
 > Cada servicio de Railway tiene su propio volumen en `/data`. Si se define `DB_PATH` a mano, debe ser exclusiva del servicio: `admision` y `calidad` se niegan a arrancar si apuntan a la base de actas.
@@ -205,5 +209,17 @@ El servicio de actas responde `/resumen` solo a los ids de `DECANATURA_TELEGRAM_
 
 - Cada persona de la decanatura debe abrir el bot y enviar `/start` una vez: Telegram no deja que un bot le escriba primero a alguien. Su id numérico se puede consultar con [@userinfobot](https://t.me/userinfobot).
 - El mensaje trae solo cifras por programa y por estado, sin nombres ni documentos.
-- Ningún caso se cuenta como aprobado: lo que decide el Consejo de Facultad sale de su acta, y MemorIA todavía no la registra. Todo caso recomendado figura como «pendiente de acta del Consejo».
+- Ningún caso se cuenta como aprobado por el comité: lo que decide el Consejo sale de su acta, confirmada caso por caso en MemorIA (`/acta_consejo` o la pantalla «Acta del Consejo»). Sin esa confirmación, el caso recomendado figura como «pendiente de acta del Consejo». El resumen trae además las actas del Consejo registradas en la semana (instancia, número y fecha), con sus conteos.
 - Para incluir calidad y admisión, define el mismo `RESUMEN_SECRET` en los tres servicios y, en actas, `RESUMEN_CALIDAD_URL` y `RESUMEN_ADMISION_URL`. Actas pide `GET /internal/cifras` (los mismos conteos del tablero web, sin nombres); si un servicio no responde, el resumen lo dice y sigue.
+
+---
+
+## 8. Indicadores y reporte mensual
+
+Definiciones y lo que falta de la plantilla de Calidad: `docs/indicadores.md`.
+
+- `/indicadores [periodo]` en Telegram responde solo a `DECANATURA_TELEGRAM_IDS` y `ADMIN_TELEGRAM_IDS`, con las cifras de toda la Facultad y el Excel.
+- En la web, la pantalla «Indicadores» (`/indicadores`) es para decanatura y admin (toda la Facultad) y para cada administrativa (solo su área).
+- El día 1 de cada mes a las 7:30 a. m. (hora de Bogotá), el workflow `reporte-mensual.yml` llama a `POST /internal/reporte-mensual` con `INTERNAL_CRON_SECRET`. Cada administrativa registrada en el bot recibe las cifras de su área del mes anterior; los ids de `VICEDECANATURA_TELEGRAM_IDS` reciben el consolidado. Usa los mismos secrets de GitHub Actions que el resumen semanal.
+- `REPORTE_MENSUAL_ACTIVO=false` lo apaga: la ruta responde `activo: false` y no envía nada.
+- Como con la decanatura, cada persona de la Vicedecanatura debe abrir el bot y enviar `/start` una vez.
