@@ -262,6 +262,7 @@ async def test_borrar_soportes_y_cache(
         assert r.status_code == 200 and r.json()["estado"] == "vacio"
         assert not (corrida.base() / "actual").exists()
         assert list(cache.glob("*.json"))  # la caché se conserva
+        assert r.json()["en_cache"] > 0
         assert c.get(f"{RUTA}/descargar/borrador", headers=cab).status_code == 404
 
         c.post(f"{RUTA}/soportes?programa=alfa", content=zip_ficticio(), headers=cab)

@@ -107,6 +107,10 @@ def leer_estado() -> dict[str, Any]:
         # El servicio se reinició a mitad de la corrida.
         estado["estado"] = "interrumpido"
     estado["soportes_presentes"] = _soportes().is_dir()
+    carpeta_cache = base() / "cache"
+    estado["en_cache"] = (
+        sum(1 for _ in carpeta_cache.glob("*.json")) if carpeta_cache.is_dir() else 0
+    )
     estado["descargas"] = [
         clave
         for clave, (nombre, _) in DESCARGAS.items()
@@ -260,7 +264,7 @@ async def lanzar(acciones: list[Accion], cliente: ClienteModelo, usuario: str) -
             error="",
             resumen=None,
         )
-        for k in ("soportes_presentes", "descargas"):
+        for k in ("soportes_presentes", "descargas", "en_cache"):
             estado.pop(k, None)
         _guardar(estado)
         _tarea = asyncio.create_task(_correr(estado, archivos, acciones, cliente))

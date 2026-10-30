@@ -31,7 +31,7 @@ const MENSAJES: Record<number, string> = {
 export async function llamar<T>(
   servicio: Servicio,
   ruta: string,
-  opciones: { token?: string | null; metodo?: string; json?: unknown; form?: FormData } = {},
+  opciones: { token?: string | null; metodo?: string; json?: unknown; form?: FormData; archivo?: Blob } = {},
 ): Promise<T> {
   const base = SERVICIOS[servicio].url;
   if (!base) throw new ErrorApi(0, "Este servicio no está disponible.");
@@ -39,6 +39,11 @@ export async function llamar<T>(
   if (opciones.token) cabeceras.Authorization = `Bearer ${opciones.token}`;
   let cuerpo: BodyInit | undefined;
   if (opciones.form) cuerpo = opciones.form;
+  else if (opciones.archivo) {
+    // El archivo va como cuerpo de la petición, sin multipart.
+    cabeceras["Content-Type"] = "application/octet-stream";
+    cuerpo = opciones.archivo;
+  }
   else if (opciones.json !== undefined) {
     cabeceras["Content-Type"] = "application/json";
     cuerpo = JSON.stringify(opciones.json);
