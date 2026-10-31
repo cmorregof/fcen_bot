@@ -23,12 +23,20 @@ from app.api.web.config import web_settings
 from app.core.config import settings
 from app.db.session import connect
 
-Rol = Literal["administrativa", "comite", "calidad", "admision", "decanatura", "admin"]
+Rol = Literal[
+    "administrativa",
+    "comite",
+    "secretaria",
+    "calidad",
+    "admision",
+    "decanatura",
+    "admin",
+]
 
 # Roles que tienen sentido en cada servicio. Un rol fuera de esta lista no
 # puede registrarse en ese backend.
 ROLES_POR_SERVICIO: dict[str, tuple[Rol, ...]] = {
-    "actas": ("administrativa", "comite", "decanatura", "admin"),
+    "actas": ("administrativa", "comite", "secretaria", "decanatura", "admin"),
     "calidad": ("calidad", "decanatura", "admin"),
     "admision": ("admision", "decanatura", "admin"),
 }

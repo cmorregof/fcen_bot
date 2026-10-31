@@ -152,6 +152,18 @@ _ESQUEMA = (
         confirmado       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS notificaciones (
+        caso_id            INTEGER PRIMARY KEY REFERENCES casos(id),
+        acto               TEXT NOT NULL DEFAULT 'oficio',
+        numero             TEXT,
+        fecha_ingreso      TEXT,
+        fecha_expedicion   TEXT,
+        fecha_notificacion TEXT,
+        registrado_por     TEXT NOT NULL,
+        actualizado        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
 )
 
 
