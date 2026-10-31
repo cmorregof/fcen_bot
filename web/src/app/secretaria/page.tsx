@@ -57,6 +57,15 @@ function FilaCaso({ caso, token, alGuardar }: { caso: Caso; token: string | null
     setEstado("");
     setR({ ...r, [campo]: valor === "" && campo !== "numero" ? null : valor });
   };
+  const borrador = async () => {
+    setError(null);
+    try {
+      const archivo = await llamar<Blob>("actas", `/actas/secretaria/casos/${caso.caso_id}/oficio-consejo`, { token });
+      guardarArchivo(archivo, `Borrador_Consejo_caso_${caso.caso_id}.docx`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
   const guardar = async () => {
     setEstado("guardando");
     setError(null);
@@ -101,6 +110,11 @@ function FilaCaso({ caso, token, alGuardar }: { caso: Caso; token: string | null
         <button type="button" className="secundario" onClick={guardar} disabled={estado === "guardando"}>
           {estado === "guardando" ? "Guardando…" : estado === "guardado" ? "Guardado" : "Guardar"}
         </button>
+        {caso.decision === "Aprobó" || caso.decision === "No aprobó" ? (
+          <button type="button" className="secundario" onClick={borrador}>
+            Borrador (Word)
+          </button>
+        ) : null}
         {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
       </td>
     </tr>
@@ -153,7 +167,7 @@ export default function PaginaSecretaria() {
       roles={["secretaria", "admin"]}
       hace={[
         "Lista los casos que el Consejo de Facultad decidió en el semestre, según las actas confirmadas en MemorIA.",
-        "Le permite registrar el oficio o la resolución, su número y las fechas de ingreso, expedición y notificación.",
+        "Le permite descargar el borrador del oficio o la resolución, y registrar su número y las fechas de ingreso, expedición y notificación.",
         "Calcula los tiempos de respuesta para el indicador de divulgación de la información oficial, con Excel.",
       ]}
       noHace={[
