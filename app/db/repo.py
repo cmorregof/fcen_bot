@@ -134,15 +134,36 @@ async def set_estado(
 
 
 async def crear_caso(
-    db: Conexion, *, chat_id: int, user_id: int, direccion: str
+    db: Conexion,
+    *,
+    chat_id: int,
+    user_id: int,
+    direccion: str,
+    canal: str = "telegram",
+    persona: str | None = None,
+    rol: str = "administrativa",
 ) -> int:
+    """Crea la ficha y abre su línea de estados («llegada»)."""
+    from app.services import flujo
+
     cur = await db.execute(
         "INSERT INTO casos (chat_id, user_id, direccion) VALUES (?, ?, ?)",
         (chat_id, user_id, direccion),
     )
-    await db.commit()
     assert cur.lastrowid is not None
-    return int(cur.lastrowid)
+    caso_id = int(cur.lastrowid)
+    cur = await db.execute("SELECT creado FROM casos WHERE id = ?", (caso_id,))
+    fila = await cur.fetchone()
+    await flujo.transicionar(
+        db,
+        caso_id,
+        flujo.Accion.REGISTRAR,
+        rol=rol,
+        persona=persona,
+        canal=canal,
+        fecha=str(fila["creado"]) if fila and fila["creado"] else None,
+    )
+    return caso_id
 
 
 async def agregar_texto(db: Conexion, caso_id: int, texto: str) -> None:
@@ -318,6 +339,8 @@ async def _row_to_caso(db: Conexion, row: Fila) -> Caso:
         conceptos=await conceptos_de(db, int(row["id"])),
         creado=str(row["creado"]) if row["creado"] else None,
         consejo=await decision_consejo(db, int(row["id"])),
+        etapa=row["etapa"],
+        prerrevision=row["prerrevision"],
     )
 
 
@@ -394,7 +417,9 @@ async def set_programa(db: Conexion, caso_id: int, programa: str) -> None:
     await db.commit()
 
 
-async def set_sentido(db: Conexion, caso_id: int, sentido: Sentido) -> None:
+async def set_sentido(
+    db: Conexion, caso_id: int, sentido: Sentido, *, commit: bool = True
+) -> None:
     # `recomendado` guarda cuándo se registró la recomendación (indicadores).
     # Solo un cambio real de sentido la mueve: volver a marcar el mismo sentido
     # no la cambia (ni se la inventa a un caso viejo sin fecha) y volver a
@@ -416,7 +441,8 @@ async def set_sentido(db: Conexion, caso_id: int, sentido: Sentido) -> None:
         """,
         {"sentido": sentido.value, "pendiente": Sentido.PENDIENTE.value, "id": caso_id},
     )
-    await db.commit()
+    if commit:
+        await db.commit()
 
 
 async def set_nota(db: Conexion, caso_id: int, nota: str | None) -> None:
@@ -428,16 +454,25 @@ async def set_nota(db: Conexion, caso_id: int, nota: str | None) -> None:
     await db.commit()
 
 
+# La prerrevisión del programa saca del borrador del comité los casos
+# incompletos y los improcedentes que no van al comité (app/services/flujo.py).
+_FUERA_DEL_COMITE = "AND COALESCE(etapa, '') NOT IN ('incompleta', 'improcedente')"
+
+
 async def casos_listos(db: Conexion, *, direccion: str) -> list[Caso]:
     """Casos procesados que todavía no se han cerrado: forman el borrador en curso."""
     cur = await db.execute(
-        "SELECT * FROM casos WHERE direccion = ? AND estado = ? ORDER BY id",
+        "SELECT * FROM casos WHERE direccion = ? AND estado = ? "
+        + _FUERA_DEL_COMITE
+        + " ORDER BY id",
         (direccion, EstadoCaso.LISTO.value),
     )
     return [await _row_to_caso(db, row) for row in await cur.fetchall()]
 
 
-async def cerrar_casos(db: Conexion, caso_ids: list[int]) -> None:
+async def cerrar_casos(
+    db: Conexion, caso_ids: list[int], *, commit: bool = True
+) -> None:
     if not caso_ids:
         return
     marcas = ",".join("?" for _ in caso_ids)
@@ -446,7 +481,26 @@ async def cerrar_casos(db: Conexion, caso_ids: list[int]) -> None:
         f"WHERE id IN ({marcas}) AND estado = ?",
         (EstadoCaso.CERRADO.value, *caso_ids, EstadoCaso.LISTO.value),
     )
-    await db.commit()
+    if commit:
+        await db.commit()
+
+
+async def reabrir_en_borrador(db: Conexion, caso_id: int) -> None:
+    """El caso vuelve del Consejo al comité: entra otra vez al borrador."""
+    await db.execute(
+        "UPDATE casos SET estado = ?, actualizado = CURRENT_TIMESTAMP "
+        "WHERE id = ? AND estado = ?",
+        (EstadoCaso.LISTO.value, caso_id, EstadoCaso.CERRADO.value),
+    )
+
+
+async def set_prerrevision(db: Conexion, caso_id: int, resultado: str) -> None:
+    """Sin commit: la registra flujo.prerrevisar junto con la transición."""
+    await db.execute(
+        "UPDATE casos SET prerrevision = ?, actualizado = CURRENT_TIMESTAMP "
+        "WHERE id = ?",
+        (resultado, caso_id),
+    )
 
 
 @dataclass(frozen=True)
@@ -459,7 +513,7 @@ async def firma_actual(db: Conexion, *, direccion: str, programa: str) -> FirmaB
     """Qué casos y hasta cuándo modificados componen hoy el borrador del programa."""
     cur = await db.execute(
         "SELECT id, actualizado FROM casos WHERE direccion = ? AND programa = ? "
-        "AND estado = ? ORDER BY id",
+        "AND estado = ? " + _FUERA_DEL_COMITE + " ORDER BY id",
         (direccion, programa, EstadoCaso.LISTO.value),
     )
     filas = await cur.fetchall()

@@ -308,6 +308,7 @@ async def test_primer_arranque_siembra_y_los_siguientes_no(
     with TestClient(app):
         assert await _contar("SELECT COUNT(*) FROM casos") == 8
     async with abrir_base() as db:
+        await db.execute("DELETE FROM caso_eventos")
         await db.execute("DELETE FROM casos")
         await db.commit()
     with TestClient(app):

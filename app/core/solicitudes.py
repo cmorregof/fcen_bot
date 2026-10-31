@@ -126,6 +126,22 @@ class Plazos(_Estricto):
     consejo: Plazo | None = None
 
 
+class Flujo(_Estricto):
+    """Decisiones de negocio de la línea de estados (app/services/flujo.py).
+
+    Los valores por defecto reproducen lo que hacía MemorIA antes de la línea
+    única: no había prerrevisión y todo caso pasaba por el comité."""
+
+    # Si es true, un caso no entra al comité hasta que el programa lo marque
+    # «procedente». Con false, entra al comité cuando termina la lectura.
+    prerrevision_obligatoria: bool = False
+    # Si es true, un caso que el programa marca «improcedente» igual pasa por
+    # el comité (con la marca a la vista). Con false, se queda en
+    # «improcedente»: se guarda para las métricas, pero no va al comité.
+    improcedente_va_a_comite: bool = True
+    nota: str | None = None
+
+
 class Ruta(_Estricto):
     # El comité asesor recomienda; nunca decide (AGENTS.md).
     recomienda: Literal["comite_asesor"] = "comite_asesor"
@@ -157,6 +173,8 @@ class ConfigSolicitudes(_Estricto):
     umbrales: Umbrales
     # Vacíos mientras la Vicedecanatura no los fije (docs/indicadores.md).
     plazos: Plazos = Field(default_factory=Plazos)
+    # Por defecto, el comportamiento anterior a la línea única.
+    flujo: Flujo = Field(default_factory=Flujo)
     solicitudes: dict[TipoSolicitud, Ruta]
 
     @model_validator(mode="after")

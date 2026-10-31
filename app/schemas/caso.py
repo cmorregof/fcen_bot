@@ -321,3 +321,7 @@ class Caso(BaseModel):
     creado: str | None = None
     # Solo desde el acta del Consejo y confirmada por una persona.
     consejo: DecisionConsejo | None = None
+    # Línea única de estados (app/services/flujo.py). None: aún sin derivar.
+    etapa: str | None = None
+    # Prerrevisión del programa: procedente, improcedente o incompleto.
+    prerrevision: str | None = None

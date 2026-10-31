@@ -10,6 +10,8 @@ import { useSesion } from "@/lib/sesion";
 type Resumen = {
   id: number;
   estado: string;
+  // Etapa de la línea única (app/services/flujo.py).
+  etapa_texto: string | null;
   sentido_texto: string;
   programa: string | null;
   estudiante: string | null;
@@ -137,7 +139,7 @@ export default function Casos() {
                     {c.objeto ? <div><small>{c.objeto}</small></div> : null}
                     {c.programa ? <div><small>{c.programa}</small></div> : null}
                   </td>
-                  <td>{ESTADO[c.estado] ?? c.estado}</td>
+                  <td>{c.etapa_texto ?? ESTADO[c.estado] ?? c.estado}</td>
                   <td>
                     {c.sentido_texto}
                     {c.consejo ? (

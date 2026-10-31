@@ -37,6 +37,7 @@ from app.schemas.caso import (
     Sentido,
     TipoSolicitud,
 )
+from app.services import flujo
 
 RAIZ = Path(__file__).resolve().parents[1]
 PLAN_CALIDAD = RAIZ / "docs" / "calidad" / "plantilla_plan_mejoramiento_beta.xlsx"
@@ -386,11 +387,21 @@ async def _sembrar_actas(db: Conexion) -> int:
     for direccion, programa, texto, extraccion, sentido in casos:
         assert direccion in DIRECCIONES and programa in PROGRAMAS
         assert PROGRAMAS[programa].direccion == direccion
-        caso_id = await repo.crear_caso(db, chat_id=0, user_id=0, direccion=direccion)
+        caso_id = await repo.crear_caso(
+            db, chat_id=0, user_id=0, direccion=direccion, canal="practica"
+        )
         await repo.agregar_texto(db, caso_id, texto)
         await repo.guardar_extraccion(db, caso_id, extraccion, programa)
+        await flujo.lectura_lista(db, caso_id)
         if sentido is not Sentido.PENDIENTE:
-            await repo.set_sentido(db, caso_id, sentido)
+            await flujo.recomendar(
+                db,
+                caso_id,
+                sentido,
+                rol=flujo.ADMINISTRATIVA,
+                persona=None,
+                canal="practica",
+            )
     return len(casos)
 
 

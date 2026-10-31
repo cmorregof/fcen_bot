@@ -168,6 +168,25 @@ _ESQUEMA = (
         actualizado        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
+    # Línea única de estados (app/services/flujo.py): una fila por transición.
+    # `fecha` es cuándo ocurrió (NULL si no quedó registrada, casos anteriores);
+    # `registrado`, cuándo se guardó.
+    """
+    CREATE TABLE IF NOT EXISTS caso_eventos (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        caso_id     INTEGER NOT NULL REFERENCES casos(id),
+        accion      TEXT NOT NULL,
+        desde       TEXT,
+        hacia       TEXT NOT NULL,
+        fecha       TEXT,
+        rol         TEXT NOT NULL,
+        persona     TEXT,
+        canal       TEXT NOT NULL,
+        detalle     TEXT,
+        registrado  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_caso_eventos ON caso_eventos(caso_id, id)",
 )
 
 
@@ -176,6 +195,9 @@ _COLUMNAS_NUEVAS = (
     ("borradores", "ultima_modificacion", "TEXT"),
     # Cuándo se registró la recomendación del comité (indicadores de tiempos).
     ("casos", "recomendado", "TIMESTAMP"),
+    # Línea única de estados (app/services/flujo.py).
+    ("casos", "etapa", "TEXT"),
+    ("casos", "prerrevision", "TEXT"),
 )
 
 
@@ -185,6 +207,11 @@ async def init_db(db: Conexion) -> None:
     for tabla, columna, tipo in _COLUMNAS_NUEVAS:
         if columna not in await columnas(db, tabla):
             await db.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_casos_etapa ON casos(etapa)")
+    # Da etapa e historia a los casos anteriores a la línea única (idempotente).
+    from app.services import flujo
+
+    await flujo.migrar(db)
     await db.commit()
 
 

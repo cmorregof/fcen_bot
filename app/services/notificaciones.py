@@ -35,6 +35,7 @@ from app.schemas.consejo import (
     Instancia,
     SentidoConsejo,
 )
+from app.services import flujo
 from app.services.indicadores import Estadistica, estadistica
 
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -204,7 +205,17 @@ async def listar(db: Conexion, semestre: Semestre) -> list[Fila]:
     return filas
 
 
-async def guardar(db: Conexion, caso_id: int, registro: Registro, usuario: str) -> None:
+async def guardar(
+    db: Conexion,
+    caso_id: int,
+    registro: Registro,
+    usuario: str,
+    *,
+    rol: str = "secretaria",
+) -> None:
+    """Guarda el acto y sus fechas, y lleva la línea del caso a expedida o
+    notificada (app/services/flujo.py). Si la línea no lo admite, no guarda."""
+
     def iso(d: date | None) -> str | None:
         return d.isoformat() if d else None
 
@@ -228,6 +239,19 @@ async def guardar(db: Conexion, caso_id: int, registro: Registro, usuario: str) 
             usuario,
         ),
     )
+    try:
+        await flujo.sincronizar_secretaria(
+            db,
+            caso_id,
+            numero=registro.numero,
+            fecha_expedicion=iso(registro.fecha_expedicion),
+            fecha_notificacion=iso(registro.fecha_notificacion),
+            rol=rol,
+            persona=usuario,
+        )
+    except flujo.TransicionNoPermitida:
+        await db.rollback()
+        raise
     await db.commit()
 
 

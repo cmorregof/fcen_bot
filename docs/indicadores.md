@@ -57,6 +57,10 @@ Los periodos académicos anteriores no se pueden pedir por nombre, porque MemorI
 | `fechas_inconsistentes` | Decididos con fechas inconsistentes | Decididos cuya acta tiene fecha anterior al registro de la recomendación. No entran en los días de la recomendación a la decisión | Botón + acta del Consejo |
 | `fuera_plazo_comite` | Fuera de plazo en el comité | Recomendados después del plazo, o sin recomendación y con el plazo ya vencido a la fecha de corte | `config/solicitudes.yaml`, `plazos.comite` |
 | `fuera_plazo_consejo` | Fuera de plazo en el Consejo | Decididos después del plazo desde la recomendación, o pendientes de acta (incluidos los aplazados) con el plazo ya vencido | `config/solicitudes.yaml`, `plazos.consejo` |
+| `dias_total_mediana` | **Indicador principal:** días de la solicitud a la decisión del Consejo (mediana) | Días calendario entre la fecha de la solicitud y la fecha de la sesión que consta en el acta. Solo decididos (no aplazados) y con la fecha del acta no anterior a la solicitud | Ver «Fechas» |
+| `dias_total_p90` | Ídem, percentil 90 | — | Ver «Fechas» |
+| `dias_total_casos` | Casos que entran en ese cálculo | — | — |
+| `improcedentes` | Improcedentes en la prerrevisión | Casos que el programa marcó improcedentes. Siguen contando como recibidos | Botón de prerrevisión (Telegram o web), `docs/flujo-solicitudes.md` |
 
 Las mismas definiciones están en el código (`FUENTES`). Cada mensaje de Telegram las cita con números ([1] a [7]), la web las muestra bajo cada cifra y el Excel las trae en la pestaña «fuentes». Si `config/indicadores.yaml` tiene un error, Telegram envía las cifras y avisa que no pudo armar el Excel, y la web responde 503 en la descarga.
 
