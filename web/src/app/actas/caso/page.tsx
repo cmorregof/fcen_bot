@@ -91,7 +91,7 @@ function Consejo({
           {oficio ? (
             <div className="botones">
               <button type="button" className="secundario" disabled={ocupado} onClick={onOficio}>
-                Borrador del oficio del Consejo (Word)
+                Borrador del oficio o resolución del Consejo (Word)
               </button>
               <small>Lo que falta (número, modalidad de la sesión, motivación, firma) sale en amarillo.</small>
             </div>
