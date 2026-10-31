@@ -74,6 +74,15 @@ class Settings(BaseSettings):
     # Al confirmar una decisión del acta del Consejo, avisar por Telegram a las
     # personas del área del caso. Apagado por defecto.
     aviso_consejo_telegram: bool = False
+    # Firma y datos de contacto del borrador del oficio de notificación del
+    # Consejo de Facultad (docs/oficios-consejo.md). Vacíos salen en amarillo
+    # para que la Secretaría los complete; los nombres no van en el código.
+    secretaria_facultad_nombre: str = ""
+    secretaria_facultad_cargo: str = "Secretario(a) de Facultad"
+    secretaria_facultad_correo: str = ""
+    secretaria_facultad_extension: str = ""
+    presidente_consejo_nombre: str = ""
+    presidente_consejo_cargo: str = "Presidente(a)"
 
     # Claude
     anthropic_api_key: str = ""

@@ -453,9 +453,9 @@ def _asignaturas(
 _ANCHOS_JURADOS = (5.5, 6.5, 4.5)
 
 
-def _proyecto(doc: DocumentoDocx, item: CasoDocumento) -> None:
+def _proyecto(doc: DocumentoDocx, extraccion: ExtraccionCaso) -> None:
     """Datos del proyecto de tesis o trabajo final de posgrado, como aparecen."""
-    proyecto = item.extraccion.proyecto
+    proyecto = extraccion.proyecto
     if proyecto is None:
         return
     filas = [
@@ -491,14 +491,18 @@ def _proyecto(doc: DocumentoDocx, item: CasoDocumento) -> None:
     _vacio(doc, "FCEN Cuerpo")
 
 
-def _jurados(doc: DocumentoDocx, item: CasoDocumento) -> None:
+def _jurados(
+    doc: DocumentoDocx,
+    extraccion: ExtraccionCaso,
+    intro: str = "Se recomiendan los siguientes jurados:",
+) -> None:
     """Jurados de Trabajo de Grado tal como los trae la solicitud. Se
     recomiendan: el estudiante no los «propone» ni los «sugiere» (instrucción
     del Consejo de Facultad, 28-oct-2026)."""
-    jurados = item.extraccion.jurados
+    jurados = extraccion.jurados
     if not jurados:
         return
-    _p(doc, "FCEN Cuerpo", "Se recomiendan los siguientes jurados:")
+    _p(doc, "FCEN Cuerpo", intro)
     tabla = doc.add_table(rows=1, cols=3)
     try:
         tabla.style = doc.styles["Table Grid"]
@@ -551,11 +555,11 @@ def _lado(a: AsignaturaCuadro) -> tuple[str, ...]:
     )
 
 
-def _equivalencias(doc: DocumentoDocx, item: CasoDocumento) -> None:
+def _equivalencias(doc: DocumentoDocx, extraccion: ExtraccionCaso) -> None:
     """Cuadro comparativo como el del formato de homologación, convalidación o
     equivalencia: lo cursado a la izquierda y lo que se reconoce a la derecha.
     Las celdas vacías del lado de destino se resaltan: sin ellas no se ejecuta."""
-    for cuadro in item.extraccion.equivalencias:
+    for cuadro in extraccion.equivalencias:
         if not cuadro.filas:
             continue
         titulo, encabezado_destino = _FIGURA[cuadro.figura]
@@ -737,10 +741,10 @@ def _recomendacion(
         r.font.highlight_color = WD_COLOR_INDEX.YELLOW
     _r(p, despues)
     _vacio(doc, "FCEN Cuerpo")
-    _proyecto(doc, item)
+    _proyecto(doc, item.extraccion)
     _asignaturas(doc, item, posgrado=datos.programa.nivel == "posgrado")
-    _jurados(doc, item)
-    _equivalencias(doc, item)
+    _jurados(doc, item.extraccion)
+    _equivalencias(doc, item.extraccion)
 
 
 def _nota_destinatario(doc: DocumentoDocx, item: CasoDocumento) -> None:
