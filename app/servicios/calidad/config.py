@@ -27,5 +27,22 @@ class CalidadSettings(BaseSettings):
     # El envío real de la alerta quincenal sigue apagado hasta que se active.
     alertas_activas: bool = Field(default=False, validation_alias="ALERTAS_ACTIVAS")
 
+    # Revisor de soportes desde la web. Apagado hasta que exista el aval de
+    # tratamiento de datos: los soportes traen nombres y listados.
+    revisor_activo: bool = False
+    # Ninguna corrida gasta más de esto en la API (USD).
+    revisor_tope_usd: float = 10.0
+    # Tamaño máximo del zip que se sube y de lo que trae descomprimido (MB).
+    revisor_max_mb: int = 500
+    revisor_max_descomprimido_mb: int = 2000
+    revisor_max_archivos: int = 5000
+    # Días que se guardan salidas y caché en el volumen.
+    revisor_retencion_dias: int = 30
+    # Horas que se guarda una carga subida y nunca lanzada (son soportes).
+    revisor_retencion_carga_horas: int = 24
+    # Carpeta del volumen para soportes, salidas y caché. Vacía: junto a la
+    # base del servicio (en Railway, /data/calidad/revisor).
+    revisor_dir: Path | None = None
+
 
 calidad_settings = CalidadSettings()
