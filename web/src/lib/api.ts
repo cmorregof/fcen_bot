@@ -1,7 +1,7 @@
 // Cliente de los backends. Cada servicio tiene su propia URL, su propia
 // sesión y su propia base: la web nunca mezcla datos entre servicios.
 
-export type Servicio = "actas" | "calidad" | "admision";
+export type Servicio = "actas" | "calidad" | "admision" | "oportunidades";
 
 // Despliegue de práctica (capacitaciones): NEXT_PUBLIC_PRACTICA=true. Entonces
 // las URLs salen SOLO de las variables *_PRACTICA, sin volver a las de
@@ -14,17 +14,20 @@ const URLS: Record<Servicio, string> = PRACTICA
       actas: process.env.NEXT_PUBLIC_API_ACTAS_PRACTICA ?? "",
       calidad: process.env.NEXT_PUBLIC_API_CALIDAD_PRACTICA ?? "",
       admision: process.env.NEXT_PUBLIC_API_ADMISION_PRACTICA ?? "",
+      oportunidades: process.env.NEXT_PUBLIC_API_OPORTUNIDADES_PRACTICA ?? "",
     }
   : {
       actas: process.env.NEXT_PUBLIC_API_ACTAS ?? "",
       calidad: process.env.NEXT_PUBLIC_API_CALIDAD ?? "",
       admision: process.env.NEXT_PUBLIC_API_ADMISION ?? "",
+      oportunidades: process.env.NEXT_PUBLIC_API_OPORTUNIDADES ?? "",
     };
 
 export const SERVICIOS: Record<Servicio, { nombre: string; url: string }> = {
   actas: { nombre: "Comités asesores", url: URLS.actas },
   calidad: { nombre: "Calidad", url: URLS.calidad },
   admision: { nombre: "Admisión", url: URLS.admision },
+  oportunidades: { nombre: "Oportunidades", url: URLS.oportunidades },
 };
 
 export const servicioConfigurado = (s: Servicio) => SERVICIOS[s].url !== "";

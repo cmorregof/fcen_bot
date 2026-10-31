@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { ErrorApi, SERVICIOS, Servicio, llamar, servicioConfigurado } from "./api";
 
-export type Rol = "administrativa" | "comite" | "secretaria" | "calidad" | "admision" | "decanatura" | "admin";
+export type Rol = "administrativa" | "comite" | "secretaria" | "calidad" | "admision" | "oportunidades" | "decanatura" | "admin";
 
 export type SesionServicio = {
   token: string;
@@ -99,6 +99,7 @@ export const NOMBRE_ROL: Record<Rol, string> = {
   secretaria: "Secretaría de Facultad",
   calidad: "Calidad",
   admision: "Responsable de admisión",
+  oportunidades: "Oportunidades (revisión del boletín)",
   decanatura: "Decanatura",
   admin: "Administración de usuarios",
 };

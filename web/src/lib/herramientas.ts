@@ -102,4 +102,32 @@ export const HERRAMIENTAS: Herramienta[] = [
     servicio: "admision",
     roles: ["admision", "admin"],
   },
+  {
+    ruta: "/oportunidades",
+    titulo: "Oportunidades: cola de revisión",
+    descripcion: "Revisar las ofertas que el verificador no dio por buenas y aprobarlas o descartarlas.",
+    servicio: "oportunidades",
+    roles: ["oportunidades", "admin"],
+  },
+  {
+    ruta: "/oportunidades/ofertas",
+    titulo: "Ofertas y fuentes",
+    descripcion: "Todas las ofertas por estado y programa, las fuentes de la vigía y sus corridas.",
+    servicio: "oportunidades",
+    roles: ["oportunidades", "decanatura", "admin"],
+  },
+  {
+    ruta: "/oportunidades/empresas",
+    titulo: "Empresas y entidades",
+    descripcion: "Registro de empresas y entidades aliadas, con sus ofertas.",
+    servicio: "oportunidades",
+    roles: ["oportunidades", "decanatura", "admin"],
+  },
+  {
+    ruta: "/oportunidades/boletin",
+    titulo: "Boletín semanal",
+    descripcion: "Revisar el borrador por programa, aprobarlo y publicarlo, y exportarlo para el correo.",
+    servicio: "oportunidades",
+    roles: ["oportunidades", "decanatura", "admin"],
+  },
 ];

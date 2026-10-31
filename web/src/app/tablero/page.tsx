@@ -63,7 +63,7 @@ export default function PaginaTablero() {
   return (
     <Pantalla
       titulo="Tablero de la Facultad"
-      hace={["Muestra cifras de los comités asesores, el plan de mejoramiento y la admisión."]}
+      hace={["Muestra cifras de los comités asesores, el plan de mejoramiento, la admisión y las oportunidades."]}
       noHace={["No muestra nombres de estudiantes ni documentos.", "No permite modificar nada."]}
     >
       {errores.map((e) => (
