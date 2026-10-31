@@ -95,6 +95,18 @@ Son días calendario y cada plazo necesita `fuente`. Hoy los dos están en
 plazo configurado» hasta que la Vicedecanatura los defina. Ver
 `docs/indicadores.md`.
 
+### Línea de estados (prerrevisión)
+
+```yaml
+flujo:
+  prerrevision_obligatoria: false   # true: no entra al comité sin «procedente»
+  improcedente_va_a_comite: true    # false: se queda en «improcedente»
+```
+
+Son decisiones de negocio todavía sin confirmar; los valores reproducen lo que
+hacía MemorIA antes de la prerrevisión. Si la sección falta, se usan estos
+mismos valores. Ver `docs/flujo-solicitudes.md`.
+
 ## Pendiente de confirmar
 
 Solo se llenó lo que dicen las normas transcritas: decide el Consejo de
