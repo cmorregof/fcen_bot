@@ -33,11 +33,17 @@ type Resumen = {
   detenida: string;
 };
 
+type Organizacion = {
+  archivos_con_observaciones: number;
+  acciones_con_observaciones: string[];
+};
+
 type Estado = {
   estado: "vacio" | "cargado" | "corriendo" | "terminado" | "fallido" | "interrumpido";
   carga_id?: string;
   programa?: string;
   estimacion?: Estimacion;
+  organizacion?: Organizacion;
   pasos?: Paso[];
   costo_usd?: number;
   resumen?: Resumen | null;
@@ -54,6 +60,7 @@ const DESCARGAS: { clave: string; nombre: string; texto: string }[] = [
   { clave: "inventario", nombre: "inventario_soportes.xlsx", texto: "Inventario de soportes (Excel)" },
   { clave: "cruce", nombre: "cruce_acciones.xlsx", texto: "Cruce de acciones y soportes (Excel)" },
   { clave: "borrador", nombre: "borrador_cierre.docx", texto: "Borrador del cierre (Word)" },
+  { clave: "organizacion", nombre: "organizacion_evidencias.xlsx", texto: "Carpetas y nombres de las evidencias (Excel)" },
 ];
 
 const usd = (n: number) => `${n.toFixed(2).replace(".", ",")} USD`;
@@ -179,6 +186,7 @@ export default function RevisionSoportes() {
   };
 
   const est = estado?.estimacion;
+  const org = estado?.organizacion;
   const hayAlgo = estado && (estado.estado !== "vacio" || estado.soportes_presentes || estado.descargas.length > 0 || estado.en_cache > 0);
   const puedeCorrer = estado && estado.estado === "cargado" && estado.soportes_presentes;
 
@@ -267,6 +275,16 @@ export default function RevisionSoportes() {
                 {est.carpetas_sin_accion.length > 0 ? (
                   <li>
                     Carpetas cuyo código no está en el plan (no se cruzan): {est.carpetas_sin_accion.join(", ")}.
+                  </li>
+                ) : null}
+                {org && (org.archivos_con_observaciones > 0 || org.acciones_con_observaciones.length > 0) ? (
+                  <li>
+                    Organización según el instructivo de la Dirección Académica: {org.archivos_con_observaciones}{" "}
+                    archivos con observaciones
+                    {org.acciones_con_observaciones.length > 0
+                      ? ` y estructura incompleta en las acciones ${org.acciones_con_observaciones.join(", ")}`
+                      : ""}
+                    . Descargue «Carpetas y nombres de las evidencias» abajo: no gasta créditos.
                   </li>
                 ) : null}
               </ul>

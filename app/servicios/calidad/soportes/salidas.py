@@ -20,6 +20,7 @@ from app.servicios.calidad.soportes.modelos import (
     ResumenCierre,
     Veredicto,
 )
+from app.servicios.calidad.soportes.organizacion import Organizacion
 from app.servicios.calidad.soportes.verificador import PATRON_CITA, PATRON_ID
 
 # Regla del 28-oct: el Comité Asesor no aprueba, recomienda; decide el Consejo.
@@ -394,3 +395,79 @@ def borrador_docx(
             plan.add_run(limpio(s.accion_proximo_plan))
     ruta.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(ruta))
+
+
+def organizacion_xlsx(ruta: Path, org: Organizacion) -> None:
+    """Carpetas y nombres frente al instructivo de la Dirección Académica.
+
+    Determinista: se arma al cargar el zip, antes de gastar créditos.
+    """
+    libro = Workbook()
+    ws = libro.active
+    assert ws is not None
+    ws.title = "Acciones"
+    _hoja(ws, ["Acción", "Observación de estructura"], [10, 90], humanas=0)
+    for codigo in sorted(org.acciones, key=lambda c: [int(x) for x in c.split(".")]):
+        for obs in org.acciones[codigo] or ["Sin observaciones."]:
+            _fila(ws, [codigo, obs])
+    _ajustar(ws)
+
+    ws = libro.create_sheet("Archivos")
+    encabezado = [
+        "ID", "Acción", "Carpeta", "Archivo", "Ruta", "Observaciones",
+        "Nombre sugerido", "¿Se renombró? (Sí/No)",
+    ]  # fmt: skip
+    _hoja(ws, encabezado, [7, 8, 16, 40, 50, 60, 45, 12], humanas=1)
+    nombres_carpeta = {
+        "producto final": "Producto final",
+        "soportes": "Soportes de producto final",
+        "suelto": "Suelto en la acción",
+        "": "General (fuera de las acciones)",
+    }
+    for r in org.archivos:
+        a = r.archivo
+        _fila(
+            ws,
+            [
+                a.id,
+                a.accion or "general",
+                nombres_carpeta[r.carpeta],
+                a.nombre,
+                a.ruta,
+                "; ".join(r.observaciones),
+                r.sugerido,
+                "",
+            ],
+        )
+    validacion = DataValidation(type="list", formula1='"Sí,No"', allow_blank=True)
+    ws.add_data_validation(validacion)
+    validacion.add(f"H2:H{max(2, ws.max_row)}")
+    _ajustar(ws)
+
+    ws = libro.create_sheet("Léeme")
+    ws.column_dimensions["A"].width = 120
+    for linea in LEEME_ORGANIZACION:
+        ws.append([linea])
+    ws["A1"].font = Font(bold=True, size=13)
+    for fila in ws.iter_rows(min_row=2):
+        fila[0].alignment = Alignment(wrap_text=True)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    libro.save(ruta)
+
+
+LEEME_ORGANIZACION = [
+    "Organización de las evidencias — instructivo de la Dirección Académica",
+    "Esta revisión es determinista: no la hace un modelo de lenguaje y no gasta "
+    "créditos. MemorIA no renombra ni mueve archivos; señala lo que no cumple y "
+    "sugiere un nombre. Quien carga los soportes decide.",
+    "Estructura de cada acción: «Producto final» (un único PDF, revisado y firmado "
+    "por el director del área curricular o validado por el Comité Asesor) y "
+    "«Soportes de producto final» (los documentos que sustentan la acción).",
+    "Nombre de los soportes: consecutivo + descripción breve + fecha AAAAMMDD + "
+    "extensión, p. ej. «01 Correo estudiantes PEP 20251001.pdf». Máximo 50 "
+    "caracteres con la extensión, sin tildes ni caracteres especiales, en orden "
+    "cronológico.",
+    "El nombre sugerido toma la fecha del nombre o, si no la trae, de los "
+    "metadatos del archivo; «AAAAMMDD» indica que no se encontró. Revise que la "
+    "descripción sea clara antes de usarlo.",
+]
