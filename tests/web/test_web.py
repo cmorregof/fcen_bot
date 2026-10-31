@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from app.api.web import auth, crear_router
 from app.api.web.config import web_settings
 from app.core.config import settings
+from app.db.session import connect
 from app.servicios import admision
 from app.servicios.admision.modelo import RespuestaPregunta
 from tests.calidad.conftest import ALFA
@@ -49,7 +50,7 @@ def cliente(monkeypatch: pytest.MonkeyPatch) -> Cliente:
 
 
 async def _autorizar(correo: str, rol: str, direccion: str | None = None) -> None:
-    db = await aiosqlite.connect(settings.db_path)
+    db = await connect()
     await db.execute(auth._ESQUEMA)
     await db.execute(
         "INSERT INTO web_usuarios (correo, rol, direccion) VALUES (?, ?, ?)",
@@ -180,6 +181,7 @@ async def test_sesion_de_otro_servicio_se_rechaza(
     assert r.status_code == 401
 
 
+@pytest.mark.solo_sqlite
 @pytest.mark.parametrize("servicio", sorted(MATRIZ))
 async def test_ningun_endpoint_abre_otra_base(
     servicio: str, cliente: Cliente, monkeypatch: pytest.MonkeyPatch
@@ -383,7 +385,7 @@ async def test_actas_borrador_del_oficio_del_consejo(cliente: Cliente) -> None:
     ruta = f"/api/web/actas/casos/{caso}"
     programa = next(p.clave for p in PROGRAMAS.values() if p.direccion == DIR)
     extraccion = extraccion_ejemplo(tipos=[TipoSolicitud.CANCELACION])
-    db = await aiosqlite.connect(settings.db_path)
+    db = await connect()
     await db.execute(
         "UPDATE casos SET extraccion_json = ?, programa = ?, estado = 'listo' "
         "WHERE id = ?",
@@ -395,6 +397,10 @@ async def test_actas_borrador_del_oficio_del_consejo(cliente: Cliente) -> None:
     assert c.get(ruta, headers=adm).json()["oficio_consejo"] is False
     assert c.get(f"{ruta}/oficio-consejo", headers=adm).status_code == 409
 
+    await db.execute(
+        "INSERT INTO actas_consejo (id, instancia, numero, fecha, texto, subido_por)"
+        " VALUES (1, 'facultad', '35', '2026-09-17', 'acta ficticia', 'x@unal.edu.co')"
+    )
     await db.execute(
         "INSERT INTO decisiones_consejo (caso_id, acta_id, decision_id, instancia, "
         "sentido, texto_decision, acta_numero, acta_fecha, fragmento, confirmado_por) "

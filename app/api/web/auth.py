@@ -16,10 +16,10 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
-import aiosqlite
 from fastapi import Depends, Header, HTTPException
 
 from app.api.web.config import web_settings
+from app.core.conexion import Conexion
 from app.core.config import settings
 from app.db.session import connect
 
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS web_usuarios (
 # ---------------------------------------------------------------------------
 
 
-async def get_db() -> AsyncIterator[aiosqlite.Connection]:
+async def get_db() -> AsyncIterator[Conexion]:
     """Conexión a la base de ESTE servicio (settings.db_path), nunca otra."""
     db = await connect()
     try:
@@ -71,7 +71,7 @@ async def get_db() -> AsyncIterator[aiosqlite.Connection]:
         await db.close()
 
 
-Db = Annotated[aiosqlite.Connection, Depends(get_db)]
+Db = Annotated[Conexion, Depends(get_db)]
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +136,7 @@ class Usuario:
     direccion: str | None
 
 
-async def buscar_usuario(db: aiosqlite.Connection, correo: str) -> Usuario | None:
+async def buscar_usuario(db: Conexion, correo: str) -> Usuario | None:
     correo = correo.strip().lower()
     cur = await db.execute(
         "SELECT correo, nombre, rol, direccion FROM web_usuarios"

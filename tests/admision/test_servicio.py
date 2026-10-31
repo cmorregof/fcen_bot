@@ -5,6 +5,7 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
+from app.core.conexion import tablas
 from app.integrations import telegram
 from app.servicios.admision import almacen, filtro, fuentes
 from app.servicios.admision.config import config
@@ -30,8 +31,7 @@ def descarga_imagen(tg: TelegramFalso, monkeypatch: pytest.MonkeyPatch) -> None:
 async def volcado(db: aiosqlite.Connection) -> str:
     """Todo el contenido de todas las tablas del servicio, como texto."""
     partes: list[str] = []
-    cur = await db.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    for (tabla,) in await cur.fetchall():
+    for tabla in await tablas(db):
         cur2 = await db.execute(f"SELECT * FROM {tabla}")
         partes.append(f"{tabla}: {await cur2.fetchall()!r}")
     return "\n".join(partes)
@@ -297,9 +297,8 @@ async def test_nada_del_documento_queda_en_disco_ni_en_base(
     assert not settings.media_dir.exists()
 
     # la base solo tiene tablas de consentimiento/métricas (+ updates vistos)
-    cur = await bot.db.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tablas = {r[0] for r in await cur.fetchall() if r[0].startswith("admision_")}
-    assert tablas == {"admision_consentimiento", "admision_metricas"}
+    propias = {t for t in await tablas(bot.db) if t.startswith("admision_")}
+    assert propias == {"admision_consentimiento", "admision_metricas"}
     contenido = await volcado(bot.db)
     assert "F1" not in contenido and "D1" not in contenido  # ni file_id
     assert "casos" not in contenido.replace("casos: []", "")

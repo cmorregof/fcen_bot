@@ -10,8 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Literal
 
-import aiosqlite
-
+from app.core.conexion import Conexion
 from app.servicios.admision import almacen, archivo, chequeo, filtro, fuentes
 from app.servicios.admision.modelo import ItemChequeo, Modelo, RevisionDocumento
 
@@ -26,7 +25,7 @@ class Respuesta:
     citas: list[str] = field(default_factory=list)
 
 
-async def credenciales(db: aiosqlite.Connection, texto: str) -> filtro.Filtrado:
+async def credenciales(db: Conexion, texto: str) -> filtro.Filtrado:
     """Filtra correo y contraseña; si los encuentra, lo cuenta."""
     filtrado = filtro.filtrar(texto)
     if filtrado.credenciales:
@@ -34,7 +33,7 @@ async def credenciales(db: aiosqlite.Connection, texto: str) -> filtro.Filtrado:
     return filtrado
 
 
-async def responder(db: aiosqlite.Connection, modelo: Modelo, texto: str) -> Respuesta:
+async def responder(db: Conexion, modelo: Modelo, texto: str) -> Respuesta:
     filtrado = await credenciales(db, texto)
     if filtrado.credenciales and not filtro.tiene_contenido(filtrado.texto):
         return Respuesta("vacia", credenciales=True)
@@ -62,9 +61,7 @@ class Revision:
     corregir: list[ItemChequeo] = field(default_factory=list)
 
 
-async def _registrar_errores(
-    db: aiosqlite.Connection, resultado: RevisionDocumento
-) -> None:
+async def _registrar_errores(db: Conexion, resultado: RevisionDocumento) -> None:
     corregir = [i for i in resultado.items if i.estado != "ok"]
     if corregir:
         await almacen.contar(db, "documentos_con_errores")
@@ -72,9 +69,7 @@ async def _registrar_errores(
         await almacen.contar(db, f"error_{item.tipo_error or 'otro'}")
 
 
-async def revisar(
-    db: aiosqlite.Connection, modelo: Modelo, datos: bytes, clave: str
-) -> Revision:
+async def revisar(db: Conexion, modelo: Modelo, datos: bytes, clave: str) -> Revision:
     """Revisa un documento en memoria. Los bytes no se guardan."""
     doc = chequeo.cargar().buscar(clave)
     if doc is None:

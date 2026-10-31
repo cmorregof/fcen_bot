@@ -7,7 +7,10 @@ import gzip
 import io
 import itertools
 import json
+import shutil
 import sqlite3
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -23,6 +26,7 @@ from app.core.config import settings
 from app.db.session import connect
 from app.services.drive import archivo, respaldo
 from app.services.drive import cliente as drive
+from tests.conftest import TEST_DATABASE_URL
 from tests.web.test_web import _token, web  # noqa: F401
 
 RAIZ = "raiz"
@@ -105,6 +109,12 @@ def configurado(monkeypatch: pytest.MonkeyPatch) -> DriveFalso:
 
 
 @pytest.fixture
+def en_sqlite(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Respaldo de la SQLite aunque la suite corra con TEST_DATABASE_URL."""
+    monkeypatch.setattr(settings, "database_url", "")
+
+
+@pytest.fixture
 def apagado(monkeypatch: pytest.MonkeyPatch) -> None:
     for campo in (
         "drive_client_id",
@@ -179,6 +189,7 @@ async def test_practica_nunca_sube(
     assert not drive.configurado()
 
 
+@pytest.mark.usefixtures("en_sqlite")
 async def test_respaldo_consistente_y_comprimido(
     configurado: DriveFalso, tmp_path: Path
 ) -> None:
@@ -195,6 +206,7 @@ async def test_respaldo_consistente_y_comprimido(
     con.close()
 
 
+@pytest.mark.usefixtures("en_sqlite")
 async def test_respaldo_del_mismo_dia_se_reemplaza(configurado: DriveFalso) -> None:
     _base(settings.db_path)
     hoy = date(2026, 10, 31)
@@ -206,6 +218,7 @@ async def test_respaldo_del_mismo_dia_se_reemplaza(configurado: DriveFalso) -> N
     assert configurado.llamadas[-1] == "reemplazar memoria_calidad_20261031.db.gz"
 
 
+@pytest.mark.usefixtures("en_sqlite")
 async def test_retencion_solo_en_su_carpeta(configurado: DriveFalso) -> None:
     _base(settings.db_path)
     carpeta = await drive.carpeta(configurado, RAIZ, ["Respaldos", "actas"])
@@ -249,6 +262,7 @@ def test_ruta_interna_apagada_responde_sin_error(
     assert r.status_code == 200 and r.json() == {"ok": True, "activo": False}
 
 
+@pytest.mark.usefixtures("en_sqlite")
 def test_ruta_interna_respalda(
     configurado: DriveFalso, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -262,6 +276,144 @@ def test_ruta_interna_respalda(
     )
     assert r.status_code == 200, r.text
     assert r.json()["archivo"].startswith("memoria_calidad_")
+
+
+# --- respaldo con Postgres --------------------------------------------------
+
+
+def test_con_postgres_el_volcador_es_pg_dump_del_esquema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        settings, "database_url", "postgresql://u:clave@pg:5432/railway"
+    )
+    monkeypatch.setattr(settings, "db_schema", "calidad")
+    v = respaldo.volcador_actual()
+    assert isinstance(v, respaldo.VolcadorPostgres)
+    assert (v.esquema, v.extension, v.ya_comprimido) == ("calidad", "dump", True)
+    assert (
+        respaldo.nombre("calidad", date(2026, 10, 31), "dump", ya_comprimido=True)
+        == "memoria_calidad_20261031.dump"
+    )
+
+
+def test_la_clave_no_va_en_la_linea_de_comandos() -> None:
+    assert respaldo.separar_clave("postgresql://u:cl%40ve@pg.interno:5432/railway") == (
+        "postgresql://u@pg.interno:5432/railway",
+        "cl@ve",
+    )
+    assert respaldo.separar_clave("postgresql://pg/railway") == (
+        "postgresql://pg/railway",
+        "",
+    )
+
+
+async def test_sin_pg_dump_no_sube_ni_copia_la_sqlite_vieja(
+    configurado: DriveFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _base(settings.db_path)  # la SQLite de antes del corte sigue en el volumen
+    monkeypatch.setattr(settings, "database_url", "postgresql://u:clave@pg/railway")
+    monkeypatch.setattr(
+        respaldo,
+        "volcador_actual",
+        lambda: respaldo.VolcadorPostgres(
+            settings.database_url, "actas", binario="pg_dump-no-existe"
+        ),
+    )
+    r = await respaldo.respaldar(configurado, date(2026, 10, 31), servicio="actas")
+    assert r["activo"] is False
+    assert "pg_dump-no-existe" in str(r["motivo"]) and "Postgres" in str(r["motivo"])
+    assert configurado.archivos() == {}
+
+
+def test_pg_dump_que_falla_deja_el_cron_en_rojo(
+    configurado: DriveFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "internal_cron_secret", "cron-prueba")
+    monkeypatch.setattr(
+        respaldo,
+        "volcador_actual",
+        lambda: respaldo.VolcadorPostgres(
+            "postgresql://u:clave-secreta@pg/railway", "actas", binario="false"
+        ),
+    )
+    app = FastAPI()
+    app.include_router(router_interno)
+    r = TestClient(app).post(
+        "/internal/respaldo-drive", headers={"X-Cron-Secret": "cron-prueba"}
+    )
+    assert r.status_code == 502
+    assert "clave-secreta" not in r.text
+    assert configurado.archivos() == {}
+
+
+async def test_retencion_cuenta_db_gz_y_dump_juntas(
+    configurado: DriveFalso, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class VolcadorFalso:
+        extension = "dump"
+        ya_comprimido = True
+
+        def volcar(self, destino: Path) -> None:
+            destino.write_bytes(b"PGDMP ficticio")
+
+    carpeta = await drive.carpeta(configurado, RAIZ, ["Respaldos", "actas"])
+    for dia in (28, 29, 30):
+        await configurado.subir(
+            f"memoria_actas_202610{dia:02d}.db.gz", carpeta, b"x", ""
+        )
+    r = await respaldo.respaldar(
+        configurado,
+        date(2026, 10, 31),
+        volcador=VolcadorFalso(),
+        servicio="actas",
+        conservar=2,
+    )
+    assert r["archivo"] == "memoria_actas_20261031.dump"
+    assert sorted(n.split("/")[-1] for n in configurado.archivos()) == [
+        "memoria_actas_20261030.db.gz",
+        "memoria_actas_20261031.dump",
+    ]
+    assert configurado.archivos()["Respaldos/actas/memoria_actas_20261031.dump"] == (
+        b"PGDMP ficticio"
+    )
+
+
+@pytest.mark.skipif(
+    not (TEST_DATABASE_URL and shutil.which("pg_dump")),
+    reason="necesita TEST_DATABASE_URL y pg_dump",
+)
+async def test_pg_dump_real_solo_del_esquema_del_servicio(
+    configurado: DriveFalso,
+) -> None:
+    db = await connect()  # crea las tablas en el esquema de la prueba
+    await db.execute(
+        "INSERT INTO usuarios (telegram_id, nombre) VALUES (?, ?)", (1, "Ficticia")
+    )
+    await db.commit()
+    await db.close()
+    r = await respaldo.respaldar(configurado, date(2026, 10, 31), servicio="actas")
+    assert r["activo"] is True and r["archivo"] == "memoria_actas_20261031.dump"
+    datos = configurado.archivos()["Respaldos/actas/memoria_actas_20261031.dump"]
+    assert datos[:5] == b"PGDMP"
+    with tempfile.TemporaryDirectory() as tmp:
+        dump = Path(tmp) / "copia.dump"
+        dump.write_bytes(datos)
+        listado = subprocess.run(
+            [shutil.which("pg_restore") or "pg_restore", "--list", str(dump)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    assert f"TABLE {settings.db_schema} usuarios" in listado
+    assert f"SCHEMA - {settings.db_schema}" in listado or settings.db_schema in listado
+    # Ningún otro esquema entra en la copia.
+    esquemas = {
+        partes[4]
+        for partes in (linea.split() for linea in listado.splitlines())
+        if len(partes) > 5 and partes[3] == "TABLE" and partes[4] != "DATA"
+    }
+    assert esquemas == {settings.db_schema}
 
 
 # ---------------------------------------------------------------------------

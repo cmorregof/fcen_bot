@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-import aiosqlite
-
+from app.core.conexion import Conexion, Fila
 from app.schemas.caso import Caso, Concepto, EstadoCaso, ExtraccionCaso, Sentido
 from app.schemas.consejo import DecisionConsejo, Instancia, SentidoConsejo
 
@@ -22,7 +21,7 @@ class Usuario:
     direccion: str | None
 
 
-async def get_usuario(db: aiosqlite.Connection, telegram_id: int) -> Usuario | None:
+async def get_usuario(db: Conexion, telegram_id: int) -> Usuario | None:
     cur = await db.execute(
         "SELECT telegram_id, nombre, direccion FROM usuarios WHERE telegram_id = ?",
         (telegram_id,),
@@ -33,25 +32,22 @@ async def get_usuario(db: aiosqlite.Connection, telegram_id: int) -> Usuario | N
     return Usuario(int(row["telegram_id"]), row["nombre"], row["direccion"])
 
 
-async def contar_usuarios(db: aiosqlite.Connection) -> int:
+async def contar_usuarios(db: Conexion) -> int:
     cur = await db.execute("SELECT COUNT(*) FROM usuarios")
     row = await cur.fetchone()
     return int(row[0]) if row else 0
 
 
-async def registrar_usuario(
-    db: aiosqlite.Connection, telegram_id: int, nombre: str | None
-) -> None:
+async def registrar_usuario(db: Conexion, telegram_id: int, nombre: str | None) -> None:
     await db.execute(
-        "INSERT OR IGNORE INTO usuarios (telegram_id, nombre) VALUES (?, ?)",
+        "INSERT INTO usuarios (telegram_id, nombre) VALUES (?, ?)"
+        " ON CONFLICT DO NOTHING",
         (telegram_id, nombre),
     )
     await db.commit()
 
 
-async def asignar_direccion(
-    db: aiosqlite.Connection, telegram_id: int, direccion: str
-) -> None:
+async def asignar_direccion(db: Conexion, telegram_id: int, direccion: str) -> None:
     await db.execute(
         "UPDATE usuarios SET direccion = ? WHERE telegram_id = ?",
         (direccion, telegram_id),
@@ -59,7 +55,7 @@ async def asignar_direccion(
     await db.commit()
 
 
-async def usuarios_de(db: aiosqlite.Connection, direccion: str) -> list[Usuario]:
+async def usuarios_de(db: Conexion, direccion: str) -> list[Usuario]:
     cur = await db.execute(
         "SELECT telegram_id, nombre, direccion FROM usuarios WHERE direccion = ?",
         (direccion,),
@@ -75,10 +71,11 @@ async def usuarios_de(db: aiosqlite.Connection, direccion: str) -> list[Usuario]
 # ---------------------------------------------------------------------------
 
 
-async def marcar_update(db: aiosqlite.Connection, update_id: int) -> bool:
+async def marcar_update(db: Conexion, update_id: int) -> bool:
     """True si el update es nuevo."""
     cur = await db.execute(
-        "INSERT OR IGNORE INTO updates_vistos (update_id) VALUES (?)", (update_id,)
+        "INSERT INTO updates_vistos (update_id) VALUES (?) ON CONFLICT DO NOTHING",
+        (update_id,),
     )
     await db.commit()
     return cur.rowcount == 1
@@ -96,7 +93,7 @@ class EstadoChat:
     esperando_caso: int | None
 
 
-async def get_estado(db: aiosqlite.Connection, chat_id: int) -> EstadoChat:
+async def get_estado(db: Conexion, chat_id: int) -> EstadoChat:
     cur = await db.execute(
         "SELECT caso_abierto_id, esperando, esperando_caso FROM estado_chat "
         "WHERE chat_id = ?",
@@ -109,7 +106,7 @@ async def get_estado(db: aiosqlite.Connection, chat_id: int) -> EstadoChat:
 
 
 async def set_estado(
-    db: aiosqlite.Connection,
+    db: Conexion,
     chat_id: int,
     *,
     caso_abierto_id: int | None,
@@ -137,7 +134,7 @@ async def set_estado(
 
 
 async def crear_caso(
-    db: aiosqlite.Connection, *, chat_id: int, user_id: int, direccion: str
+    db: Conexion, *, chat_id: int, user_id: int, direccion: str
 ) -> int:
     cur = await db.execute(
         "INSERT INTO casos (chat_id, user_id, direccion) VALUES (?, ?, ?)",
@@ -148,21 +145,21 @@ async def crear_caso(
     return int(cur.lastrowid)
 
 
-async def agregar_texto(db: aiosqlite.Connection, caso_id: int, texto: str) -> None:
+async def agregar_texto(db: Conexion, caso_id: int, texto: str) -> None:
     await db.execute(
         """
         UPDATE casos
-        SET texto = CASE WHEN texto = '' THEN ? ELSE texto || char(10) || ? END,
+        SET texto = CASE WHEN texto = '' THEN ? ELSE texto || ? END,
             actualizado = CURRENT_TIMESTAMP
         WHERE id = ?
         """,
-        (texto, texto, caso_id),
+        (texto, "\n" + texto, caso_id),
     )
     await db.commit()
 
 
 async def agregar_archivo(
-    db: aiosqlite.Connection,
+    db: Conexion,
     caso_id: int,
     *,
     tipo: str,
@@ -171,8 +168,8 @@ async def agregar_archivo(
     file_unique_id: str,
 ) -> bool:
     cur = await db.execute(
-        "INSERT OR IGNORE INTO caso_archivos (caso_id, tipo, ruta, nombre, "
-        "file_unique_id) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO caso_archivos (caso_id, tipo, ruta, nombre, "
+        "file_unique_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
         (caso_id, tipo, ruta, nombre, file_unique_id),
     )
     await db.commit()
@@ -180,7 +177,7 @@ async def agregar_archivo(
 
 
 async def get_archivo(
-    db: aiosqlite.Connection, caso_id: int, file_unique_id: str
+    db: Conexion, caso_id: int, file_unique_id: str
 ) -> tuple[str, str | None, str | None] | None:
     """(tipo, ruta, nombre) de un archivo del caso."""
     cur = await db.execute(
@@ -193,7 +190,7 @@ async def get_archivo(
 
 
 async def set_tipo_archivo(
-    db: aiosqlite.Connection,
+    db: Conexion,
     caso_id: int,
     file_unique_id: str,
     *,
@@ -211,9 +208,7 @@ async def set_tipo_archivo(
     await db.commit()
 
 
-async def _archivos(
-    db: aiosqlite.Connection, caso_id: int
-) -> tuple[list[str], list[str]]:
+async def _archivos(db: Conexion, caso_id: int) -> tuple[list[str], list[str]]:
     cur = await db.execute(
         "SELECT tipo, ruta, nombre FROM caso_archivos WHERE caso_id = ? ORDER BY id",
         (caso_id,),
@@ -230,7 +225,7 @@ async def _archivos(
     return imagenes, anexos
 
 
-async def conceptos_de(db: aiosqlite.Connection, caso_id: int) -> list[Concepto]:
+async def conceptos_de(db: Conexion, caso_id: int) -> list[Concepto]:
     cur = await db.execute(
         "SELECT miembro, tratamiento, texto FROM conceptos WHERE caso_id = ? "
         "ORDER BY id",
@@ -243,7 +238,7 @@ async def conceptos_de(db: aiosqlite.Connection, caso_id: int) -> list[Concepto]
 
 
 async def guardar_concepto(
-    db: aiosqlite.Connection,
+    db: Conexion,
     caso_id: int,
     *,
     miembro: str,
@@ -269,7 +264,7 @@ async def guardar_concepto(
     await db.commit()
 
 
-async def borrar_concepto(db: aiosqlite.Connection, caso_id: int, miembro: str) -> bool:
+async def borrar_concepto(db: Conexion, caso_id: int, miembro: str) -> bool:
     cur = await db.execute(
         "DELETE FROM conceptos WHERE caso_id = ? AND miembro = ?", (caso_id, miembro)
     )
@@ -280,9 +275,7 @@ async def borrar_concepto(db: aiosqlite.Connection, caso_id: int, miembro: str) 
     return (cur.rowcount or 0) > 0
 
 
-async def decision_consejo(
-    db: aiosqlite.Connection, caso_id: int
-) -> DecisionConsejo | None:
+async def decision_consejo(db: Conexion, caso_id: int) -> DecisionConsejo | None:
     """La decisión del Consejo confirmada para el caso, si la hay."""
     cur = await db.execute(
         "SELECT * FROM decisiones_consejo WHERE caso_id = ?", (caso_id,)
@@ -303,7 +296,7 @@ async def decision_consejo(
     )
 
 
-async def _row_to_caso(db: aiosqlite.Connection, row: aiosqlite.Row) -> Caso:
+async def _row_to_caso(db: Conexion, row: Fila) -> Caso:
     imagenes, anexos = await _archivos(db, int(row["id"]))
     extraccion = (
         ExtraccionCaso.model_validate_json(row["extraccion_json"])
@@ -328,14 +321,14 @@ async def _row_to_caso(db: aiosqlite.Connection, row: aiosqlite.Row) -> Caso:
     )
 
 
-async def get_caso(db: aiosqlite.Connection, caso_id: int) -> Caso | None:
+async def get_caso(db: Conexion, caso_id: int) -> Caso | None:
     cur = await db.execute("SELECT * FROM casos WHERE id = ?", (caso_id,))
     row = await cur.fetchone()
     return await _row_to_caso(db, row) if row else None
 
 
 async def set_estado_caso(
-    db: aiosqlite.Connection,
+    db: Conexion,
     caso_id: int,
     estado: EstadoCaso,
     *,
@@ -350,7 +343,7 @@ async def set_estado_caso(
 
 
 async def guardar_extraccion(
-    db: aiosqlite.Connection,
+    db: Conexion,
     caso_id: int,
     extraccion: ExtraccionCaso,
     programa: str | None,
@@ -369,7 +362,7 @@ async def guardar_extraccion(
 
 
 async def actualizar_extraccion(
-    db: aiosqlite.Connection,
+    db: Conexion,
     caso_id: int,
     extraccion: ExtraccionCaso,
     programa: str | None,
@@ -383,7 +376,7 @@ async def actualizar_extraccion(
     await db.commit()
 
 
-async def reabrir_interrumpidos(db: aiosqlite.Connection) -> int:
+async def reabrir_interrumpidos(db: Conexion) -> int:
     """Al arrancar: los casos que quedaron a mitad de lectura vuelven a abiertos."""
     cur = await db.execute(
         "UPDATE casos SET estado = ? WHERE estado = ?",
@@ -393,7 +386,7 @@ async def reabrir_interrumpidos(db: aiosqlite.Connection) -> int:
     return cur.rowcount
 
 
-async def set_programa(db: aiosqlite.Connection, caso_id: int, programa: str) -> None:
+async def set_programa(db: Conexion, caso_id: int, programa: str) -> None:
     await db.execute(
         "UPDATE casos SET programa = ?, actualizado = CURRENT_TIMESTAMP WHERE id = ?",
         (programa, caso_id),
@@ -401,7 +394,7 @@ async def set_programa(db: aiosqlite.Connection, caso_id: int, programa: str) ->
     await db.commit()
 
 
-async def set_sentido(db: aiosqlite.Connection, caso_id: int, sentido: Sentido) -> None:
+async def set_sentido(db: Conexion, caso_id: int, sentido: Sentido) -> None:
     # `recomendado` guarda cuándo se registró la recomendación (indicadores).
     # Solo un cambio real de sentido la mueve: volver a marcar el mismo sentido
     # no la cambia (ni se la inventa a un caso viejo sin fecha) y volver a
@@ -426,7 +419,7 @@ async def set_sentido(db: aiosqlite.Connection, caso_id: int, sentido: Sentido) 
     await db.commit()
 
 
-async def set_nota(db: aiosqlite.Connection, caso_id: int, nota: str | None) -> None:
+async def set_nota(db: Conexion, caso_id: int, nota: str | None) -> None:
     await db.execute(
         "UPDATE casos SET nota_comite = ?, actualizado = CURRENT_TIMESTAMP "
         "WHERE id = ?",
@@ -435,7 +428,7 @@ async def set_nota(db: aiosqlite.Connection, caso_id: int, nota: str | None) -> 
     await db.commit()
 
 
-async def casos_listos(db: aiosqlite.Connection, *, direccion: str) -> list[Caso]:
+async def casos_listos(db: Conexion, *, direccion: str) -> list[Caso]:
     """Casos procesados que todavía no se han cerrado: forman el borrador en curso."""
     cur = await db.execute(
         "SELECT * FROM casos WHERE direccion = ? AND estado = ? ORDER BY id",
@@ -444,7 +437,7 @@ async def casos_listos(db: aiosqlite.Connection, *, direccion: str) -> list[Caso
     return [await _row_to_caso(db, row) for row in await cur.fetchall()]
 
 
-async def cerrar_casos(db: aiosqlite.Connection, caso_ids: list[int]) -> None:
+async def cerrar_casos(db: Conexion, caso_ids: list[int]) -> None:
     if not caso_ids:
         return
     marcas = ",".join("?" for _ in caso_ids)
@@ -462,9 +455,7 @@ class FirmaBorrador:
     ultima_modificacion: str
 
 
-async def firma_actual(
-    db: aiosqlite.Connection, *, direccion: str, programa: str
-) -> FirmaBorrador:
+async def firma_actual(db: Conexion, *, direccion: str, programa: str) -> FirmaBorrador:
     """Qué casos y hasta cuándo modificados componen hoy el borrador del programa."""
     cur = await db.execute(
         "SELECT id, actualizado FROM casos WHERE direccion = ? AND programa = ? "
@@ -477,9 +468,7 @@ async def firma_actual(
     return FirmaBorrador(ids, ultima)
 
 
-async def ultimo_borrador(
-    db: aiosqlite.Connection, programa: str
-) -> FirmaBorrador | None:
+async def ultimo_borrador(db: Conexion, programa: str) -> FirmaBorrador | None:
     cur = await db.execute(
         "SELECT caso_ids, ultima_modificacion FROM borradores WHERE programa = ? "
         "ORDER BY id DESC LIMIT 1",
@@ -494,7 +483,7 @@ async def ultimo_borrador(
 
 
 async def casos_recientes(
-    db: aiosqlite.Connection, *, direccion: str, limite: int = 15
+    db: Conexion, *, direccion: str, limite: int = 15
 ) -> list[Caso]:
     cur = await db.execute(
         "SELECT * FROM casos WHERE direccion = ? AND estado != ? "
@@ -505,7 +494,7 @@ async def casos_recientes(
 
 
 async def registrar_borrador(
-    db: aiosqlite.Connection,
+    db: Conexion,
     *,
     programa: str,
     caso_ids: list[int],
@@ -531,7 +520,7 @@ async def registrar_borrador(
 
 
 async def registrar_uso(
-    db: aiosqlite.Connection,
+    db: Conexion,
     *,
     caso_id: int | None,
     operacion: str,
@@ -555,12 +544,12 @@ class UsoMes:
     output_tokens: int
 
 
-async def uso_del_mes(db: aiosqlite.Connection, mes: str) -> UsoMes:
+async def uso_del_mes(db: Conexion, mes: str) -> UsoMes:
     """`mes` en formato AAAA-MM (UTC)."""
     cur = await db.execute(
         "SELECT COUNT(*), COUNT(DISTINCT caso_id), COALESCE(SUM(input_tokens), 0), "
         "COALESCE(SUM(output_tokens), 0) FROM uso_modelo "
-        "WHERE strftime('%Y-%m', creado) = ?",
+        "WHERE substr(creado, 1, 7) = ?",
         (mes,),
     )
     row = await cur.fetchone()

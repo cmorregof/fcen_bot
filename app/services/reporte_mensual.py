@@ -19,8 +19,7 @@ import logging
 from datetime import date
 from html import escape
 
-import aiosqlite
-
+from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import DIRECCIONES
 from app.db import repo
@@ -29,9 +28,7 @@ from app.services import indicadores, resumen
 logger = logging.getLogger(__name__)
 
 
-async def armar(
-    db: aiosqlite.Connection, hoy: date, direccion: str | None = None
-) -> str:
+async def armar(db: Conexion, hoy: date, direccion: str | None = None) -> str:
     """Cifras del mes anterior y, si se conoce, el acumulado del periodo."""
     mes = indicadores.mes_anterior(hoy)
     extra: list[str] = []
@@ -53,14 +50,14 @@ async def armar(
 _VICEDECANATURA = "vicedecanatura"
 
 
-async def _ya_enviados(db: aiosqlite.Connection, mes: str) -> set[str]:
+async def _ya_enviados(db: Conexion, mes: str) -> set[str]:
     cur = await db.execute(
         "SELECT destino FROM reportes_mensuales WHERE mes = ?", (mes,)
     )
     return {str(f[0]) for f in await cur.fetchall()}
 
 
-async def enviar(db: aiosqlite.Connection, hoy: date) -> dict[str, object]:
+async def enviar(db: Conexion, hoy: date) -> dict[str, object]:
     """Para el cron del día 1. Cada área recibe solo sus cifras."""
     if not settings.reporte_mensual_activo:
         return {"activo": False, "enviados": 0}
@@ -84,8 +81,8 @@ async def enviar(db: aiosqlite.Connection, hoy: date) -> dict[str, object]:
             if n:
                 # Se registra apenas sale: un fallo posterior no lo repite.
                 await db.execute(
-                    "INSERT OR IGNORE INTO reportes_mensuales (mes, destino,"
-                    " enviados) VALUES (?, ?, ?)",
+                    "INSERT INTO reportes_mensuales (mes, destino, enviados)"
+                    " VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
                     (clave_mes, destino, n),
                 )
                 await db.commit()

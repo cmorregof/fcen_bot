@@ -16,10 +16,9 @@ import csv
 import shutil
 from pathlib import Path
 
-import aiosqlite
-
 from app.api.web.auth import _ESQUEMA as _ESQUEMA_USUARIOS
 from app.api.web.auth import ROLES_POR_SERVICIO
+from app.core.conexion import Conexion, tablas, vaciar
 from app.core.config import settings
 from app.core.programas import DIRECCIONES, PROGRAMAS
 from app.db import repo
@@ -382,7 +381,7 @@ def _casos() -> list[tuple[str, str, str, ExtraccionCaso, Sentido]]:
     ]
 
 
-async def _sembrar_actas(db: aiosqlite.Connection) -> int:
+async def _sembrar_actas(db: Conexion) -> int:
     casos = _casos()
     for direccion, programa, texto, extraccion, sentido in casos:
         assert direccion in DIRECCIONES and programa in PROGRAMAS
@@ -400,7 +399,7 @@ async def _sembrar_actas(db: aiosqlite.Connection) -> int:
 # ---------------------------------------------------------------------------
 
 
-async def _sembrar_calidad(db: aiosqlite.Connection) -> int:
+async def _sembrar_calidad(db: Conexion) -> int:
     from app.servicios.calidad import plan, plantilla, reloj
     from app.servicios.calidad.db import init_calidad
 
@@ -418,7 +417,7 @@ async def _sembrar_calidad(db: aiosqlite.Connection) -> int:
     return len(lectura.plan.acciones)
 
 
-async def _sembrar_admision(db: aiosqlite.Connection) -> int:
+async def _sembrar_admision(db: Conexion) -> int:
     from app.servicios.admision import almacen
 
     await almacen.asegurar_tablas(db)
@@ -446,33 +445,18 @@ _SEMBRAR = {
 # ---------------------------------------------------------------------------
 
 
-async def sembrado(db: aiosqlite.Connection) -> bool:
+async def sembrado(db: Conexion) -> bool:
     """¿La siembra anterior terminó? Si falló a medias, no hay marca."""
-    cur = await db.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'practica_meta'"
-    )
-    if await cur.fetchone() is None:
+    if "practica_meta" not in await tablas(db):
         return False
     cur = await db.execute("SELECT valor FROM practica_meta WHERE clave = 'sembrado'")
     fila = await cur.fetchone()
     return fila is not None and fila[0] == "1"
 
 
-async def _vaciar(db: aiosqlite.Connection) -> None:
+async def _vaciar(db: Conexion) -> None:
     """Borra el contenido de todas las tablas menos los correos autorizados."""
-    cur = await db.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table'"
-        " AND name NOT LIKE 'sqlite_%' AND name != 'web_usuarios'"
-    )
-    tablas = [str(f[0]) for f in await cur.fetchall()]
-    await db.execute("PRAGMA foreign_keys = OFF")
-    try:
-        for tabla in tablas:
-            await db.execute(f'DELETE FROM "{tabla}"')  # noqa: S608
-        await db.execute("DELETE FROM sqlite_sequence")
-        await db.commit()
-    finally:
-        await db.execute("PRAGMA foreign_keys = ON")
+    await vaciar(db, [t for t in await tablas(db) if t != "web_usuarios"])
 
 
 def _limpiar_carpeta(carpeta: Path) -> None:
@@ -496,7 +480,8 @@ async def reiniciar() -> dict[str, object]:
             " (clave TEXT PRIMARY KEY, valor TEXT NOT NULL)"
         )
         await db.execute(
-            "INSERT OR REPLACE INTO practica_meta (clave, valor) VALUES ('sembrado', '1')"
+            "INSERT INTO practica_meta (clave, valor) VALUES ('sembrado', '1')"
+            " ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor"
         )
         await db.commit()
     finally:

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import io
-from collections.abc import AsyncIterator
+import os
+import uuid
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +12,9 @@ import aiosqlite
 import pytest
 from PIL import Image
 
+from app.core import conexion
 from app.core.config import settings
+from app.db import session
 from app.db.session import connect
 from app.integrations import telegram
 from app.schemas.caso import (
@@ -75,8 +80,47 @@ def png_bytes() -> bytes:
     return buf.getvalue()
 
 
+# Con TEST_DATABASE_URL (postgresql://…) toda la suite corre contra Postgres:
+# cada prueba en un esquema propio que se borra al terminar. Las pruebas que
+# abren el archivo SQLite directamente llevan @pytest.mark.solo_sqlite.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    if not TEST_DATABASE_URL:
+        return
+    saltar = pytest.mark.skip(reason="abre el archivo SQLite directamente")
+    for item in items:
+        if "solo_sqlite" in item.keywords:
+            item.add_marker(saltar)
+
+
 @pytest.fixture(autouse=True)
-def aislar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def aislar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    _rutas(tmp_path, monkeypatch)
+    if TEST_DATABASE_URL:
+        yield from _esquema_postgres(monkeypatch)
+    else:
+        monkeypatch.setattr(settings, "database_url", "")
+        yield
+
+
+def _esquema_postgres(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    import psycopg
+
+    esquema = f"prueba_{uuid.uuid4().hex[:12]}"
+    monkeypatch.setattr(settings, "database_url", TEST_DATABASE_URL)
+    monkeypatch.setattr(settings, "db_schema", esquema)
+    session.olvidar_iniciadas()
+    try:
+        yield
+    finally:
+        with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as c:
+            c.execute(f'DROP SCHEMA IF EXISTS "{esquema}" CASCADE')
+        conexion.olvidar_cache(TEST_DATABASE_URL, esquema)
+
+
+def _rutas(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "db_path", tmp_path / "test.db")
     monkeypatch.setattr(settings, "media_dir", tmp_path / "media")
     monkeypatch.setattr(settings, "output_dir", tmp_path / "out")
@@ -84,6 +128,16 @@ def aislar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "telegram_bot_token", "TEST")
     # El mínimo de jurados sale de config/solicitudes.yaml, no del .env local.
     monkeypatch.setattr(settings, "jurados_minimo", None)
+
+
+@asynccontextmanager
+async def abrir_base() -> AsyncIterator[conexion.Conexion]:
+    """La base del servicio (SQLite o Postgres), como en producción."""
+    db = await connect()
+    try:
+        yield db
+    finally:
+        await db.close()
 
 
 @pytest.fixture

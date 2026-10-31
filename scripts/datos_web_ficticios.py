@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from app.api.web.auth import _ESQUEMA
+from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import PROGRAMAS
 from app.db import repo
@@ -51,10 +52,7 @@ USUARIOS = {
 }
 
 
-async def _actas(db: object) -> None:
-    import aiosqlite
-
-    assert isinstance(db, aiosqlite.Connection)
+async def _actas(db: Conexion) -> None:
     cur = await db.execute("SELECT COUNT(*) FROM casos")
     fila = await cur.fetchone()
     if fila and fila[0]:
@@ -107,13 +105,10 @@ async def _actas(db: object) -> None:
     await _decisiones_consejo(db, ids[1:])
 
 
-async def _decisiones_consejo(db: object, ids: list[int]) -> None:
+async def _decisiones_consejo(db: Conexion, ids: list[int]) -> None:
     """Un acta ficticia del Consejo de Facultad, del semestre en curso, con la
     decisión confirmada de los casos 2 a 4 (Notificaciones, oficio del
     Consejo y datos SUIT)."""
-    import aiosqlite
-
-    assert isinstance(db, aiosqlite.Connection)
     hoy = date.today()
     inicio = date(hoy.year, 1 if hoy.month <= 6 else 7, 1)
     fecha = max(hoy - timedelta(days=7), inicio).isoformat()
@@ -152,13 +147,10 @@ async def _decisiones_consejo(db: object, ids: list[int]) -> None:
     await db.commit()
 
 
-async def _calidad(db: object) -> None:
-    import aiosqlite
-
+async def _calidad(db: Conexion) -> None:
     from app.servicios.calidad import plan, plantilla, reloj
     from app.servicios.calidad.db import init_calidad
 
-    assert isinstance(db, aiosqlite.Connection)
     await init_calidad(db)
     for nombre in (
         "plantilla_plan_mejoramiento.xlsx",
@@ -178,12 +170,9 @@ async def _calidad(db: object) -> None:
         )
 
 
-async def _admision(db: object) -> None:
-    import aiosqlite
-
+async def _admision(db: Conexion) -> None:
     from app.servicios.admision import almacen
 
-    assert isinstance(db, aiosqlite.Connection)
     await almacen.asegurar_tablas(db)
     for clave, n in (
         ("consentimientos", 12),
@@ -201,8 +190,10 @@ async def main() -> None:
         await db.execute(_ESQUEMA)
         for correo, nombre, rol, direccion in USUARIOS[servicio]:
             await db.execute(
-                "INSERT OR REPLACE INTO web_usuarios (correo, nombre, rol, direccion)"
-                " VALUES (?, ?, ?, ?)",
+                "INSERT INTO web_usuarios (correo, nombre, rol, direccion)"
+                " VALUES (?, ?, ?, ?) ON CONFLICT(correo) DO UPDATE SET"
+                " nombre = excluded.nombre, rol = excluded.rol,"
+                " direccion = excluded.direccion",
                 (correo, nombre, rol, direccion),
             )
         await db.commit()

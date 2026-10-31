@@ -49,8 +49,18 @@ async def _main(archivo: str, aplicar: bool) -> None:
     elegida = next((a for a in copias if a.nombre == archivo), None)
     if elegida is None:
         sys.exit(f"No encontré {archivo} en Respaldos/{settings.bot_servicio}.")
+    if archivo.endswith(".dump"):
+        # Copia de Postgres: se descarga y se indica cómo restaurarla; este
+        # script no toca la base en Postgres.
+        destino = settings.data_dir / archivo
+        destino.write_bytes(await cliente.descargar(elegida.id))
+        print(f"Copia de Postgres descargada en {destino}.")
+        print(
+            "Para restaurarla, vea «Postgres» en docs/respaldo-drive.md (pg_restore)."
+        )
+        return
     if not archivo.endswith(".db.gz"):
-        sys.exit("Este script restaura copias de SQLite (.db.gz).")
+        sys.exit("Este script restaura copias de SQLite (.db.gz) o descarga .dump.")
 
     base = settings.db_path
     nueva = base.with_name(f"{base.name}.restaurando")

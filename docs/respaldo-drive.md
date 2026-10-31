@@ -26,12 +26,15 @@ MemorIA/                                     ← DRIVE_CARPETA_ID
 
 ### Copia nocturna
 
-- La copia se toma con el API de respaldo de SQLite (`sqlite3` `backup`): es consistente aunque el servicio esté escribiendo.
-- El nombre es `memoria_<servicio>_<AAAAMMDD>.db.gz`. Si se corre dos veces el mismo día, se reemplaza la copia de ese día.
+- Con SQLite (sin `DATABASE_URL`), la copia se toma con el API de respaldo de SQLite (`sqlite3` `backup`): es consistente aunque el servicio esté escribiendo. El nombre es `memoria_<servicio>_<AAAAMMDD>.db.gz`.
+- Con Postgres (`DATABASE_URL`, ver `docs/base-de-datos.md`), la copia es `pg_dump --schema=<DB_SCHEMA>` en formato custom (ya comprimido): solo el esquema del servicio, nunca el de otro. El nombre es `memoria_<servicio>_<AAAAMMDD>.dump`. La SQLite que haya quedado en el volumen ya no se copia.
+  - `pg_dump` viene en la imagen (cliente 17 de PGDG, sirve para Postgres 16 y 17). Si falta, el endpoint responde `activo: false` con un `motivo` y no sube nada. Si `pg_dump` falla (por ejemplo, un servidor más nuevo que el cliente), responde 502 y el cron queda en rojo.
+  - La clave va por `PGPASSWORD`, no en la línea de comandos.
+- Si se corre dos veces el mismo día, se reemplaza la copia de ese día.
 - Se conservan las últimas `DRIVE_RESPALDOS_CONSERVAR` copias (30 por defecto). Las más viejas van a la **papelera** de Drive, y solo las de `Respaldos/<servicio>/` con ese patrón de nombre. Drive vacía la papelera a los 30 días; mientras tanto se pueden recuperar.
 - La programa `.github/workflows/respaldo-drive.yml` a las 2:15 a. m. (hora de Bogotá). Llama a `POST /internal/respaldo-drive` de cada servicio con el secreto `X-Cron-Secret`, igual que los otros cron. Usa los secrets de GitHub `APP_URL` (actas), `CALIDAD_APP_URL` y, si existe, `ADMISION_APP_URL`. Si la URL de un servicio no está, lo salta.
 - El entorno de práctica (`MEMORIA_PRACTICA=true`) nunca sube nada.
-- Cuando se agregue Postgres, el volcado va detrás de la interfaz `Volcador` de `app/services/drive/respaldo.py`: basta un volcador con `pg_dump` y extensión `sql`; la subida y la retención no cambian.
+- El volcado está detrás de la interfaz `Volcador` de `app/services/drive/respaldo.py` (`VolcadorSqlite` o `VolcadorPostgres`); la subida y la retención son las mismas. Las copias `.db.gz` de antes del corte y las `.dump` cuentan juntas para la retención.
 
 ### Archivo oficial: cuándo se archiva
 
@@ -132,6 +135,24 @@ uv run --no-dev python scripts/drive_restaurar.py --archivo memoria_actas_202610
 Con `--aplicar`, la base actual queda al lado como `fcen.db.antes-<fecha>` (con sus `-wal` y `-shm`), y la copia ocupa su lugar. Después reinicie el servicio en Railway (*Restart*). Si algo sale mal, vuelva a poner el archivo `.antes-<fecha>` con su nombre original y reinicie.
 
 Si el volumen se perdió por completo, primero cree el volumen `/data` en el servicio (ver `docs/despliegue-servicios.md`), despliegue, y luego restaure como arriba.
+
+### Postgres (copias `.dump`)
+
+Primero mire si basta un respaldo de Railway Pro del servicio `Postgres`: es lo más directo. La copia de Drive es para cuando ese no sirve.
+
+```bash
+railway ssh --service <servicio>
+uv run --no-dev python scripts/drive_restaurar.py --archivo memoria_actas_20261030.dump   # la descarga en /data
+pg_restore --list /data/memoria_actas_20261030.dump | head                               # verifica que se lee
+```
+
+Para ponerla en uso, en un momento sin uso y después de un respaldo manual de Railway del servicio `Postgres`:
+
+```bash
+pg_restore --clean --if-exists --no-owner --no-privileges --dbname="$DATABASE_URL" /data/memoria_actas_20261030.dump
+```
+
+Eso reemplaza solo el esquema del servicio (el `.dump` no trae otros). Después reinicie el servicio y borre el `.dump` de `/data`.
 
 ## Cambiar de cuenta (a la Vicedecanatura)
 

@@ -1,11 +1,15 @@
-"""SQLite con SQL explícito y migraciones idempotentes."""
+"""Base del servicio con SQL explícito y migraciones idempotentes.
+
+Sin DATABASE_URL, SQLite en settings.db_path (local, pruebas y el despliegue
+actual). Con DATABASE_URL, Postgres en el esquema del servicio. Ver
+app/core/conexion.py y docs/base-de-datos.md.
+"""
 
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-import aiosqlite
-
+from app.core.conexion import Conexion, ConexionPostgres, abrir_sqlite, columnas
 from app.core.config import settings
 
 _ESQUEMA = (
@@ -175,28 +179,47 @@ _COLUMNAS_NUEVAS = (
 )
 
 
-async def init_db(db: aiosqlite.Connection) -> None:
+async def init_db(db: Conexion) -> None:
     for sentencia in _ESQUEMA:
         await db.execute(sentencia)
     for tabla, columna, tipo in _COLUMNAS_NUEVAS:
-        cur = await db.execute(f"PRAGMA table_info({tabla})")
-        existentes = {str(r[1]) for r in await cur.fetchall()}
-        if columna not in existentes:
+        if columna not in await columnas(db, tabla):
             await db.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}")
     await db.commit()
 
 
-async def connect() -> aiosqlite.Connection:
+# Con Postgres el esquema se revisa una vez por proceso, no en cada conexión.
+_INICIADAS: set[tuple[str, str]] = set()
+
+
+def motor() -> str:
+    return "postgres" if settings.database_url else "sqlite"
+
+
+async def connect() -> Conexion:
+    if settings.database_url:
+        clave = (settings.database_url, settings.db_schema)
+        pg = await ConexionPostgres.abrir(*clave)
+        if clave not in _INICIADAS:
+            try:
+                await init_db(pg)
+            except BaseException:
+                await pg.close()
+                raise
+            _INICIADAS.add(clave)
+        return pg
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
-    db = await aiosqlite.connect(settings.db_path)
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA foreign_keys = ON")
-    await db.execute("PRAGMA journal_mode = WAL")
+    db = await abrir_sqlite(settings.db_path)
     await init_db(db)
     return db
 
 
-async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
+def olvidar_iniciadas() -> None:
+    """Para pruebas: un esquema nuevo vuelve a crear sus tablas."""
+    _INICIADAS.clear()
+
+
+async def get_db() -> AsyncGenerator[Conexion, None]:
     db = await connect()
     try:
         yield db

@@ -8,6 +8,7 @@ import sqlite3
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 from fastapi.responses import JSONResponse
 
+from app.core.conexion import probar_postgres, servidor_sin_credenciales
 from app.core.config import settings
 from app.db.session import connect
 from app.schemas.telegram import Update
@@ -138,7 +139,7 @@ async def respaldo_drive(
         raise HTTPException(status_code=403, detail="secreto inválido")
     try:
         resultado = await respaldo.respaldar(drive.obtener(), indicadores.hoy_local())
-    except (drive.ErrorDrive, OSError, sqlite3.Error) as exc:
+    except (drive.ErrorDrive, OSError, sqlite3.Error, respaldo.ErrorVolcado) as exc:
         logger.exception("Falló el respaldo en Drive")
         raise HTTPException(status_code=502, detail=f"respaldo fallido: {exc}") from exc
     return {"ok": True, **resultado}
@@ -171,9 +172,18 @@ async def cifras(
 
 @router.get("/health", response_model=None)
 async def health() -> dict[str, object] | JSONResponse:
+    postgres = bool(settings.database_url)
     sin_volumen = sin_volumen_en_railway()
+    base = await _base()
+    # Con Postgres la base no vive en el volumen: falta de volumen no tumba el
+    # servicio (media y out sí se pierden en cada despliegue; se avisa).
+    error = base.get("error") or (
+        None
+        if postgres or not sin_volumen
+        else f"{settings.data_dir} no es un volumen montado."
+    )
     cuerpo: dict[str, object] = {
-        "ok": not sin_volumen,
+        "ok": error is None,
         "servicio": settings.bot_servicio,
         "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7],
         "modelo": settings.extraction_model,
@@ -183,14 +193,37 @@ async def health() -> dict[str, object] | JSONResponse:
         "periodo_inicio": settings.periodo_inicio.isoformat()
         if settings.periodo_inicio
         else None,
+        "base": base,
         "almacenamiento": _almacenamiento(),
     }
-    if sin_volumen:
-        # Sin volumen, cada despliegue arranca con la base vacía. Al fallar el
+    if postgres and sin_volumen:
+        cuerpo["aviso"] = (
+            f"{settings.data_dir} no es un volumen montado: los archivos de media "
+            "y out se pierden en cada despliegue."
+        )
+    if error:
+        # Sin volumen (con SQLite), cada despliegue arranca con la base vacía;
+        # sin Postgres, el servicio no puede leer ni guardar nada. Al fallar el
         # healthcheck, Railway no reemplaza el despliegue que está corriendo.
-        cuerpo["error"] = f"{settings.data_dir} no es un volumen montado."
+        cuerpo["error"] = error
         return JSONResponse(cuerpo, status_code=503)
     return cuerpo
+
+
+async def _base() -> dict[str, object]:
+    """Motor y ubicación de la base, sin credenciales."""
+    if not settings.database_url:
+        return {"motor": "sqlite", "db_path": str(settings.db_path)}
+    fallo = await probar_postgres(settings.database_url, settings.db_schema)
+    base: dict[str, object] = {
+        "motor": "postgres",
+        "esquema": settings.db_schema,
+        "servidor": servidor_sin_credenciales(settings.database_url),
+        "conectada": fallo is None,
+    }
+    if fallo:
+        base["error"] = f"No hay conexión con Postgres ({fallo})."
+    return base
 
 
 def sin_volumen_en_railway() -> bool:
@@ -201,8 +234,9 @@ def sin_volumen_en_railway() -> bool:
 
 
 def _almacenamiento() -> dict[str, object]:
-    """Qué base usa el servicio y qué bases hay en el volumen (rutas y
-    tamaños, sin contenido): sirve para detectar una base huérfana."""
+    """Qué hay en el volumen: las bases SQLite (rutas y tamaños, sin
+    contenido) sirven para detectar una base huérfana; con Postgres, la
+    SQLite que queda es la de antes del corte."""
     raiz = settings.data_dir
     bases = sorted(
         str(b.relative_to(raiz)) + f" ({b.stat().st_size // 1024} kB)"

@@ -24,11 +24,11 @@ import json
 from dataclasses import dataclass, field
 from datetime import date
 
-import aiosqlite
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
 
+from app.core.conexion import Conexion
 from app.core.programas import PROGRAMAS
 from app.schemas.caso import TITULOS_TIPO, EstadoCaso, TipoSolicitud
 from app.schemas.consejo import ETIQUETA_SENTIDO_CONSEJO, Instancia, SentidoConsejo
@@ -123,9 +123,7 @@ class Estadisticas:
         return sum(self.casos.values())
 
 
-async def calcular(
-    db: aiosqlite.Connection, periodo: Semestre, hoy: date
-) -> Estadisticas:
+async def calcular(db: Conexion, periodo: Semestre, hoy: date) -> Estadisticas:
     r = Estadisticas(periodo, hoy)
     cur = await db.execute(
         "SELECT c.programa, c.extraccion_json, d.sentido, d.acta_fecha"

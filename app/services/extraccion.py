@@ -9,9 +9,9 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import aiosqlite
 from PIL import Image as PILImage
 
+from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import DIRECCIONES, Programa, identificar_programa
 from app.db import repo
@@ -112,7 +112,7 @@ def cita_del_caso(texto: str, extraccion: ExtraccionCaso) -> tuple[str, bool]:
     return cuerpo_del_correo(texto, extraccion), True
 
 
-async def extraer_caso(db: aiosqlite.Connection, caso: Caso) -> SalidaExtraccion:
+async def extraer_caso(db: Conexion, caso: Caso) -> SalidaExtraccion:
     estructurador = get_estructurador()
     if estructurador is None:
         return SalidaExtraccion(None, None, "Falta configurar ANTHROPIC_API_KEY.")
@@ -155,9 +155,7 @@ async def extraer_caso(db: aiosqlite.Connection, caso: Caso) -> SalidaExtraccion
     return SalidaExtraccion(extraccion, programa)
 
 
-async def corregir_caso(
-    db: aiosqlite.Connection, caso: Caso, correccion: str
-) -> SalidaExtraccion:
+async def corregir_caso(db: Conexion, caso: Caso, correccion: str) -> SalidaExtraccion:
     estructurador = get_estructurador()
     if estructurador is None or caso.extraccion is None:
         return SalidaExtraccion(None, None, "No hay datos que corregir.")

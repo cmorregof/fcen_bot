@@ -19,7 +19,7 @@ El archivo `README.md` describe a fondo el flujo del bot de actas.
   - Quien decide es el **Consejo de Facultad** (o el **Consejo de Sede** o el **Consejo Superior**, según la instancia competente).
   - Esta regla aplica a plantillas, prompts, botones y textos del bot.
 - **Aislamiento de servicios:**
-  - Cada servicio tiene su propio token de Telegram, su secreto de webhook y su propia base de datos SQLite.
+  - Cada servicio tiene su propio token de Telegram, su secreto de webhook y su propia base de datos: SQLite, o su propio esquema de Postgres si hay `DATABASE_URL` (docs/base-de-datos.md).
   - Un servicio **nunca** lee la base de datos de otro.
 - **Reglas deterministas y normativa:**
   - Las reglas de `app/services/reglas.py` son deterministas y citan su norma.
@@ -40,4 +40,4 @@ El archivo `README.md` describe a fondo el flujo del bot de actas.
 
 ## Stack
 
-Python 3.11+, FastAPI, Pydantic, aiosqlite, anthropic, python-docx y LibreOffice (PDF).
+Python 3.11+, FastAPI, Pydantic, aiosqlite o psycopg (Postgres), anthropic, python-docx y LibreOffice (PDF).

@@ -8,8 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import aiosqlite
-
+from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import DIRECCIONES, PROGRAMAS, Programa
 from app.db import repo
@@ -90,7 +89,7 @@ def caso_documento(caso: Caso, programa: Programa) -> CasoDocumento | None:
 
 
 async def armar_borradores(
-    db: aiosqlite.Connection,
+    db: Conexion,
     *,
     direccion: str,
     elaboro: str | None,
@@ -151,7 +150,7 @@ async def armar_borradores(
     return borradores, sin_programa
 
 
-async def registrar_entrega(db: aiosqlite.Connection, borrador: Borrador) -> None:
+async def registrar_entrega(db: Conexion, borrador: Borrador) -> None:
     await repo.registrar_borrador(
         db,
         programa=borrador.programa.clave,
@@ -185,7 +184,7 @@ async def enviar_borradores(chat_id: int, borradores: list[Borrador]) -> None:
                 )
 
 
-async def entrega_diaria(db: aiosqlite.Connection) -> dict[str, int]:
+async def entrega_diaria(db: Conexion) -> dict[str, int]:
     """Para el cron: un borrador por programa que haya cambiado desde la última
     entrega diaria. Un envío fallido a una persona no detiene a las demás, y un
     borrador solo se da por entregado si le llegó a alguien."""

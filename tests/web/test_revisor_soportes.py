@@ -869,7 +869,8 @@ async def test_carpeta_no_dedicada_no_se_borra(
     corrida.limpiar(al_arrancar=True)
     assert c.get(RUTA, headers=cab).status_code == 403
     assert otro.exists() and (carpeta / "cache" / "x.json").exists()
-    assert settings.db_path.exists()
+    # Con Postgres (TEST_DATABASE_URL) la base no es un archivo de la carpeta.
+    assert settings.database_url or settings.db_path.exists()
 
 
 def test_apagado_borra_solo_lo_propio(

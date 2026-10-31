@@ -9,8 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-import aiosqlite
-
+from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import PROGRAMAS
 from app.db import repo
@@ -40,7 +39,7 @@ class Resultado:
     error: str | None = None
 
 
-async def procesar(db: aiosqlite.Connection, caso: Caso) -> Resultado:
+async def procesar(db: Conexion, caso: Caso) -> Resultado:
     """Lee el caso con el modelo. Si falla, el caso queda abierto con el error."""
     await repo.set_estado_caso(db, caso.id, EstadoCaso.PROCESANDO)
     try:
@@ -62,7 +61,7 @@ async def procesar(db: aiosqlite.Connection, caso: Caso) -> Resultado:
     return Resultado(actualizado)
 
 
-async def corregir(db: aiosqlite.Connection, caso: Caso, texto: str) -> Resultado:
+async def corregir(db: Conexion, caso: Caso, texto: str) -> Resultado:
     """Aplica una corrección en lenguaje natural a un caso ya procesado."""
     salida = await extraccion.corregir_caso(db, caso, texto)
     if salida.extraccion is None:

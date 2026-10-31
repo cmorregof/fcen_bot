@@ -427,6 +427,7 @@ async def test_concepto_de_otro_miembro_y_borrar(
 
 
 def test_health_falla_en_railway_sin_volumen(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "database_url", "")
     monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
     monkeypatch.setattr("os.path.ismount", lambda _: False)
     with TestClient(app) as client:
@@ -436,3 +437,45 @@ def test_health_falla_en_railway_sin_volumen(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("os.path.ismount", lambda _: True)
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
+
+
+def test_health_con_postgres_no_exige_volumen_ni_muestra_credenciales(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import routes
+
+    with TestClient(app):  # arranca con la base de la prueba
+        pass
+    monkeypatch.setattr(
+        settings,
+        "database_url",
+        "postgresql://usuario:clave-secreta@pg.interno:5432/railway",
+    )
+    monkeypatch.setattr(settings, "db_schema", "actas")
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    monkeypatch.setattr("os.path.ismount", lambda _: False)
+
+    async def responde(url: str, esquema: str) -> str | None:
+        return None
+
+    monkeypatch.setattr(routes, "probar_postgres", responde)
+    r = TestClient(app).get("/health")
+    assert r.status_code == 200
+    cuerpo = r.json()
+    assert cuerpo["ok"] is True
+    assert cuerpo["base"] == {
+        "motor": "postgres",
+        "esquema": "actas",
+        "servidor": "pg.interno:5432/railway",
+        "conectada": True,
+    }
+    assert "aviso" in cuerpo
+    assert "clave-secreta" not in r.text and "usuario" not in r.text
+
+    async def caido(url: str, esquema: str) -> str | None:
+        return "OperationalError"
+
+    monkeypatch.setattr(routes, "probar_postgres", caido)
+    r = TestClient(app).get("/health")
+    assert r.status_code == 503
+    assert r.json()["base"]["conectada"] is False

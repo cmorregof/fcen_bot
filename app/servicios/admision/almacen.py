@@ -5,7 +5,7 @@ Nunca se guarda texto de mensajes ni contenido de documentos: solo contadores.
 
 from __future__ import annotations
 
-import aiosqlite
+from app.core.conexion import Conexion
 
 _ESQUEMA = (
     """
@@ -28,13 +28,13 @@ _ESQUEMA = (
 )
 
 
-async def asegurar_tablas(db: aiosqlite.Connection) -> None:
+async def asegurar_tablas(db: Conexion) -> None:
     for sentencia in _ESQUEMA:
         await db.execute(sentencia)
     await db.commit()
 
 
-async def estado(db: aiosqlite.Connection, chat_id: int) -> dict[str, int | None]:
+async def estado(db: Conexion, chat_id: int) -> dict[str, int | None]:
     cur = await db.execute(
         "SELECT acepto, menor, acudiente FROM admision_consentimiento"
         " WHERE chat_id = ?",
@@ -46,7 +46,7 @@ async def estado(db: aiosqlite.Connection, chat_id: int) -> dict[str, int | None
     return {"acepto": fila[0], "menor": fila[1], "acudiente": fila[2]}
 
 
-async def reiniciar(db: aiosqlite.Connection, chat_id: int) -> None:
+async def reiniciar(db: Conexion, chat_id: int) -> None:
     await db.execute(
         "INSERT INTO admision_consentimiento (chat_id) VALUES (?)"
         " ON CONFLICT(chat_id) DO UPDATE SET acepto = 0, menor = NULL,"
@@ -56,7 +56,7 @@ async def reiniciar(db: aiosqlite.Connection, chat_id: int) -> None:
     await db.commit()
 
 
-async def fijar(db: aiosqlite.Connection, chat_id: int, campo: str, valor: int) -> None:
+async def fijar(db: Conexion, chat_id: int, campo: str, valor: int) -> None:
     if campo not in {"acepto", "menor", "acudiente"}:
         raise ValueError(campo)
     await db.execute(
@@ -72,17 +72,17 @@ async def fijar(db: aiosqlite.Connection, chat_id: int, campo: str, valor: int) 
     await db.commit()
 
 
-async def contar(db: aiosqlite.Connection, clave: str, n: int = 1) -> None:
+async def contar(db: Conexion, clave: str, n: int = 1) -> None:
     await db.execute(
         "INSERT INTO admision_metricas (dia, clave, valor)"
-        " VALUES (date('now'), ?, ?)"
-        " ON CONFLICT(dia, clave) DO UPDATE SET valor = valor + excluded.valor",
+        " VALUES (CURRENT_DATE, ?, ?)"
+        " ON CONFLICT(dia, clave) DO UPDATE SET valor = admision_metricas.valor + excluded.valor",
         (clave, n),
     )
     await db.commit()
 
 
-async def totales(db: aiosqlite.Connection) -> dict[str, int]:
+async def totales(db: Conexion) -> dict[str, int]:
     cur = await db.execute(
         "SELECT clave, SUM(valor) FROM admision_metricas GROUP BY clave ORDER BY clave"
     )

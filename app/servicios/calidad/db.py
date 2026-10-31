@@ -6,7 +6,7 @@ ya no se crean; si existen en una base vieja, quedan sin uso y no se borran.
 
 from __future__ import annotations
 
-import aiosqlite
+from app.core.conexion import Conexion
 
 _ESQUEMA = (
     """
@@ -91,7 +91,7 @@ _ESQUEMA = (
 )
 
 
-async def init_calidad(db: aiosqlite.Connection) -> None:
+async def init_calidad(db: Conexion) -> None:
     for sentencia in _ESQUEMA:
         await db.execute(sentencia)
     await db.commit()

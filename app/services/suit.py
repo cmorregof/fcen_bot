@@ -21,10 +21,10 @@ import json
 from dataclasses import dataclass, field
 from datetime import date
 
-import aiosqlite
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
+from app.core.conexion import Conexion
 from app.core.programas import PROGRAMAS
 from app.schemas.caso import EstadoCaso, TipoSolicitud
 from app.schemas.consejo import Instancia, SentidoConsejo
@@ -137,7 +137,7 @@ def _tipos(extraccion_json: str | None) -> set[TipoSolicitud]:
     return salida
 
 
-async def reporte(db: aiosqlite.Connection, ano: int, hoy: date) -> ReporteSuit:
+async def reporte(db: Conexion, ano: int, hoy: date) -> ReporteSuit:
     conteos = [Conteo(n) for n in NUMERALES]
     cur = await db.execute(
         "SELECT c.programa, c.extraccion_json, d.sentido, d.acta_fecha"

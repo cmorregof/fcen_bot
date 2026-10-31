@@ -93,7 +93,7 @@ Los casos en **Listo** son los que forman el borrador del día de su programa.
 - `app/normativa/`: normas base con texto literal.
 - `app/core/programas.py`: programas, direcciones, códigos de plan y correos.
 - `app/templates/oficio_base.docx`: la plantilla membreteada con los estilos `FCEN …`.
-- `app/db/`: SQLite con SQL explícito y migraciones idempotentes.
+- `app/db/`: SQL explícito y migraciones idempotentes. SQLite por defecto; Postgres con `DATABASE_URL` (`app/core/conexion.py`, docs/base-de-datos.md).
 
 ## Alertas deterministas (`app/services/reglas.py`)
 

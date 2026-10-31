@@ -220,12 +220,12 @@ async def evaluar_caso(
     )
     async with semaforo:
         salida = await extraer_caso(db, caso)
-    async with db.execute(
+    cur = await db.execute(
         "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0) "
         "FROM uso_modelo WHERE caso_id = ?",
         (numero,),
-    ) as cur:
-        fila = await cur.fetchone()
+    )
+    fila = await cur.fetchone()
     tokens_in, tokens_out = (int(fila[0]), int(fila[1])) if fila else (0, 0)
     caso_id = str(meta.get("id") or carpeta.name)
     if salida.extraccion is None:
