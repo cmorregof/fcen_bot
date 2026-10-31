@@ -9,7 +9,8 @@ from fastapi.responses import Response
 
 from app.api.web import auth
 from app.api.web.auth import Db, Usuario
-from app.services import indicadores, notificaciones
+from app.db import repo
+from app.services import indicadores, notificaciones, oficio_consejo
 
 router = APIRouter(prefix="/actas/secretaria", tags=["secretaria"])
 
@@ -57,6 +58,29 @@ async def descargar(_: _Consulta, db: Db, semestre: str = "") -> Response:
         headers={
             "Content-Disposition": (
                 f'attachment; filename="{notificaciones.nombre_xlsx(elegido)}"'
+            )
+        },
+    )
+
+
+@router.get("/casos/{caso_id}/oficio-consejo")
+async def oficio(caso_id: int, usuario: _Registra, db: Db) -> Response:
+    """El borrador del oficio o resolución del Consejo, para la Secretaría, que
+    es quien lo expide (de cualquier área)."""
+    caso = await repo.get_caso(db, caso_id)
+    if caso is None:
+        raise HTTPException(404, "No encontré ese caso.")
+    motivo = oficio_consejo.motivo_sin_oficio(caso)
+    if motivo:
+        raise HTTPException(409, motivo)
+    return Response(
+        oficio_consejo.construir_oficio_consejo(caso, elaboro=usuario.nombre or ""),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{oficio_consejo.nombre_archivo(caso)}"'
             )
         },
     )

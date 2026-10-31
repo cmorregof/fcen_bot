@@ -140,3 +140,18 @@ async def test_permisos(cliente: Cliente) -> None:  # noqa: F811
     assert c.get(f"{RUTA}/xlsx", headers=dec).status_code == 200
     assert c.get(RUTA).status_code == 401
     assert settings.db_path.exists()
+
+
+async def test_secretaria_descarga_el_borrador(cliente: Cliente) -> None:  # noqa: F811
+    c = cliente("actas")
+    caso_id = await _caso_decidido()
+    aplazado = await _caso_decidido(sentido="aplazo")
+    cab = await _token("secretaria@unal.edu.co", "secretaria")
+    r = c.get(f"/api/web/actas/secretaria/casos/{caso_id}/oficio-consejo", headers=cab)
+    assert r.status_code == 200, r.text
+    assert r.content[:2] == b"PK"
+    ruta = f"/api/web/actas/secretaria/casos/{aplazado}/oficio-consejo"
+    assert c.get(ruta, headers=cab).status_code == 409
+    adm = await _token("adm2@unal.edu.co", "administrativa", "fisica")
+    ruta = f"/api/web/actas/secretaria/casos/{caso_id}/oficio-consejo"
+    assert c.get(ruta, headers=adm).status_code == 403
