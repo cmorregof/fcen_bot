@@ -1,0 +1,28 @@
+name: Vigía semanal de oportunidades
+
+on:
+  schedule:
+    # Lunes 6:00 a. m. hora de Bogotá (11:00 UTC): el borrador del boletín
+    # queda listo para revisarlo en la mañana.
+    - cron: "0 11 * * 1"
+  workflow_dispatch:
+
+jobs:
+  vigia:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir la vigía al servicio de oportunidades
+        env:
+          # URL del servicio de oportunidades (no la de actas).
+          OPORTUNIDADES_APP_URL: ${{ secrets.OPORTUNIDADES_APP_URL }}
+          INTERNAL_CRON_SECRET: ${{ secrets.INTERNAL_CRON_SECRET }}
+        run: |
+          if [ -z "${OPORTUNIDADES_APP_URL}" ]; then
+            echo "Sin OPORTUNIDADES_APP_URL: el servicio no está desplegado."
+            exit 0
+          fi
+          # Sin OPORTUNIDADES_VIGIA_ACTIVA=true responde activo=false y no busca.
+          # Busca, verifica y arma el borrador; NO publica ni envía el boletín.
+          curl --fail --silent --show-error --max-time 900 -X POST \
+            -H "X-Cron-Secret: ${INTERNAL_CRON_SECRET}" \
+            "${OPORTUNIDADES_APP_URL}/internal/vigia-semanal"
