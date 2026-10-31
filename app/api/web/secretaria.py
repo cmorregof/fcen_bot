@@ -1,4 +1,5 @@
-"""Secretaría de Facultad: fechas de los actos y tiempos de notificación."""
+"""Secretaría de Facultad: fechas de los actos, tiempos de notificación y
+estadísticas del Consejo para Calidad."""
 
 from __future__ import annotations
 
@@ -10,7 +11,12 @@ from fastapi.responses import Response
 from app.api.web import auth
 from app.api.web.auth import Db, Usuario
 from app.db import repo
-from app.services import indicadores, notificaciones, oficio_consejo
+from app.services import (
+    estadisticas_consejo,
+    indicadores,
+    notificaciones,
+    oficio_consejo,
+)
 
 router = APIRouter(prefix="/actas/secretaria", tags=["secretaria"])
 
@@ -58,6 +64,27 @@ async def descargar(_: _Consulta, db: Db, semestre: str = "") -> Response:
         headers={
             "Content-Disposition": (
                 f'attachment; filename="{notificaciones.nombre_xlsx(elegido)}"'
+            )
+        },
+    )
+
+
+@router.get("/estadisticas/xlsx")
+async def estadisticas(_: _Consulta, db: Db, semestre: str = "") -> Response:
+    """Solicitudes decididas por el Consejo de Facultad, para Calidad. Acepta
+    un semestre (2026-1S, 2026-2S) o un año completo (2026)."""
+    hoy = indicadores.hoy_local()
+    try:
+        periodo = estadisticas_consejo.periodo_de(semestre, hoy)
+    except notificaciones.PeriodoInvalido as exc:
+        raise HTTPException(422, str(exc)) from None
+    r = await estadisticas_consejo.calcular(db, periodo, hoy)
+    return Response(
+        content=estadisticas_consejo.xlsx(r),
+        media_type=estadisticas_consejo.MIME_XLSX,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{estadisticas_consejo.nombre_xlsx(r)}"'
             )
         },
     )
