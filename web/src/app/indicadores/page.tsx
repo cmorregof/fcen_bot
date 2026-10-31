@@ -94,6 +94,17 @@ export default function PaginaIndicadores() {
     }
   };
 
+  const descargarSuit = async () => {
+    setError(null);
+    try {
+      const ano = new Date().getFullYear();
+      const datos = await llamar<Blob>("actas", `/actas/suit/xlsx?ano=${ano}`, { token: t });
+      guardarArchivo(datos, `datos_suit_fcen_${ano}.xlsx`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const area = sesiones.actas?.rol === "administrativa";
   const f = reporte?.fuentes;
   const v = reporte?.total;
@@ -135,6 +146,11 @@ export default function PaginaIndicadores() {
           <button type="button" className="secundario" onClick={descargar} disabled={!reporte}>
             Descargar Excel
           </button>
+          {!area ? (
+            <button type="button" className="secundario" onClick={descargarSuit}>
+              Datos SUIT del año (Excel)
+            </button>
+          ) : null}
         </div>
       </form>
 
