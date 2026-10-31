@@ -144,7 +144,7 @@ Cuando llegue la plantilla, los puntos 1 y 7 se resuelven editando `config/indic
 
 Cada trimestre la Secretaría de Facultad diligencia en Drive («Datos de Operación») un Excel por trámite. Cada Excel lleva el número de solicitudes resueltas por mes y por Facultad.
 
-`/suit [año]`, o el botón «Datos SUIT del año» en Indicadores (decanatura y admin), arma la fila de la FCEN para los numerales que pasan por los comités. El código está en `app/services/suit.py`.
+`/suit [año]`, o el botón «Datos SUIT del año» (en Indicadores para decanatura y admin, y en Notificaciones para la Secretaría de Facultad), arma la fila de la FCEN para los numerales que pasan por los comités. El código está en `app/services/suit.py`.
 
 | Numeral SUIT | Trámites de MemorIA |
 |---|---|
