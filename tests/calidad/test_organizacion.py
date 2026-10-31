@@ -146,3 +146,48 @@ def test_carpeta_bien_organizada_no_tiene_observaciones(tmp_path: Path) -> None:
     assert libro.sheetnames == ["Acciones", "Archivos", "Léeme"]
     assert libro["Acciones"]["B2"].value == "Sin observaciones."
     assert libro["Archivos"].max_row == 4
+
+
+def test_indice_electronico_sigue_el_formato(tmp_path: Path) -> None:
+    from app.servicios.calidad.soportes.salidas import indice_electronico_xlsx
+
+    archivos = [
+        _archivo(f"{BASE}/Soportes de producto final/01 Acta 20251001.pdf"),
+        _archivo(f"{BASE}/Producto final/Informe accion.pdf", fecha="2025-11-02"),
+        Archivo(
+            id="S003",
+            ruta="Plan general.xlsx",
+            nombre="Plan general.xlsx",
+            accion="",
+            tipo="xlsx",
+            extension=".xlsx",
+            tamano=290_000,
+        ),
+    ]
+    archivos[0].paginas, archivos[1].paginas = 2, 5
+    salida = tmp_path / "indice.xlsx"
+    indice_electronico_xlsx(salida, revisar(archivos))
+    ws = load_workbook(salida)["Formato"]
+    assert ws["C9"].value == "PLANES DE MEJORAMIENTO DE PROGRAMAS CURRICULARES"
+    assert [ws.cell(12, j).value for j in range(2, 13)][:4] == [
+        "Nombre Documento",
+        "Fecha Creación Documento",
+        "Fecha Incorporación Expediente",
+        "Orden Documento",
+    ]
+    # Producto final primero, luego soportes, luego lo general.
+    assert [ws[f"B{n}"].value for n in (13, 14, 15)] == [
+        "Informe accion",
+        "01 Acta 20251001",
+        "Plan general",
+    ]
+    assert ws["C13"].value == "02/11/2025" and ws["E13"].value == 1
+    assert ws["G13"].value == '=IF(F13=0,"0","1")'
+    assert ws["G14"].value == '=IF(F14=0,"0",(1+H13))'
+    assert ws["H14"].value == "=G14+(F14-1)"
+    assert ws["I15"].value == "excel" and ws["J15"].value == "283 kb"
+    assert ws["K13"].value == "Electrónico"
+    assert ws["L13"].value == "Acción 1.1 — Producto final"
+    assert ws["L15"].value == "Documento general del plan"
+    # Lo que no se sabe queda en amarillo: páginas del Excel.
+    assert ws["F15"].fill.fgColor.rgb.endswith("FFFF00")

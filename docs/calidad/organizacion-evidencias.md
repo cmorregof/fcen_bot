@@ -52,10 +52,29 @@ MemorIA no renombra ni mueve archivos: señala y sugiere, y quien carga los
 soportes decide. Tampoco revisa la firma del producto final ni si la
 descripción es clara; eso queda para la persona.
 
-## Pendiente
+## Índice electrónico del expediente
 
-- **Índice electrónico de gestión documental.** La Vicedecanatura compartió el
-  índice electrónico para registrar la gestión documental de los planes de
-  mejoramiento. Cuando tengamos el formato, el inventario puede llenarlo con
-  nombre, fecha, páginas, formato y tamaño de cada evidencia. Las columnas no
-  se adivinan: se toman del formato.
+Con la misma carga sale `indice_electronico.xlsx`, en el formato de la
+Vicedecanatura (`00IndiceElectronicoPlanesMejoraFCEN.xlsx`). Tiene el
+encabezado del fondo, la serie PLANES, la subserie PLANES DE MEJORAMIENTO DE
+PROGRAMAS CURRICULARES y el expediente físico NO.
+
+Cada documento ocupa una fila, ordenada por acción y carpeta. Las columnas se
+llenan así:
+
+- **Nombre:** sin la extensión.
+- **Fecha de creación:** de los metadatos.
+- **Orden:** el consecutivo dentro del índice.
+- **Páginas:** contadas en PDF e imágenes.
+- **Página inicio y página fin:** con las mismas fórmulas del formato.
+- **Formato:** pdf, excel, word o imagen.
+- **Tamaño:** en kb.
+- **Origen:** Electrónico.
+- **Observaciones:** acción y carpeta.
+
+Queda en amarillo lo que llena la oficina productora:
+
+- la identificación del expediente;
+- la fecha de incorporación;
+- las páginas de los Word y los Excel;
+- la fecha de cierre y la firma.

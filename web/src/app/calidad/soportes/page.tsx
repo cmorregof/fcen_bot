@@ -61,6 +61,7 @@ const DESCARGAS: { clave: string; nombre: string; texto: string }[] = [
   { clave: "cruce", nombre: "cruce_acciones.xlsx", texto: "Cruce de acciones y soportes (Excel)" },
   { clave: "borrador", nombre: "borrador_cierre.docx", texto: "Borrador del cierre (Word)" },
   { clave: "organizacion", nombre: "organizacion_evidencias.xlsx", texto: "Carpetas y nombres de las evidencias (Excel)" },
+  { clave: "indice", nombre: "indice_electronico.xlsx", texto: "Índice electrónico del expediente (Excel)" },
 ];
 
 const usd = (n: number) => `${n.toFixed(2).replace(".", ",")} USD`;

@@ -216,7 +216,7 @@ async def test_flujo_completo_con_cliente_falso(
         assert falso.llamadas == []
         assert not (corrida.base() / "actual" / "subida.zip").exists()
         # Carpetas y nombres: sin modelo y antes de pagar.
-        assert estado["descargas"] == ["organizacion"]
+        assert estado["descargas"] == ["organizacion", "indice"]
         assert estado["organizacion"]["archivos_con_observaciones"] > 0
 
         # Paso 3: sin confirmar el costo, no corre.
@@ -239,6 +239,7 @@ async def test_flujo_completo_con_cliente_falso(
         assert sorted(estado["descargas"]) == [
             "borrador",
             "cruce",
+            "indice",
             "inventario",
             "organizacion",
         ]
