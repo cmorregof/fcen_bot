@@ -38,7 +38,85 @@ type Detalle = {
   consejo: DecisionConsejo | null;
   // Hay decisión final del Consejo de Facultad: se puede bajar el borrador del oficio.
   oficio_consejo: boolean;
+  // Línea única de estados (app/services/flujo.py, docs/flujo-solicitudes.md).
+  etapa: string;
+  etapa_texto: string;
+  prerrevision: string | null;
+  linea: Evento[];
+  siguiente: { paso: string; responsable: string } | null;
+  tramos: { nombre: string; dias: number | null }[];
+  acciones: string[];
 };
+
+type Evento = {
+  accion: string;
+  texto: string;
+  hacia_texto: string;
+  fecha: string | null;
+  rol: string;
+  persona: string | null;
+  canal: string;
+  detalle: string | null;
+};
+
+const CANAL: Record<string, string> = {
+  telegram: "Telegram",
+  web: "web",
+  sistema: "automático",
+  migracion: "dato anterior a la línea",
+  practica: "práctica",
+};
+
+const PRERREVISION: Record<string, string> = {
+  procedente: "Procedente",
+  improcedente: "Improcedente",
+  incompleto: "Incompleta",
+};
+
+function Linea({ caso }: { caso: Detalle }) {
+  return (
+    <>
+      <h2>Línea del caso</h2>
+      <p>
+        Etapa: <strong>{caso.etapa_texto}</strong>
+        {caso.prerrevision ? <> · Prerrevisión del programa: {PRERREVISION[caso.prerrevision] ?? caso.prerrevision}</> : null}
+      </p>
+      {caso.siguiente ? (
+        <div className="tarjeta">
+          Siguiente paso: <strong>{caso.siguiente.paso}</strong>
+          <div>
+            <small>Responsable: {caso.siguiente.responsable}</small>
+          </div>
+        </div>
+      ) : null}
+      <ol>
+        {caso.linea.map((e, i) => (
+          <li key={i}>
+            <strong>{e.texto}</strong> → {e.hacia_texto}
+            <div>
+              <small>
+                {e.fecha ?? "fecha no registrada"} · {e.rol}
+                {e.persona ? ` (${e.persona})` : ""} · {CANAL[e.canal] ?? e.canal}
+              </small>
+            </div>
+            {e.detalle ? (
+              <div>
+                <small>{e.detalle}</small>
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      <ul>
+        {caso.tramos.map((t) => (
+          <li key={t.nombre}>
+            {t.nombre}: {t.dias === null ? "—" : `${t.dias} días`}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
 
 // Quién recomienda y quién decide (config/solicitudes.yaml).
 type Ruta = {
@@ -219,6 +297,41 @@ function Ficha() {
       </div>
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
       {aviso ? <Mensaje tipo="exito">{aviso}</Mensaje> : null}
+      {caso ? <Linea caso={caso} /> : null}
+      {caso && administrativa ? (
+        <div className="botones">
+          {caso.acciones.includes("prerrevisar_procedente") ? (
+            <button type="button" disabled={ocupado} className="secundario" onClick={() => accion("/prerrevision", { resultado: "procedente" }, "Prerrevisión: procedente.")}>
+              Prerrevisión: procedente
+            </button>
+          ) : null}
+          {caso.acciones.includes("prerrevisar_improcedente") ? (
+            <button type="button" disabled={ocupado} className="secundario" onClick={() => accion("/prerrevision", { resultado: "improcedente" }, "Prerrevisión: improcedente.")}>
+              Prerrevisión: improcedente
+            </button>
+          ) : null}
+          {caso.acciones.includes("prerrevisar_incompleto") ? (
+            <button type="button" disabled={ocupado} className="secundario" onClick={() => accion("/prerrevision", { resultado: "incompleto" }, "Prerrevisión: incompleta.")}>
+              Prerrevisión: incompleta
+            </button>
+          ) : null}
+          {caso.acciones.includes("completar") ? (
+            <button type="button" disabled={ocupado} onClick={() => accion("/completar", undefined, "El caso volvió a la llegada.")}>
+              Ya llegó lo que faltaba
+            </button>
+          ) : null}
+          {caso.acciones.includes("enviar_consejo") ? (
+            <button type="button" disabled={ocupado} onClick={() => accion("/enviar-consejo", undefined, "El caso quedó en el Consejo.")}>
+              Enviar al Consejo (oficio del comité)
+            </button>
+          ) : null}
+          {caso.acciones.includes("volver_al_comite") ? (
+            <button type="button" disabled={ocupado} className="secundario" onClick={() => accion("/volver-al-comite", undefined, "El caso volvió al comité.")}>
+              Volver al comité
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {caso && !caso.extraccion ? (
         <>
           <Mensaje tipo="info">Este caso todavía no se ha leído.</Mensaje>

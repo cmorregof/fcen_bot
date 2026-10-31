@@ -28,6 +28,7 @@ from app.services import (
     casos,
     consejo,
     ficha,
+    flujo,
     formatos,
     indicadores,
     resumen,
@@ -288,9 +289,17 @@ async def _comando(
             await _procesar(db, chat_id, usuario, estado.caso_abierto_id)
     elif nombre == "/cancelar":
         if estado.caso_abierto_id is not None:
-            await repo.set_estado_caso(
-                db, estado.caso_abierto_id, EstadoCaso.DESCARTADO
-            )
+            try:
+                await flujo.descartar(
+                    db,
+                    estado.caso_abierto_id,
+                    rol=flujo.ADMINISTRATIVA,
+                    persona=_persona(usuario),
+                    canal=_CANAL,
+                )
+            except flujo.TransicionNoPermitida as exc:
+                await telegram.send_message(chat_id, escape(str(exc)))
+                return
             await repo.set_estado(db, chat_id, caso_abierto_id=None)
             await telegram.send_message(
                 chat_id, f"Descarté el caso #{estado.caso_abierto_id}."
@@ -409,9 +418,14 @@ async def _listar(db: Conexion, chat_id: int, direccion: str) -> None:
         programa = PROGRAMAS[c.programa].nombre if c.programa in PROGRAMAS else "—"
         lineas.append(
             f"#{c.id} · {escape(nombre or 'sin procesar')} · {escape(programa)} · "
-            f"{c.estado.value} · {c.sentido.value}"
+            f"{_etapa_corta(c)} · {c.sentido.value}"
         )
     await telegram.send_message(chat_id, "\n".join(lineas))
+
+
+def _etapa_corta(caso: Caso) -> str:
+    nombre = flujo.nombre_etapa(caso.etapa)
+    return nombre.lower() if nombre else caso.estado.value
 
 
 async def _costo(db: Conexion, chat_id: int) -> None:
@@ -478,6 +492,8 @@ async def _agregar_al_caso(db: Conexion, msg: Message, usuario: repo.Usuario) ->
             chat_id=chat_id,
             user_id=usuario.telegram_id,
             direccion=usuario.direccion,
+            canal=_CANAL,
+            persona=_persona(usuario),
         )
         await repo.set_estado(db, chat_id, caso_abierto_id=caso_id)
         nuevo = True
@@ -739,6 +755,14 @@ async def _enviar_ficha(chat_id: int, caso: Caso) -> None:
         )
 
 
+# Quien usa el bot de actas es la administrativa de su área.
+_CANAL = "telegram"
+
+
+def _persona(usuario: repo.Usuario) -> str:
+    return usuario.nombre or str(usuario.telegram_id)
+
+
 async def _caso_propio(
     db: Conexion, caso_id: int, usuario: repo.Usuario
 ) -> Caso | None:
@@ -788,6 +812,7 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
             db,
             int(partes[1]),
             persona=usuario.nombre or str(usuario.telegram_id),
+            canal=_CANAL,
             direccion=usuario.direccion,
         )
         await telegram.responder_callback(cq.id, f"{len(aplicadas)} registradas")
@@ -816,7 +841,17 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
             for c in casos
             if c.programa == clave and c.sentido != Sentido.PENDIENTE
         ]
-        await repo.cerrar_casos(db, ids)
+        try:
+            await flujo.enviar_consejo(
+                db,
+                ids,
+                rol=flujo.ADMINISTRATIVA,
+                persona=_persona(usuario),
+                canal=_CANAL,
+            )
+        except flujo.TransicionNoPermitida as exc:
+            await telegram.responder_callback(cq.id, str(exc)[:190])
+            return
         await telegram.responder_callback(cq.id, f"{len(ids)} casos cerrados")
         await telegram.send_message(
             chat_id,
@@ -839,7 +874,18 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
         and partes[2] in Sentido._value2member_map_
     ):
         sentido = Sentido(partes[2])
-        await repo.set_sentido(db, caso.id, sentido)
+        try:
+            await flujo.recomendar(
+                db,
+                caso.id,
+                sentido,
+                rol=flujo.ADMINISTRATIVA,
+                persona=_persona(usuario),
+                canal=_CANAL,
+            )
+        except flujo.TransicionNoPermitida as exc:
+            await telegram.responder_callback(cq.id, str(exc)[:190])
+            return
         etiqueta = {
             "aprobar": "se recomienda APROBAR",
             "no_aprobar": "se recomienda NO APROBAR",
@@ -919,8 +965,40 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
             mensaje = f"Queda como soporte del caso #{caso.id}; no se envía al modelo."
         pdf.unlink(missing_ok=True)
         await telegram.send_message(chat_id, mensaje)
+    elif (
+        partes[0] == "pr"
+        and len(partes) == 3
+        and partes[2] in flujo.Prerrevision._value2member_map_
+    ):
+        resultado = flujo.Prerrevision(partes[2])
+        try:
+            etapa = await flujo.prerrevisar(
+                db,
+                caso.id,
+                resultado,
+                rol=flujo.ADMINISTRATIVA,
+                persona=_persona(usuario),
+                canal=_CANAL,
+            )
+        except flujo.TransicionNoPermitida as exc:
+            await telegram.responder_callback(cq.id, str(exc)[:190])
+            return
+        await telegram.responder_callback(
+            cq.id,
+            f"Caso #{caso.id}: {resultado.value} · {flujo.NOMBRE_ETAPA[etapa].lower()}",
+        )
     elif partes[0] == "d":
-        await repo.set_estado_caso(db, caso.id, EstadoCaso.DESCARTADO)
+        try:
+            await flujo.descartar(
+                db,
+                caso.id,
+                rol=flujo.ADMINISTRATIVA,
+                persona=_persona(usuario),
+                canal=_CANAL,
+            )
+        except flujo.TransicionNoPermitida as exc:
+            await telegram.responder_callback(cq.id, str(exc)[:190])
+            return
         await telegram.responder_callback(cq.id, f"Caso #{caso.id} descartado")
         if cq.message:
             await telegram.editar_botones(chat_id, cq.message.message_id, None)

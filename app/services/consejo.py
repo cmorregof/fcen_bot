@@ -40,7 +40,7 @@ from app.schemas.consejo import (
     Instancia,
     SentidoConsejo,
 )
-from app.services import formatos
+from app.services import flujo, formatos
 from app.services.extraccion import get_estructurador
 
 logger = logging.getLogger(__name__)
@@ -666,6 +666,8 @@ async def aplicar(
     persona: str,
     direccion: str | None,
     reemplazar: bool = False,
+    rol: str = "administrativa",
+    canal: str = "web",
 ) -> DecisionConsejo:
     """Registra en el caso la decisión del acta. Solo la llama una persona
     (botón o pantalla). `direccion` es el alcance de quien confirma (None:
@@ -706,6 +708,12 @@ async def aplicar(
                 f"{previa.acta_numero or 'sin número'}). Confirme que quiere "
                 "reemplazarla."
             )
+    # La línea única (app/services/flujo.py) dice si el caso admite la decisión.
+    try:
+        await flujo.validar_consejo(db, caso.id, fila.sentido, rol)
+    except flujo.TransicionNoPermitida as exc:
+        await db.rollback()  # pudo materializar la etapa; no se guarda nada
+        raise ErrorActa(str(exc)) from exc
     decision = DecisionConsejo(
         caso_id=caso.id,
         instancia=acta.instancia,
@@ -726,7 +734,22 @@ async def aplicar(
                 "WHERE id = ?",
                 (EstadoCaso.DECIDIDO_CONSEJO.value, caso.id),
             )
+        # La fecha del hecho es la de la sesión que consta en el acta.
+        await flujo.transicionar(
+            db,
+            caso.id,
+            flujo.accion_consejo(decision.sentido),
+            rol=rol,
+            persona=persona,
+            canal=canal,
+            fecha=acta.fecha or None,
+            detalle=texto_decision(decision),
+            commit=False,
+        )
         await db.commit()
+    except flujo.TransicionNoPermitida as exc:
+        await db.rollback()
+        raise ErrorActa(str(exc)) from exc
     except ErrorActa as exc:
         if not exc.sin_cambios:
             await db.rollback()
@@ -799,7 +822,13 @@ async def descartar(
 
 
 async def aplicar_exactos(
-    db: Conexion, acta_id: int, *, persona: str, direccion: str | None
+    db: Conexion,
+    acta_id: int,
+    *,
+    persona: str,
+    direccion: str | None,
+    rol: str = "administrativa",
+    canal: str = "web",
 ) -> list[DecisionConsejo]:
     """Confirma de una vez los cruces exactos pendientes (botón explícito)."""
     aplicadas = []
@@ -809,7 +838,13 @@ async def aplicar_exactos(
         try:
             aplicadas.append(
                 await aplicar(
-                    db, fila.id, caso_id=None, persona=persona, direccion=direccion
+                    db,
+                    fila.id,
+                    caso_id=None,
+                    persona=persona,
+                    direccion=direccion,
+                    rol=rol,
+                    canal=canal,
                 )
             )
         except ErrorActa:

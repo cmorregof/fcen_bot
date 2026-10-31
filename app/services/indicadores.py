@@ -185,6 +185,32 @@ FUENTES: dict[str, Fuente] = {
         "del acta anterior al registro de la recomendación.",
         "Las mismas fechas de la mediana.",
     ),
+    "dias_total_mediana": Fuente(
+        "Días de la solicitud a la decisión del Consejo (mediana)",
+        "Indicador principal que pidió el Consejo el 28-oct-2026. Días "
+        "calendario entre la fecha de la solicitud y la fecha de la sesión que "
+        "consta en el acta del Consejo. Solo casos decididos (no aplazados), "
+        "con fecha en el acta no anterior a la solicitud.",
+        "Fecha del correo o del formato de solicitud (si no se leyó o es "
+        "posterior al registro, la fecha de registro del caso); fecha de la "
+        "sesión leída del acta del Consejo confirmada.",
+    ),
+    "dias_total_p90": Fuente(
+        "Días de la solicitud a la decisión del Consejo (percentil 90)",
+        "Percentil 90 por rango más cercano.",
+        "Las mismas fechas de la mediana.",
+    ),
+    "dias_total_casos": Fuente(
+        "Casos con días de la solicitud a la decisión",
+        "Cuántos casos entran en la mediana y el percentil 90.",
+        "Las mismas fechas de la mediana.",
+    ),
+    "improcedentes": Fuente(
+        "Improcedentes en la prerrevisión",
+        "Casos que el programa marcó improcedentes en la prerrevisión. Siguen "
+        "contando como recibidos: no se descartan.",
+        "Botón de prerrevisión de la administrativa en MemorIA (Telegram o web).",
+    ),
     "sin_fecha_recomendacion": Fuente(
         "Recomendados sin fecha de recomendación",
         "Casos recomendados antes de que MemorIA guardara la fecha de la "
@@ -408,6 +434,8 @@ class FilaCaso:
     sentido: Sentido
     consejo: SentidoConsejo | None
     acta_fecha: date | None
+    # Prerrevisión del programa (línea única, app/services/flujo.py).
+    prerrevision: str | None = None
 
 
 def _zona() -> ZoneInfo:
@@ -478,7 +506,7 @@ async def leer_casos(
     hasta = (periodo.hasta + timedelta(days=1)).isoformat()
     sql = (
         "SELECT c.direccion, c.programa, c.extraccion_json, c.sentido, c.creado,"
-        " c.recomendado, d.sentido, d.instancia, d.acta_fecha"
+        " c.recomendado, d.sentido, d.instancia, d.acta_fecha, c.prerrevision"
         " FROM casos c LEFT JOIN decisiones_consejo d ON d.caso_id = c.id"
         " WHERE c.estado != ? AND c.creado >= ? AND c.creado < ?"
     )
@@ -511,6 +539,7 @@ async def leer_casos(
                 sentido=Sentido(r[3]),
                 consejo=SentidoConsejo(r[6]) if r[6] else None,
                 acta_fecha=_fecha(r[8]),
+                prerrevision=r[9],
             )
         )
     return filas
@@ -560,6 +589,9 @@ class Indicadores:
     fechas_inconsistentes: int = 0
     dias_comite: Estadistica = field(default_factory=Estadistica)
     dias_consejo: Estadistica = field(default_factory=Estadistica)
+    # Indicador principal (28-oct): de la solicitud a la decisión del Consejo.
+    dias_total: Estadistica = field(default_factory=Estadistica)
+    improcedentes: int = 0
     # None: el plazo no está configurado en config/solicitudes.yaml.
     fuera_plazo_comite: int | None = None
     fuera_plazo_consejo: int | None = None
@@ -590,6 +622,10 @@ class Indicadores:
             "dias_consejo_mediana": self.dias_consejo.mediana,
             "dias_consejo_p90": self.dias_consejo.p90,
             "dias_consejo_casos": self.dias_consejo.casos,
+            "dias_total_mediana": self.dias_total.mediana,
+            "dias_total_p90": self.dias_total.p90,
+            "dias_total_casos": self.dias_total.casos,
+            "improcedentes": self.improcedentes,
             "sin_fecha_recomendacion": self.sin_fecha_recomendacion,
             "fechas_inconsistentes": self.fechas_inconsistentes,
             "fuera_plazo_comite": self.fuera_plazo_comite,
@@ -619,6 +655,7 @@ def calcular(
     filas = list(filas)
     dias_comite: list[int] = []
     dias_consejo: list[int] = []
+    dias_total: list[int] = []
     fuera_comite = 0
     fuera_consejo = 0
     fechas_inconsistentes = 0
@@ -641,6 +678,8 @@ def calcular(
         ):
             # El acta es anterior al registro de la recomendación.
             fechas_inconsistentes += 1
+        if _decidido(f) and f.acta_fecha is not None and f.acta_fecha >= f.solicitud:
+            dias_total.append((f.acta_fecha - f.solicitud).days)
         if plazos.comite:
             # Sin recomendación, el reloj del comité sigue corriendo hasta hoy.
             fin: date | None
@@ -673,6 +712,8 @@ def calcular(
         fechas_inconsistentes=fechas_inconsistentes,
         dias_comite=estadistica(dias_comite),
         dias_consejo=estadistica(dias_consejo),
+        dias_total=estadistica(dias_total),
+        improcedentes=sum(f.prerrevision == "improcedente" for f in filas),
         fuera_plazo_comite=fuera_comite if plazos.comite else None,
         fuera_plazo_consejo=fuera_consejo if plazos.consejo else None,
     )
@@ -770,6 +811,8 @@ _NOTAS: tuple[tuple[str, ...], ...] = (
     ("dias_comite_mediana", "dias_comite_p90"),
     ("dias_consejo_mediana", "dias_consejo_p90"),
     ("fuera_plazo_comite", "fuera_plazo_consejo"),
+    ("dias_total_mediana", "dias_total_p90"),
+    ("improcedentes",),
 )
 
 
@@ -826,6 +869,9 @@ def lineas_total(r: Reporte) -> list[str]:
         ),
         f"• Fuera de plazo: comité {_plazo(i.fuera_plazo_comite, plazos.comite)}; "
         f"Consejo {_plazo(i.fuera_plazo_consejo, plazos.consejo)} [7]",
+        f"• Días de la solicitud a la decisión del Consejo (indicador "
+        f"principal): {_est(i.dias_total)} [8]",
+        f"• Improcedentes en la prerrevisión: {i.improcedentes} [9]",
     ]
 
 

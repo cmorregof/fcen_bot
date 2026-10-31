@@ -149,6 +149,12 @@ def botones_ficha(caso_id: int) -> list[list[dict[str, str]]]:
             },
             {"text": "⏳ Pendiente", "callback_data": f"s:{caso_id}:pendiente"},
         ],
+        # Prerrevisión del programa (app/services/flujo.py).
+        [
+            {"text": "Procedente", "callback_data": f"pr:{caso_id}:procedente"},
+            {"text": "Improcedente", "callback_data": f"pr:{caso_id}:improcedente"},
+            {"text": "Incompleta", "callback_data": f"pr:{caso_id}:incompleto"},
+        ],
         [
             {"text": "🗣 Concepto", "callback_data": f"c:{caso_id}"},
             {"text": "📝 Nota", "callback_data": f"n:{caso_id}"},

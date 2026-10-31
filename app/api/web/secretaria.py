@@ -13,6 +13,7 @@ from app.api.web.auth import Db, Usuario
 from app.db import repo
 from app.services import (
     estadisticas_consejo,
+    flujo,
     indicadores,
     notificaciones,
     oficio_consejo,
@@ -50,7 +51,12 @@ async def guardar(
     error = cuerpo.error(indicadores.hoy_local())
     if error:
         raise HTTPException(422, error)
-    await notificaciones.guardar(db, caso_id, cuerpo, usuario.correo)
+    try:
+        await notificaciones.guardar(
+            db, caso_id, cuerpo, usuario.correo, rol=usuario.rol
+        )
+    except flujo.TransicionNoPermitida as exc:
+        raise HTTPException(409, str(exc)) from None
     return {"guardado": True}
 
 

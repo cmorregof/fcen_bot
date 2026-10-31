@@ -32,6 +32,7 @@ from app.services import (
     borrador,
     casos,
     consejo,
+    flujo,
     indicadores,
     oficio_consejo,
     suit,
@@ -82,6 +83,8 @@ def _resumen(caso: Caso) -> dict[str, object]:
         "objeto": ext.objeto_solicitud if ext else None,
         "creado": caso.creado,
         "consejo": _consejo(caso),
+        "etapa": caso.etapa,
+        "etapa_texto": flujo.nombre_etapa(caso.etapa),
     }
 
 
@@ -153,6 +156,69 @@ def _detalle(caso: Caso) -> dict[str, object]:
     }
 
 
+def _evento(e: flujo.Evento) -> dict[str, object]:
+    return {
+        "accion": e.accion.value,
+        "texto": flujo.NOMBRE_ACCION[e.accion],
+        "desde": e.desde.value if e.desde else None,
+        "hacia": e.hacia.value,
+        "hacia_texto": flujo.NOMBRE_ETAPA[e.hacia],
+        "fecha": e.fecha,
+        "rol": flujo.NOMBRE_ROL.get(e.rol, e.rol),
+        "persona": e.persona,
+        "canal": e.canal,
+        "detalle": e.detalle,
+        "registrado": e.registrado,
+    }
+
+
+async def _linea(db: Db, caso: Caso) -> dict[str, object]:
+    """La línea única del caso: etapa, historia, siguiente paso y tramos."""
+    evs = await flujo.eventos(db, caso.id)
+    etapa = await flujo.etapa_de(db, caso.id)
+    await db.commit()  # por si la etapa se derivó en esta lectura
+    sig = flujo.siguiente(
+        etapa,
+        leido=caso.extraccion is not None,
+        tipos=caso.extraccion.tipos if caso.extraccion else [],
+        instancia_decision=caso.consejo.instancia.value if caso.consejo else None,
+    )
+    extraccion = caso.extraccion.model_dump_json() if caso.extraccion else None
+    return {
+        "etapa": etapa.value,
+        "etapa_texto": flujo.NOMBRE_ETAPA[etapa],
+        "prerrevision": caso.prerrevision,
+        "linea": [_evento(e) for e in evs],
+        "siguiente": {"paso": sig.paso, "responsable": sig.responsable}
+        if sig
+        else None,
+        "tramos": [
+            {"nombre": t.nombre, "dias": t.dias} for t in flujo.tramos(evs, extraccion)
+        ],
+        # Qué botones de la línea puede usar la administrativa ahora.
+        "acciones": [
+            a.value
+            for a in (
+                flujo.Accion.PRERREVISAR_PROCEDENTE,
+                flujo.Accion.PRERREVISAR_IMPROCEDENTE,
+                flujo.Accion.PRERREVISAR_INCOMPLETO,
+                flujo.Accion.COMPLETAR,
+                flujo.Accion.ENVIAR_CONSEJO,
+                flujo.Accion.VOLVER_AL_COMITE,
+            )
+            if flujo.puede(a, etapa, flujo.ADMINISTRATIVA)
+        ],
+    }
+
+
+async def _ficha(db: Db, caso: Caso) -> dict[str, object]:
+    return {**_detalle(caso), **await _linea(db, caso)}
+
+
+def _conflicto(exc: flujo.TransicionNoPermitida) -> HTTPException:
+    return HTTPException(409, str(exc))
+
+
 # ---------------------------------------------------------------------------
 # Casos
 # ---------------------------------------------------------------------------
@@ -193,7 +259,14 @@ async def crear(
         if len(datos) > _MAX_IMAGEN:
             raise HTTPException(400, f"«{a.filename}» pesa más de 10 MB.")
         leidos.append((datos, ext))
-    caso_id = await repo.crear_caso(db, chat_id=0, user_id=0, direccion=direccion)
+    caso_id = await repo.crear_caso(
+        db,
+        chat_id=0,
+        user_id=0,
+        direccion=direccion,
+        canal="web",
+        persona=_persona(usuario),
+    )
     if texto.strip():
         await repo.agregar_texto(db, caso_id, texto.strip())
     carpeta = settings.media_dir / str(caso_id)
@@ -215,7 +288,7 @@ async def crear(
 
 @router.get("/casos/{caso_id}")
 async def ver(caso_id: int, usuario: _Area, db: Db) -> dict[str, object]:
-    return _detalle(await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
 
 
 @router.get("/casos/{caso_id}/oficio-consejo")
@@ -241,7 +314,7 @@ async def descargar_oficio_consejo(caso_id: int, usuario: _Area, db: Db) -> Resp
 async def procesar(caso_id: int, usuario: _Administrativa, db: Db) -> dict[str, object]:
     caso = await _caso_del_area(db, caso_id, usuario)
     if caso.estado not in (EstadoCaso.ABIERTO, EstadoCaso.ERROR, EstadoCaso.PROCESANDO):
-        return _detalle(caso)
+        return await _ficha(db, caso)
     if not caso.texto.strip() and not caso.imagenes:
         raise HTTPException(400, "El caso está vacío.")
     resultado = await casos.procesar(db, caso)
@@ -249,7 +322,7 @@ async def procesar(caso_id: int, usuario: _Administrativa, db: Db) -> dict[str, 
         raise HTTPException(
             502, f"No pude leer el caso: {resultado.error}. Puede intentarlo de nuevo."
         )
-    return _detalle(resultado.caso)
+    return await _ficha(db, resultado.caso)
 
 
 class Texto(BaseModel):
@@ -268,7 +341,7 @@ async def corregir(
     resultado = await casos.corregir(db, caso, cuerpo.texto[:2000])
     if resultado.error is not None:
         raise HTTPException(502, f"No pude aplicar la corrección: {resultado.error}")
-    return _detalle(resultado.caso)
+    return await _ficha(db, resultado.caso)
 
 
 class Recomendacion(BaseModel):
@@ -281,8 +354,90 @@ async def recomendar(
 ) -> dict[str, object]:
     """Registra lo que recomendó el comité. Lo decide una persona, no el modelo."""
     caso = await _caso_del_area(db, caso_id, usuario)
-    await repo.set_sentido(db, caso.id, cuerpo.sentido)
-    return _detalle(await _caso_del_area(db, caso_id, usuario))
+    try:
+        await flujo.recomendar(
+            db,
+            caso.id,
+            cuerpo.sentido,
+            rol=usuario.rol,
+            persona=_persona(usuario),
+            canal="web",
+        )
+    except flujo.TransicionNoPermitida as exc:
+        raise _conflicto(exc) from None
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+
+
+class Prerrevision(BaseModel):
+    resultado: flujo.Prerrevision
+    nota: str = ""
+
+
+@router.post("/casos/{caso_id}/prerrevision")
+async def prerrevision(
+    caso_id: int, cuerpo: Prerrevision, usuario: _Administrativa, db: Db
+) -> dict[str, object]:
+    """Prerrevisión del programa: procedente, improcedente o incompleta."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    try:
+        await flujo.prerrevisar(
+            db,
+            caso.id,
+            cuerpo.resultado,
+            rol=usuario.rol,
+            persona=_persona(usuario),
+            canal="web",
+            nota=cuerpo.nota,
+        )
+    except flujo.TransicionNoPermitida as exc:
+        raise _conflicto(exc) from None
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+
+
+@router.post("/casos/{caso_id}/completar")
+async def completar(
+    caso_id: int, usuario: _Administrativa, db: Db
+) -> dict[str, object]:
+    """Llegó lo que faltaba: el caso vuelve a la llegada para prerrevisarlo."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    try:
+        await flujo.completar(
+            db, caso.id, rol=usuario.rol, persona=_persona(usuario), canal="web"
+        )
+    except flujo.TransicionNoPermitida as exc:
+        raise _conflicto(exc) from None
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+
+
+@router.post("/casos/{caso_id}/enviar-consejo")
+async def enviar_consejo(
+    caso_id: int, usuario: _Administrativa, db: Db
+) -> dict[str, object]:
+    """El oficio del comité va al Consejo (en Telegram: «Cerrar»). El caso
+    sale del borrador en curso."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    try:
+        await flujo.enviar_consejo(
+            db, [caso.id], rol=usuario.rol, persona=_persona(usuario), canal="web"
+        )
+    except flujo.TransicionNoPermitida as exc:
+        raise _conflicto(exc) from None
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+
+
+@router.post("/casos/{caso_id}/volver-al-comite")
+async def volver_al_comite(
+    caso_id: int, usuario: _Administrativa, db: Db
+) -> dict[str, object]:
+    """El caso vuelve del Consejo al comité (p. ej., si el Consejo lo aplazó)."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    try:
+        await flujo.volver_al_comite(
+            db, caso.id, rol=usuario.rol, persona=_persona(usuario), canal="web"
+        )
+    except flujo.TransicionNoPermitida as exc:
+        raise _conflicto(exc) from None
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
 
 
 @router.post("/casos/{caso_id}/nota")
@@ -291,7 +446,7 @@ async def nota(
 ) -> dict[str, object]:
     caso = await _caso_del_area(db, caso_id, usuario)
     await repo.set_nota(db, caso.id, cuerpo.texto.strip()[:1500] or None)
-    return _detalle(await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
 
 
 class Programa(BaseModel):
@@ -306,7 +461,7 @@ async def fijar_programa(
     if cuerpo.programa not in {p.clave for p in programas_de(caso.direccion)}:
         raise HTTPException(400, "Ese programa no es de su área.")
     await repo.set_programa(db, caso.id, cuerpo.programa)
-    return _detalle(await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
 
 
 class NuevoConcepto(BaseModel):
@@ -330,7 +485,7 @@ async def concepto(
         tratamiento=casos.tratamiento_de(caso, miembro),
         texto=cuerpo.texto.strip()[:4000],
     )
-    return _detalle(await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
 
 
 # ---------------------------------------------------------------------------
@@ -603,6 +758,7 @@ async def confirmar_decision(
             persona=_persona(usuario),
             direccion=_alcance(usuario),
             reemplazar=cuerpo.reemplazar,
+            rol=usuario.rol,
         )
     except consejo.ErrorActa as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -634,7 +790,11 @@ async def confirmar_exactos(
     acta = await _acta_visible(db, acta_id, usuario)
     try:
         await consejo.aplicar_exactos(
-            db, acta.id, persona=_persona(usuario), direccion=_alcance(usuario)
+            db,
+            acta.id,
+            persona=_persona(usuario),
+            direccion=_alcance(usuario),
+            rol=usuario.rol,
         )
     except consejo.ErrorActa as exc:
         raise HTTPException(409, str(exc)) from exc

@@ -16,6 +16,7 @@ from app.api.web.auth import Db, Usuario
 from app.core.config import settings
 from app.core.programas import DIRECCIONES, PROGRAMAS
 from app.db import repo
+from app.services import flujo
 from app.services.drive import archivo
 from app.services.drive import cliente as drive
 
@@ -114,7 +115,7 @@ async def oficio_firmado(
             "con eso queda expedido y se puede archivar.",
         )
     tipo: archivo.TipoDocumento = "resolucion" if fila[0] == "resolucion" else "oficio"
-    return await _archivar(
+    resultado = await _archivar(
         archivo.Documento(
             tipo=tipo,
             numero=str(fila[1]),
@@ -124,3 +125,15 @@ async def oficio_firmado(
             archivado_por=usuario.correo,
         )
     )
+    # Ya está en Drive: la línea del caso lo registra (app/services/flujo.py).
+    try:
+        await flujo.archivar(
+            db,
+            caso_id,
+            rol=usuario.rol,
+            persona=usuario.correo,
+            detalle=str(resultado.get("ruta") or ""),
+        )
+    except flujo.TransicionNoPermitida:
+        logger.warning("El caso #%s se archivó en Drive fuera de la línea", caso_id)
+    return resultado

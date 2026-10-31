@@ -50,3 +50,11 @@ columnas:
     encabezado: Fuera de plazo en el comité
   - clave: fuera_plazo_consejo
     encabezado: Fuera de plazo en el Consejo
+  - clave: dias_total_mediana
+    encabezado: Días solicitud a decisión del Consejo (mediana)
+  - clave: dias_total_p90
+    encabezado: Días solicitud a decisión del Consejo (percentil 90)
+  - clave: dias_total_casos
+    encabezado: Casos con días solicitud a decisión
+  - clave: improcedentes
+    encabezado: Improcedentes en la prerrevisión

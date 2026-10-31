@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.core.programas import PROGRAMAS
 from app.db import repo
 from app.schemas.caso import Caso, EstadoCaso
-from app.services import extraccion, reglas
+from app.services import extraccion, flujo, reglas
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,9 @@ async def procesar(db: Conexion, caso: Caso) -> Resultado:
         salida.extraccion,
         salida.programa.clave if salida.programa else None,
     )
+    # Con la lectura lista, el caso entra al comité (si la prerrevisión no es
+    # obligatoria): app/services/flujo.py.
+    await flujo.lectura_lista(db, caso.id)
     actualizado = await repo.get_caso(db, caso.id)
     assert actualizado is not None
     return Resultado(actualizado)
