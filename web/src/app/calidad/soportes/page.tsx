@@ -54,6 +54,7 @@ type Estado = {
   tope_usd: number;
   max_mb: number;
   retencion_dias: number;
+  revisor_activo: boolean;
 };
 
 const DESCARGAS: { clave: string; nombre: string; texto: string }[] = [
@@ -197,7 +198,8 @@ export default function RevisionSoportes() {
       servicio="calidad"
       roles={["calidad", "admin"]}
       hace={[
-        "Lee los soportes de un programa (un archivo .zip con carpetas «ACCIÓN 1.1.1»), describe cada archivo y los cruza con las acciones del plan.",
+        "Revisa las carpetas y los nombres de las evidencias según el instructivo de la Dirección Académica y prellena el índice electrónico del expediente, sin costo.",
+        "Con la revisión con el modelo encendida: describe cada archivo y los cruza con las acciones del plan.",
         "Antes de empezar le dice cuántos archivos hay y cuánto costará, y solo empieza si usted confirma.",
         "Entrega tres archivos para revisar: inventario, cruce y borrador del cierre.",
       ]}
@@ -218,7 +220,7 @@ export default function RevisionSoportes() {
 
       {estado && !apagado ? (
         <>
-          <AvisoPropuesta />
+          {estado.revisor_activo ? <AvisoPropuesta /> : null}
 
           {!corriendo ? (
             <>
@@ -240,7 +242,8 @@ export default function RevisionSoportes() {
               <label htmlFor="zip">
                 Archivo .zip con los soportes
                 <span className="ayuda">
-                  Una carpeta por acción, con el código del plan: «ACCIÓN 1.1.1», «ACCIÓN 1.1.2»… Máximo {estado.max_mb}{" "}
+                  Descargue de Drive la carpeta «Soportes de acciones» del programa: una carpeta por acción («Acción 1.1»,
+                  «Acción 1.2»…) con «Producto final» y «Soportes de producto final». Máximo {estado.max_mb}{" "}
                   MB. Subir un zip nuevo reemplaza el anterior.
                 </span>
               </label>
@@ -254,9 +257,36 @@ export default function RevisionSoportes() {
             </>
           ) : null}
 
-          {est && estado.programa && ["cargado", "interrumpido"].includes(estado.estado) ? (
+          {org && estado.programa && !corriendo && estado.estado !== "vacio" ? (
             <>
-              <Titulo n={3}>Revise el costo y confirme</Titulo>
+              <Titulo n={3}>Revise carpetas, nombres e índice</Titulo>
+              <p>
+                <strong>{estado.programa}</strong>, según el instructivo de la Dirección Académica:{" "}
+                {org.archivos_con_observaciones === 0 && org.acciones_con_observaciones.length === 0
+                  ? "las carpetas y los nombres cumplen."
+                  : `${org.archivos_con_observaciones} archivos con observaciones${
+                      org.acciones_con_observaciones.length > 0
+                        ? ` y estructura incompleta en las acciones ${org.acciones_con_observaciones.join(", ")}`
+                        : ""
+                    }.`}
+              </p>
+              <p>
+                Descargue abajo «Carpetas y nombres de las evidencias» (con un nombre sugerido para cada archivo) y el
+                «Índice electrónico del expediente» prellenado. No usa el modelo ni gasta créditos.
+              </p>
+            </>
+          ) : null}
+
+          {!estado.revisor_activo ? (
+            <Mensaje tipo="info">
+              La revisión con el modelo (cruce con el plan y borrador del cierre) sigue apagada, pendiente del aval de
+              tratamiento de datos. Por eso los soportes se borran del servidor apenas se revisan carpetas y nombres.
+            </Mensaje>
+          ) : null}
+
+          {est && estado.revisor_activo && estado.programa && ["cargado", "interrumpido"].includes(estado.estado) ? (
+            <>
+              <Titulo n={4}>Revise el costo y confirme</Titulo>
               <p>
                 <strong>{estado.programa}</strong>: {est.archivos} archivos para {est.acciones} acciones.
               </p>
@@ -276,16 +306,6 @@ export default function RevisionSoportes() {
                 {est.carpetas_sin_accion.length > 0 ? (
                   <li>
                     Carpetas cuyo código no está en el plan (no se cruzan): {est.carpetas_sin_accion.join(", ")}.
-                  </li>
-                ) : null}
-                {org && (org.archivos_con_observaciones > 0 || org.acciones_con_observaciones.length > 0) ? (
-                  <li>
-                    Organización según el instructivo de la Dirección Académica: {org.archivos_con_observaciones}{" "}
-                    archivos con observaciones
-                    {org.acciones_con_observaciones.length > 0
-                      ? ` y estructura incompleta en las acciones ${org.acciones_con_observaciones.join(", ")}`
-                      : ""}
-                    . Descargue «Carpetas y nombres de las evidencias» abajo: no gasta créditos.
                   </li>
                 ) : null}
               </ul>
@@ -315,7 +335,7 @@ export default function RevisionSoportes() {
 
           {estado.pasos && ["corriendo", "terminado", "fallido"].includes(estado.estado) ? (
             <>
-              <Titulo n={4}>Avance de la revisión</Titulo>
+              <Titulo n={5}>Avance de la revisión</Titulo>
               {corriendo ? (
                 <p>
                   Puede cerrar esta página: la revisión sigue. Tarda unos minutos. Gastado hasta ahora:{" "}
@@ -354,7 +374,7 @@ export default function RevisionSoportes() {
 
           {estado.estado === "terminado" && estado.resumen ? (
             <>
-              <Titulo n={5}>Descargue los resultados</Titulo>
+              <Titulo n={6}>Descargue los resultados</Titulo>
               {estado.resumen.detenida ? (
                 <Mensaje tipo="error">
                   La revisión no se completó ({estado.resumen.detenida}). Los archivos traen lo que alcanzó a

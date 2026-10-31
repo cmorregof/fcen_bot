@@ -147,6 +147,7 @@ async def test_apagado_responde_403_con_el_aviso(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(calidad_settings, "revisor_activo", False)
+    monkeypatch.setattr(calidad_settings, "evidencias_activo", False)
     c = cliente("calidad")
     cab = await _token("lili@unal.edu.co", "calidad")
     for metodo, ruta in [
@@ -163,8 +164,42 @@ async def test_apagado_responde_403_con_el_aviso(
     assert falso.llamadas == []
 
 
+async def test_solo_evidencias_sin_modelo_ni_soportes_guardados(
+    cliente: Cliente,  # noqa: F811
+    falso: ModeloFalso,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Revisor apagado y evidencias encendidas (lo de fábrica): carpetas,
+    nombres e índice salen, los soportes se borran y nada va al modelo."""
+    monkeypatch.setattr(calidad_settings, "revisor_activo", False)
+    with cliente("calidad") as c:
+        cab = await _token("lili@unal.edu.co", "calidad")
+        await _plan_cargado(c, cab)
+        estado = c.get(RUTA, headers=cab).json()
+        assert estado["revisor_activo"] is False
+        r = c.post(
+            f"{RUTA}/soportes?programa=alfa", content=zip_ficticio(), headers=cab
+        )
+        assert r.status_code == 200, r.text
+        estado = r.json()
+        assert estado["descargas"] == ["organizacion", "indice"]
+        assert not estado["soportes_presentes"]
+        assert not (corrida.base() / "actual" / "soportes").exists()
+        for clave in ("organizacion", "indice"):
+            assert c.get(f"{RUTA}/descargar/{clave}", headers=cab).status_code == 200
+        r = _correr(c, cab, estado)
+        assert r.status_code == 403
+        assert "Pendiente del aval" in r.json()["detail"]
+        assert c.delete(RUTA, headers=cab).status_code == 200
+    corrida.limpiar(al_arrancar=True)
+    assert not (corrida.base() / "cache").exists()
+    assert falso.llamadas == []
+
+
 def test_apagado_por_defecto() -> None:
-    assert type(calidad_settings).model_fields["revisor_activo"].default is False
+    campos = type(calidad_settings).model_fields
+    assert campos["revisor_activo"].default is False
+    assert campos["evidencias_activo"].default is True
     assert type(calidad_settings).model_fields["revisor_tope_usd"].default == 10.0
 
 
@@ -712,6 +747,7 @@ async def test_apagado_purga_el_volumen(
     (corrida.base() / "cache").mkdir(parents=True)
     (corrida.base() / "cache" / "x.json").write_text("{}")
     monkeypatch.setattr(calidad_settings, "revisor_activo", False)
+    monkeypatch.setattr(calidad_settings, "evidencias_activo", False)
     corrida.limpiar(al_arrancar=True)
     assert not corrida.base().exists()
     (corrida.base() / "cache").mkdir(parents=True)
@@ -829,6 +865,7 @@ async def test_carpeta_no_dedicada_no_se_borra(
     assert c.get(RUTA, headers=cab).status_code == 503
     # Apagado y al arrancar: no se borra nada.
     monkeypatch.setattr(calidad_settings, "revisor_activo", False)
+    monkeypatch.setattr(calidad_settings, "evidencias_activo", False)
     corrida.limpiar(al_arrancar=True)
     assert c.get(RUTA, headers=cab).status_code == 403
     assert otro.exists() and (carpeta / "cache" / "x.json").exists()
@@ -843,6 +880,7 @@ def test_apagado_borra_solo_lo_propio(
     (raiz / "cache").mkdir()
     (raiz / "ajeno.txt").write_text("no es del revisor")
     monkeypatch.setattr(calidad_settings, "revisor_activo", False)
+    monkeypatch.setattr(calidad_settings, "evidencias_activo", False)
     corrida.limpiar()
     assert not (raiz / "actual").exists() and not (raiz / "cache").exists()
     assert (raiz / "ajeno.txt").exists()

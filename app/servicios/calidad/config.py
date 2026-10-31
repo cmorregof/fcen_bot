@@ -30,6 +30,10 @@ class CalidadSettings(BaseSettings):
     # Revisor de soportes desde la web. Apagado hasta que exista el aval de
     # tratamiento de datos: los soportes traen nombres y listados.
     revisor_activo: bool = False
+    # Carpetas, nombres e índice electrónico de las evidencias (instructivo de
+    # la Dirección Académica). No llama al modelo y no guarda los soportes: se
+    # borran apenas se inventarían. Funciona aunque el revisor esté apagado.
+    evidencias_activo: bool = True
     # Ninguna corrida gasta más de esto en la API (USD).
     revisor_tope_usd: float = 10.0
     # Tamaño máximo del zip que se sube y de lo que trae descomprimido (MB).
