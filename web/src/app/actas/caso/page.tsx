@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
-import { llamar } from "@/lib/api";
+import { guardarArchivo, llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
 
 type Detalle = {
@@ -36,6 +36,8 @@ type Detalle = {
   imagenes: number;
   anexos: string[];
   consejo: DecisionConsejo | null;
+  // Hay decisión final del Consejo de Facultad: se puede bajar el borrador del oficio.
+  oficio_consejo: boolean;
 };
 
 // Quién recomienda y quién decide (config/solicitudes.yaml).
@@ -57,7 +59,17 @@ type DecisionConsejo = {
   confirmado_por: string;
 };
 
-function Consejo({ d }: { d: DecisionConsejo | null }) {
+function Consejo({
+  d,
+  oficio,
+  ocupado,
+  onOficio,
+}: {
+  d: DecisionConsejo | null;
+  oficio: boolean;
+  ocupado: boolean;
+  onOficio: () => void;
+}) {
   return (
     <>
       <h2>Decisión del Consejo</h2>
@@ -76,6 +88,14 @@ function Consejo({ d }: { d: DecisionConsejo | null }) {
           <blockquote style={{ margin: "0.5rem 0", whiteSpace: "pre-wrap" }}>
             <small>{d.fragmento}</small>
           </blockquote>
+          {oficio ? (
+            <div className="botones">
+              <button type="button" className="secundario" disabled={ocupado} onClick={onOficio}>
+                Borrador del oficio del Consejo (Word)
+              </button>
+              <small>Lo que falta (número, modalidad de la sesión, motivación, firma) sale en amarillo.</small>
+            </div>
+          ) : null}
         </div>
       ) : (
         <p>Pendiente de acta del Consejo.</p>
@@ -161,6 +181,18 @@ function Ficha() {
     setOcupado(false);
   };
 
+  const bajarOficio = async () => {
+    setOcupado(true);
+    setError(null);
+    try {
+      const blob = await llamar<Blob>("actas", `/actas/casos/${id}/oficio-consejo`, { token: t });
+      guardarArchivo(blob, `Borrador_Consejo_caso_${id}.docx`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setOcupado(false);
+  };
+
   return (
     <Pantalla
       titulo={caso ? `Caso #${caso.id}${caso.estudiante ? `: ${caso.estudiante}` : ""}` : "Ficha del caso"}
@@ -171,6 +203,7 @@ function Ficha() {
           ? [
               "Muestra los datos leídos del correo y del SIA, con alertas según la norma.",
               "Registra la recomendación del comité, la nota y los conceptos de sus miembros.",
+              "Con la decisión del Consejo confirmada, arma el borrador del oficio de notificación para la Secretaría.",
             ]
           : ["Muestra la ficha del caso y le permite dejar su concepto."]
       }
@@ -198,7 +231,7 @@ function Ficha() {
       ) : null}
       {caso?.extraccion ? (
         <>
-          <Consejo d={caso.consejo} />
+          <Consejo d={caso.consejo} oficio={caso.oficio_consejo} ocupado={ocupado} onOficio={bajarOficio} />
           <h2>Solicitud</h2>
           <p>{caso.objeto}</p>
           <ul>

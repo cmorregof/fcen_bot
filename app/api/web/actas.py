@@ -28,7 +28,14 @@ from app.schemas.consejo import (
     EstadoDecision,
     Instancia,
 )
-from app.services import borrador, casos, consejo, indicadores, suit
+from app.services import (
+    borrador,
+    casos,
+    consejo,
+    indicadores,
+    oficio_consejo,
+    suit,
+)
 
 router = APIRouter(prefix="/actas")
 
@@ -141,6 +148,8 @@ def _detalle(caso: Caso) -> dict[str, object]:
         ],
         "imagenes": len(caso.imagenes),
         "anexos": caso.anexos_archivos,
+        # Borrador del oficio de notificación del Consejo (docs/oficios-consejo.md).
+        "oficio_consejo": oficio_consejo.motivo_sin_oficio(caso) is None,
     }
 
 
@@ -207,6 +216,25 @@ async def crear(
 @router.get("/casos/{caso_id}")
 async def ver(caso_id: int, usuario: _Area, db: Db) -> dict[str, object]:
     return _detalle(await _caso_del_area(db, caso_id, usuario))
+
+
+@router.get("/casos/{caso_id}/oficio-consejo")
+async def descargar_oficio_consejo(caso_id: int, usuario: _Area, db: Db) -> Response:
+    """Borrador del oficio (o resolución) con que la Secretaría notifica la
+    decisión del Consejo de Facultad. Mismos permisos que ver el caso."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    motivo = oficio_consejo.motivo_sin_oficio(caso)
+    if motivo:
+        raise HTTPException(409, motivo)
+    docx = oficio_consejo.construir_oficio_consejo(caso, elaboro=usuario.nombre or "")
+    return Response(
+        docx,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": "attachment; "
+            f'filename="{oficio_consejo.nombre_archivo(caso)}"'
+        },
+    )
 
 
 @router.post("/casos/{caso_id}/procesar")

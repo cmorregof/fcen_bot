@@ -371,6 +371,54 @@ async def test_actas_area_y_recomendacion(cliente: Cliente) -> None:
         assert c.get(ruta, headers=ajena).status_code == 404
 
 
+async def test_actas_borrador_del_oficio_del_consejo(cliente: Cliente) -> None:
+    from app.core.programas import DIRECCIONES, PROGRAMAS
+    from app.schemas.caso import TipoSolicitud
+    from tests.conftest import extraccion_ejemplo
+
+    c = cliente("actas")
+    adm = await _token("adm@unal.edu.co", "administrativa", DIR)
+    r = c.post("/api/web/actas/casos", data={"texto": "Correo ficticio"}, headers=adm)
+    caso = r.json()["id"]
+    ruta = f"/api/web/actas/casos/{caso}"
+    programa = next(p.clave for p in PROGRAMAS.values() if p.direccion == DIR)
+    extraccion = extraccion_ejemplo(tipos=[TipoSolicitud.CANCELACION])
+    db = await aiosqlite.connect(settings.db_path)
+    await db.execute(
+        "UPDATE casos SET extraccion_json = ?, programa = ?, estado = 'listo' "
+        "WHERE id = ?",
+        (extraccion.model_dump_json(), programa, caso),
+    )
+    await db.commit()
+
+    # Sin decisión del Consejo no hay borrador.
+    assert c.get(ruta, headers=adm).json()["oficio_consejo"] is False
+    assert c.get(f"{ruta}/oficio-consejo", headers=adm).status_code == 409
+
+    await db.execute(
+        "INSERT INTO decisiones_consejo (caso_id, acta_id, decision_id, instancia, "
+        "sentido, texto_decision, acta_numero, acta_fecha, fragmento, confirmado_por) "
+        "VALUES (?, 1, 1, 'facultad', 'aprobo', 'Aprobado', '35', '2026-09-17', "
+        "'Fragmento ficticio', 'Persona Ficticia')",
+        (caso,),
+    )
+    await db.commit()
+    await db.close()
+    assert c.get(ruta, headers=adm).json()["oficio_consejo"] is True
+    r = c.get(f"{ruta}/oficio-consejo", headers=adm)
+    assert r.status_code == 200
+    assert r.content[:2] == b"PK"
+    assert f"caso_{caso}.docx" in r.headers["content-disposition"]
+
+    # Mismos permisos que ver el caso: el comité del área sí; otra área, no.
+    comite = await _token("dir@unal.edu.co", "comite", DIR)
+    assert c.get(f"{ruta}/oficio-consejo", headers=comite).status_code == 200
+    otra = next((d for d in DIRECCIONES if d != DIR), None)
+    if otra:
+        ajena = await _token("otra@unal.edu.co", "administrativa", otra)
+        assert c.get(f"{ruta}/oficio-consejo", headers=ajena).status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # Admisión: admitidos sin cuenta
 # ---------------------------------------------------------------------------
