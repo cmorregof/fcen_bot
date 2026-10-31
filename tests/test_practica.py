@@ -49,7 +49,7 @@ def test_flag_apagado_por_defecto() -> None:
     assert Settings(_env_file=None).memoria_practica is False  # type: ignore[call-arg]
 
 
-@pytest.mark.parametrize("servicio", ["actas", "calidad", "admision"])
+@pytest.mark.parametrize("servicio", ["actas", "calidad", "admision", "oportunidades"])
 def test_base_de_practica_separada(
     servicio: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

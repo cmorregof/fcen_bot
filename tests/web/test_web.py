@@ -719,7 +719,7 @@ def test_cors_permite_todos_los_metodos_de_la_web() -> None:
 
     cors = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
     permitidos = set(cors.kwargs["allow_methods"])
-    for servicio in ("actas", "calidad", "admision"):
+    for servicio in ("actas", "calidad", "admision", "oportunidades"):
         web = FastAPI()
         web.include_router(crear_router(servicio))
         for ruta, metodos in web.openapi()["paths"].items():

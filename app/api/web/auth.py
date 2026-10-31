@@ -29,6 +29,7 @@ Rol = Literal[
     "secretaria",
     "calidad",
     "admision",
+    "oportunidades",
     "decanatura",
     "admin",
 ]
@@ -39,6 +40,7 @@ ROLES_POR_SERVICIO: dict[str, tuple[Rol, ...]] = {
     "actas": ("administrativa", "comite", "secretaria", "decanatura", "admin"),
     "calidad": ("calidad", "decanatura", "admin"),
     "admision": ("admision", "decanatura", "admin"),
+    "oportunidades": ("oportunidades", "decanatura", "admin"),
 }
 
 _SECRETO_DEV = secrets.token_hex(32)

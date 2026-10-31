@@ -30,8 +30,8 @@ def _ids(valor: str) -> frozenset[int]:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Servicio actual del bot (actas, admision, calidad)
-    bot_servicio: Literal["actas", "admision", "calidad"] = "actas"
+    # Servicio actual del bot (actas, admision, calidad, oportunidades)
+    bot_servicio: Literal["actas", "admision", "calidad", "oportunidades"] = "actas"
 
     # Entorno de práctica (capacitaciones): base propia en <DATA_DIR>/practica/,
     # sin envíos a Telegram y con datos ficticios. Ver docs/entorno-practica.md.

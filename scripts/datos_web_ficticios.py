@@ -49,6 +49,11 @@ USUARIOS = {
         ("admision@unal.edu.co", "María Ficticia", "admision", None),
         ("decana@unal.edu.co", "Decana Ficticia", "decanatura", None),
     ],
+    "oportunidades": [
+        ("admin@unal.edu.co", "Admin Ficticio", "admin", None),
+        ("oportunidades@unal.edu.co", "Laura Ficticia", "oportunidades", None),
+        ("decana@unal.edu.co", "Decana Ficticia", "decanatura", None),
+    ],
 }
 
 
@@ -183,6 +188,18 @@ async def _admision(db: Conexion) -> None:
         await almacen.contar(db, clave, n)
 
 
+async def _oportunidades(db: Conexion) -> None:
+    from app.services.indicadores import hoy_local
+    from app.servicios.oportunidades import practica
+    from app.servicios.oportunidades.db import init_oportunidades
+
+    await init_oportunidades(db)
+    cur = await db.execute("SELECT COUNT(*) FROM opo_ofertas")
+    fila = await cur.fetchone()
+    if not (fila and fila[0]):
+        await practica.sembrar(db, hoy_local())
+
+
 async def main() -> None:
     servicio = settings.bot_servicio
     db = await connect()
@@ -197,9 +214,13 @@ async def main() -> None:
                 (correo, nombre, rol, direccion),
             )
         await db.commit()
-        await {"actas": _actas, "calidad": _calidad, "admision": _admision}[servicio](
-            db
-        )
+        cargar = {
+            "actas": _actas,
+            "calidad": _calidad,
+            "admision": _admision,
+            "oportunidades": _oportunidades,
+        }
+        await cargar[servicio](db)
     finally:
         await db.close()
     print(f"Datos ficticios cargados en {settings.db_path} ({servicio}).")

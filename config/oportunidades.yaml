@@ -1,0 +1,98 @@
+# Fuentes de la vigía semanal de oportunidades (docs/oportunidades.md).
+#
+# Solo se consultan las que tienen `activa: true`. Todas empiezan apagadas:
+# la Decanatura aprueba cada una antes de encenderla. Una fuente se puede
+# consultar si: es pública (sin iniciar sesión), su robots.txt permite la
+# página y sus términos de uso no prohíben la consulta automatizada. El
+# servicio respeta robots.txt y su Crawl-delay en cada corrida (no solo al
+# agregar la fuente), se identifica con un User-Agent propio, hace un pedido por
+# página por semana y no insiste ante 401, 403 o 429.
+#
+# Campos: clave (minúsculas y _), nombre, url, activa, tipos (orienta al
+# modelo), programas (claves de app/core/programas.py; vacío = cualquiera),
+# dominios (otros dominios válidos para los enlaces de sus ofertas),
+# justificacion y terminos_url.
+
+fuentes:
+  - clave: minciencias_convocatorias
+    nombre: MinCiencias — convocatorias
+    url: https://minciencias.gov.co/convocatorias/todas
+    activa: false
+    tipos: [convocatoria, beca]
+    justificacion: >-
+      Información pública de una entidad del Estado (Ley 1712 de 2014, de
+      transparencia y acceso a la información pública). robots.txt permite
+      /convocatorias y pide Crawl-delay de 10 s, que el servicio respeta.
+      Página HTML sin JavaScript obligatorio.
+    terminos_url: https://minciencias.gov.co/politicas
+
+  - clave: minciencias_formacion
+    nombre: MinCiencias — oportunidades de formación
+    url: https://minciencias.gov.co/convocatorias/oportunidades_formacion
+    activa: false
+    tipos: [beca, convocatoria]
+    programas: [mcf, mcma, mecen]
+    justificacion: >-
+      Misma entidad y mismas condiciones que la fuente anterior; reúne becas
+      de maestría y doctorado, útiles para los egresados y para posgrado.
+    terminos_url: https://minciencias.gov.co/politicas
+
+  - clave: colfuturo_becas
+    nombre: Colfuturo — becas y descuentos
+    url: https://www.colfuturo.org/programas/credito-beca/becas-y-descuentos
+    activa: false
+    tipos: [beca]
+    dominios: [aplicaciones.colfuturo.org, servicios.colfuturo.org]
+    justificacion: >-
+      Página pública de una fundación sin ánimo de lucro que difunde becas de
+      posgrado en el exterior. robots.txt no prohíbe la ruta. Antes de
+      encenderla, revisar sus términos de uso (no se encontró una cláusula
+      sobre consulta automatizada).
+    terminos_url: https://www.colfuturo.org/
+
+  - clave: unal_manizales_convocatorias
+    nombre: UNAL Manizales — convocatorias
+    url: https://convocatoria.manizales.unal.edu.co/
+    activa: false
+    tipos: [convocatoria, empleo, practica]
+    dominios: [manizales.unal.edu.co, unal.edu.co]
+    justificacion: >-
+      Sitio institucional de la propia Sede (estudiantes auxiliares,
+      monitorías, convocatorias internas). robots.txt sin restricciones.
+      Conviene confirmar con la Dirección de Sede que se puede difundir.
+    terminos_url: https://unal.edu.co/
+
+  - clave: unal_egresados
+    nombre: UNAL — Programa de Egresados (noticias y convocatorias)
+    url: https://egresados.unal.edu.co/
+    activa: false
+    tipos: [empleo, convocatoria, beca]
+    dominios: [unal.edu.co]
+    justificacion: >-
+      Portal público del Programa de Egresados de la Universidad. robots.txt
+      solo prohíbe /wp-admin/. La Bolsa de Empleo SIE que enlaza exige cuenta
+      y NO se consulta (ver excluidas): de este portal solo se toman las
+      convocatorias publicadas en abierto.
+    terminos_url: https://unal.edu.co/
+
+# Fuentes evaluadas que NO se consultan, con el motivo. Se pueden reconsiderar
+# con un convenio, una API o un permiso escrito.
+excluidas:
+  - nombre: Bolsa de Empleo SIE (UNAL)
+    motivo: >-
+      Las ofertas están detrás de un ingreso con cuenta. El servicio no inicia
+      sesión. Alternativa: pedir al Programa de Egresados un reporte o
+      exportación periódica.
+  - nombre: LinkedIn, Computrabajo, elempleo y portales privados similares
+    motivo: >-
+      Sus términos de uso prohíben la extracción automatizada. No se evaden
+      bloqueos. Alternativa: que las empresas aliadas envíen sus ofertas y se
+      registren a mano en la web.
+  - nombre: Servicio Público de Empleo (buscadordeempleo.gov.co)
+    motivo: >-
+      La búsqueda se arma con JavaScript y la página HTML no trae las ofertas.
+      Alternativa: pedir acceso a datos abiertos o a un servicio web oficial.
+  - nombre: ICETEX — becas internacionales
+    motivo: >-
+      Su robots.txt no respondió en la revisión (31-oct-2026). El servicio no
+      consulta un sitio cuyo robots.txt no puede leer.
