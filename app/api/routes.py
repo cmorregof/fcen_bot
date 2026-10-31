@@ -160,4 +160,17 @@ async def health() -> dict[str, object]:
         "periodo_inicio": settings.periodo_inicio.isoformat()
         if settings.periodo_inicio
         else None,
+        "almacenamiento": _almacenamiento(),
     }
+
+
+def _almacenamiento() -> dict[str, object]:
+    """Qué base usa el servicio y qué bases hay en el volumen (rutas y
+    tamaños, sin contenido): sirve para detectar una base huérfana."""
+    raiz = settings.data_dir
+    bases = sorted(
+        str(b.relative_to(raiz)) + f" ({b.stat().st_size // 1024} kB)"
+        for patron in ("*.db", "*/*.db", "*/*/*.db")
+        for b in raiz.glob(patron)
+    )
+    return {"data_dir": str(raiz), "db_path": str(settings.db_path), "bases": bases}
