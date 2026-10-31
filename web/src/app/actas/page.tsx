@@ -14,6 +14,7 @@ type Resumen = {
   programa: string | null;
   estudiante: string | null;
   objeto: string | null;
+  consejo: { sentido_texto: string; instancia_texto: string } | null;
 };
 
 const ESTADO: Record<string, string> = {
@@ -22,6 +23,7 @@ const ESTADO: Record<string, string> = {
   listo: "Ficha lista",
   error: "Con error",
   cerrado: "Cerrado",
+  decidido_consejo: "Decidido por el Consejo",
 };
 
 function NuevoCaso() {
@@ -136,7 +138,16 @@ export default function Casos() {
                     {c.programa ? <div><small>{c.programa}</small></div> : null}
                   </td>
                   <td>{ESTADO[c.estado] ?? c.estado}</td>
-                  <td>{c.sentido_texto}</td>
+                  <td>
+                    {c.sentido_texto}
+                    {c.consejo ? (
+                      <div>
+                        <small>
+                          {c.consejo.instancia_texto}: {c.consejo.sentido_texto}
+                        </small>
+                      </div>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>

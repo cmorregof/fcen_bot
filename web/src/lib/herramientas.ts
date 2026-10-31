@@ -26,6 +26,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     roles: ["administrativa"],
   },
   {
+    ruta: "/actas/consejo",
+    titulo: "Acta del Consejo",
+    descripcion: "Subir el acta del Consejo, revisar el cruce con los casos y confirmar las decisiones.",
+    servicio: "actas",
+    roles: ["administrativa", "admin"],
+  },
+  {
     ruta: "/actas",
     titulo: "Consultar casos",
     descripcion: "Leer las fichas de su área y dejar su concepto.",

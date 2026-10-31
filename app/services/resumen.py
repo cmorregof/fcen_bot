@@ -3,10 +3,11 @@
 Solo lectura y solo cifras: casos por programa y por estado, los más antiguos
 sin movimiento y alertas. Nunca nombres ni documentos de estudiantes.
 
-El comité asesor solo recomienda; decide el Consejo de Facultad, y lo que
-decide sale de su acta. MemorIA todavía no registra las actas del Consejo, así
-que todo caso recomendado se cuenta como «pendiente de acta del Consejo» y
-ninguno como aprobado.
+El comité asesor solo recomienda; decide el Consejo de Facultad (o el de Sede
+o el Superior), y lo que decide sale de su acta. Un caso recomendado sigue
+«pendiente de acta del Consejo» hasta que una persona confirma en MemorIA la
+decisión que consta en el acta (aprobó, no aprobó u otra). Un aplazamiento no
+es una decisión: el caso sigue pendiente y se cuenta aparte.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from app.core.config import settings
 from app.core.programas import PROGRAMAS
 from app.integrations import telegram
 from app.schemas.caso import EstadoCaso, Sentido
+from app.schemas.consejo import SentidoConsejo
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +72,26 @@ class Conteo:
     en_preparacion: int = 0
     recomendar_aprobar: int = 0
     recomendar_no_aprobar: int = 0
+    # Según el acta del Consejo, confirmado por una persona.
+    consejo_aprobo: int = 0
+    consejo_no_aprobo: int = 0
+    consejo_aplazo: int = 0
+    consejo_otro: int = 0
+    # Recomendados con decisión del Consejo (sin contar los aplazados).
+    recomendados_decididos: int = 0
 
     @property
     def recomendados(self) -> int:
         return self.recomendar_aprobar + self.recomendar_no_aprobar
 
     @property
+    def decididos_consejo(self) -> int:
+        return self.consejo_aprobo + self.consejo_no_aprobo + self.consejo_otro
+
+    @property
     def pendientes_acta_consejo(self) -> int:
-        # Sin actas del Consejo en MemorIA, toda recomendación sigue pendiente.
-        return self.recomendados
+        # Sin decisión confirmada desde el acta, la recomendación sigue pendiente.
+        return self.recomendados - self.recomendados_decididos
 
 
 @dataclass(frozen=True)
@@ -118,14 +131,17 @@ async def cifras_actas(db: aiosqlite.Connection, ahora: datetime) -> CifrasActas
     """Conteos de los casos del periodo y de los que siguen en curso."""
     inicio = settings.periodo_inicio.isoformat() if settings.periodo_inicio else ""
     cur = await db.execute(
-        "SELECT id, programa, estado, sentido, actualizado FROM casos"
-        " WHERE estado != ? AND (creado >= ? OR estado IN (?, ?, ?, ?))",
+        "SELECT c.id, c.programa, c.estado, c.sentido, c.actualizado, d.sentido"
+        " FROM casos c LEFT JOIN decisiones_consejo d ON d.caso_id = c.id"
+        " WHERE c.estado != ? AND (c.creado >= ? OR c.estado IN (?, ?, ?, ?))",
         (EstadoCaso.DESCARTADO.value, inicio, *(e.value for e in _ACTIVOS)),
     )
     cifras = CifrasActas()
     activos: list[SinMovimiento] = []
-    for caso_id, programa, estado_txt, sentido_txt, actualizado in await cur.fetchall():
+    for fila in await cur.fetchall():
+        caso_id, programa, estado_txt, sentido_txt, actualizado, consejo_txt = fila
         estado, sentido = EstadoCaso(estado_txt), Sentido(sentido_txt)
+        consejo = SentidoConsejo(consejo_txt) if consejo_txt else None
         nombre = PROGRAMAS[programa].nombre if programa in PROGRAMAS else _SIN_PROGRAMA
         for c in (cifras.total, cifras.por_programa.setdefault(nombre, Conteo())):
             c.recibidos += 1
@@ -135,6 +151,19 @@ async def cifras_actas(db: aiosqlite.Connection, ahora: datetime) -> CifrasActas
                 c.recomendar_no_aprobar += 1
             elif estado in _ACTIVOS:
                 c.en_preparacion += 1
+            if consejo == SentidoConsejo.APROBO:
+                c.consejo_aprobo += 1
+            elif consejo == SentidoConsejo.NO_APROBO:
+                c.consejo_no_aprobo += 1
+            elif consejo == SentidoConsejo.APLAZO:
+                c.consejo_aplazo += 1
+            elif consejo == SentidoConsejo.OTRO:
+                c.consejo_otro += 1
+            if (
+                consejo not in (None, SentidoConsejo.APLAZO)
+                and sentido != Sentido.PENDIENTE
+            ):
+                c.recomendados_decididos += 1
         if estado not in _ACTIVOS:
             continue
         dias = max(0, (ahora - _fecha(actualizado)).days)
@@ -253,10 +282,22 @@ def _fecha_larga(d: date) -> str:
 
 
 def _detalle(c: Conteo) -> str:
-    return (
+    texto = (
         f"{c.recibidos} recibidos · {c.en_preparacion} en preparación · "
         f"{c.recomendados} recomendados por el comité · "
         f"{c.pendientes_acta_consejo} pendientes de acta del Consejo"
+    )
+    if c.decididos_consejo:
+        texto += f" · {c.decididos_consejo} decididos por el Consejo"
+    return texto
+
+
+def _consejo(c: Conteo) -> str:
+    return (
+        f"Según el acta del Consejo: aprobó {c.consejo_aprobo}, no aprobó "
+        f"{c.consejo_no_aprobo}, aplazó {c.consejo_aplazo}"
+        + (f", otra decisión {c.consejo_otro}" if c.consejo_otro else "")
+        + "."
     )
 
 
@@ -278,6 +319,10 @@ def formatear(
             f"<b>Total</b>: {_detalle(t)}",
             f"De los recomendados: {t.recomendar_aprobar} recomendar aprobar, "
             f"{t.recomendar_no_aprobar} recomendar no aprobar.",
+        ]
+        if t.decididos_consejo or t.consejo_aplazo:
+            lineas.append(_consejo(t))
+        lineas += [
             "",
             "<b>Por programa</b>",
         ]

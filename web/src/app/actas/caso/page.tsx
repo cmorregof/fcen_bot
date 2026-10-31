@@ -35,6 +35,7 @@ type Detalle = {
   programas: { clave: string; nombre: string }[];
   imagenes: number;
   anexos: string[];
+  consejo: DecisionConsejo | null;
 };
 
 // Quién recomienda y quién decide (config/solicitudes.yaml).
@@ -45,6 +46,43 @@ type Ruta = {
   fuera_de_facultad: string[];
   tramites: { tipo: string; titulo: string; decide: string; por_confirmar: boolean; acto: string; nota: string | null }[];
 };
+
+type DecisionConsejo = {
+  instancia_texto: string;
+  sentido_texto: string;
+  texto_decision: string;
+  acta_numero: string | null;
+  acta_fecha: string | null;
+  fragmento: string;
+  confirmado_por: string;
+};
+
+function Consejo({ d }: { d: DecisionConsejo | null }) {
+  return (
+    <>
+      <h2>Decisión del Consejo</h2>
+      {d ? (
+        <div className="tarjeta">
+          <strong>
+            {d.instancia_texto}: {d.sentido_texto}
+          </strong>{" "}
+          («{d.texto_decision}»)
+          <div>
+            <small>
+              Acta {d.acta_numero ?? "sin número"}
+              {d.acta_fecha ? ` del ${d.acta_fecha}` : ""} · confirmó {d.confirmado_por}
+            </small>
+          </div>
+          <blockquote style={{ margin: "0.5rem 0", whiteSpace: "pre-wrap" }}>
+            <small>{d.fragmento}</small>
+          </blockquote>
+        </div>
+      ) : (
+        <p>Pendiente de acta del Consejo.</p>
+      )}
+    </>
+  );
+}
 
 type Jurado = { nombre: string; vinculacion: string | null; correo: string | null };
 
@@ -160,6 +198,7 @@ function Ficha() {
       ) : null}
       {caso?.extraccion ? (
         <>
+          <Consejo d={caso.consejo} />
           <h2>Solicitud</h2>
           <p>{caso.objeto}</p>
           <ul>
