@@ -160,6 +160,20 @@ export default function PaginaSecretaria() {
     }
   };
 
+  const descargarEstadisticas = async () => {
+    if (!datos) return;
+    try {
+      const archivo = await llamar<Blob>(
+        "actas",
+        `/actas/secretaria/estadisticas/xlsx?semestre=${encodeURIComponent(datos.semestre)}`,
+        { token: t },
+      );
+      guardarArchivo(archivo, `estadisticas_consejo_fcen_${datos.semestre}.xlsx`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   return (
     <Pantalla
       titulo="Notificaciones"
@@ -190,6 +204,9 @@ export default function PaginaSecretaria() {
           <button type="submit">Consultar</button>
           <button type="button" className="secundario" onClick={descargar} disabled={!datos}>
             Descargar Excel de tiempos
+          </button>
+          <button type="button" className="secundario" onClick={descargarEstadisticas} disabled={!datos}>
+            Estadísticas para Calidad (Excel)
           </button>
         </div>
       </form>

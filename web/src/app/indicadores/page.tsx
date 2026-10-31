@@ -105,6 +105,16 @@ export default function PaginaIndicadores() {
     }
   };
 
+  const descargarEstadisticas = async () => {
+    setError(null);
+    try {
+      const datos = await llamar<Blob>("actas", "/actas/secretaria/estadisticas/xlsx", { token: t });
+      guardarArchivo(datos, "estadisticas_consejo_fcen.xlsx");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const area = sesiones.actas?.rol === "administrativa";
   const f = reporte?.fuentes;
   const v = reporte?.total;
@@ -149,6 +159,11 @@ export default function PaginaIndicadores() {
           {!area ? (
             <button type="button" className="secundario" onClick={descargarSuit}>
               Datos SUIT del año (Excel)
+            </button>
+          ) : null}
+          {!area ? (
+            <button type="button" className="secundario" onClick={descargarEstadisticas}>
+              Estadísticas para Calidad (Excel)
             </button>
           ) : null}
         </div>
