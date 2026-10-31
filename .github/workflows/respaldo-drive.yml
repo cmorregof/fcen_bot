@@ -1,0 +1,39 @@
+name: Respaldo nocturno en Drive
+
+on:
+  schedule:
+    # 2:15 a. m. hora de Bogotá (7:15 UTC), todos los días.
+    - cron: "15 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  respaldar:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Cada servicio respalda solo su propia base. Si el secret de la URL
+        # no existe, ese servicio se salta.
+        servicio: [actas, calidad, admision]
+    steps:
+      - name: Pedir la copia de la base al servicio
+        env:
+          SERVICIO: ${{ matrix.servicio }}
+          APP_URL: ${{ secrets.APP_URL }}
+          CALIDAD_APP_URL: ${{ secrets.CALIDAD_APP_URL }}
+          ADMISION_APP_URL: ${{ secrets.ADMISION_APP_URL }}
+          INTERNAL_CRON_SECRET: ${{ secrets.INTERNAL_CRON_SECRET }}
+        run: |
+          case "$SERVICIO" in
+            actas) URL="$APP_URL" ;;
+            calidad) URL="$CALIDAD_APP_URL" ;;
+            admision) URL="$ADMISION_APP_URL" ;;
+          esac
+          if [ -z "$URL" ]; then
+            echo "Sin URL para $SERVICIO; se salta."
+            exit 0
+          fi
+          # Sin las variables DRIVE_* en el servicio, responde activo=false y no sube nada.
+          curl --fail --silent --show-error --max-time 600 -X POST \
+            -H "X-Cron-Secret: ${INTERNAL_CRON_SECRET}" \
+            "${URL}/internal/respaldo-drive"

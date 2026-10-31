@@ -8,6 +8,8 @@ El proyecto **MemorIA** (`fcen_bot`) aloja tres agentes de Telegram que comparte
 
 > Para capacitaciones hay un entorno aparte con datos ficticios: [`docs/entorno-practica.md`](entorno-practica.md).
 
+> Copia nocturna de las bases y archivo oficial de documentos firmados en Google Drive: [`docs/respaldo-drive.md`](respaldo-drive.md).
+
 > Admisión tiene su guía propia, con insumos, OCR y web: [`docs/admision/despliegue.md`](admision/despliegue.md).
 
 Cada servicio se despliega de manera independiente en Railway a partir del mismo repositorio y rama, con sus propias variables de entorno, su propio bot en Telegram y su propia base de datos SQLite. **Un servicio nunca lee ni escribe en la base de datos de otro.**

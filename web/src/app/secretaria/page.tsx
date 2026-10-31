@@ -51,7 +51,17 @@ const dias = (e: Est) =>
     ? "—"
     : `${String(e.mediana).replace(".", ",")} días (p90: ${e.p90}) · ${e.casos} ${e.casos === 1 ? "caso" : "casos"}`;
 
-function FilaCaso({ caso, token, alGuardar }: { caso: Caso; token: string | null; alGuardar: () => void }) {
+function FilaCaso({
+  caso,
+  token,
+  alGuardar,
+  archivoActivo,
+}: {
+  caso: Caso;
+  token: string | null;
+  alGuardar: () => void;
+  archivoActivo: boolean;
+}) {
   const [r, setR] = useState<Registro>(vacio(caso));
   const [estado, setEstado] = useState<"" | "guardando" | "guardado">("");
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +74,21 @@ function FilaCaso({ caso, token, alGuardar }: { caso: Caso; token: string | null
     try {
       const archivo = await llamar<Blob>("actas", `/actas/secretaria/casos/${caso.caso_id}/oficio-consejo`, { token });
       guardarArchivo(archivo, `Borrador_Consejo_caso_${caso.caso_id}.docx`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const [archivado, setArchivado] = useState<string | null>(null);
+  // Solo el PDF firmado de un acto ya expedido (número y fecha guardados).
+  const expedido = Boolean(caso.registro?.numero && caso.registro?.fecha_expedicion);
+  const archivar = async (pdf: File | undefined) => {
+    if (!pdf) return;
+    setError(null);
+    const form = new FormData();
+    form.append("pdf", pdf);
+    try {
+      const r = await llamar<{ ruta: string }>("actas", `/actas/secretaria/casos/${caso.caso_id}/archivo`, { token, form });
+      setArchivado(r.ruta);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -117,6 +142,21 @@ function FilaCaso({ caso, token, alGuardar }: { caso: Caso; token: string | null
             Borrador (Word)
           </button>
         ) : null}
+        {archivoActivo && expedido ? (
+          <label className="boton secundario">
+            Archivar firmado (PDF)
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              hidden
+              onChange={(e) => {
+                archivar(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        ) : null}
+        {archivado ? <Mensaje tipo="exito">Archivado en Drive: {archivado}</Mensaje> : null}
         {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
       </td>
     </tr>
@@ -129,6 +169,14 @@ export default function PaginaSecretaria() {
   const [semestre, setSemestre] = useState("");
   const [datos, setDatos] = useState<Datos | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [archivoActivo, setArchivoActivo] = useState(false);
+
+  useEffect(() => {
+    if (!t) return;
+    llamar<{ activo: boolean }>("actas", "/actas/archivo", { token: t })
+      .then((r) => setArchivoActivo(r.activo))
+      .catch(() => setArchivoActivo(false));
+  }, [t]);
 
   const consultar = useCallback(
     async (s: string) => {
@@ -196,6 +244,7 @@ export default function PaginaSecretaria() {
         "Le permite descargar el borrador del oficio o la resolución, y registrar su número y las fechas de ingreso, expedición y notificación.",
         "Calcula los tiempos de respuesta para el indicador de divulgación de la información oficial, con Excel.",
         "Descarga las estadísticas del semestre para Calidad y los datos SUIT del año, solo con cifras.",
+        "Si el archivo en Drive está activo, guarda el oficio o la resolución ya firmados (PDF) en el archivo oficial, con el número y la fecha de expedición registrados.",
       ]}
       noHace={[
         "No notifica ni envía nada: solo guarda las fechas que usted registra.",
@@ -257,7 +306,13 @@ export default function PaginaSecretaria() {
                 </thead>
                 <tbody>
                   {datos.casos.map((c) => (
-                    <FilaCaso key={c.caso_id} caso={c} token={t} alGuardar={() => consultar(datos.semestre)} />
+                    <FilaCaso
+                      key={c.caso_id}
+                      caso={c}
+                      token={t}
+                      alGuardar={() => consultar(datos.semestre)}
+                      archivoActivo={archivoActivo}
+                    />
                   ))}
                 </tbody>
               </table>

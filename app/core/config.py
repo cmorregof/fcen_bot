@@ -130,6 +130,14 @@ class Settings(BaseSettings):
     soffice_bin: str = "soffice"
     pdf_timeout_seconds: float = 120.0
 
+    # Google Drive: copia nocturna de la base y archivo oficial de documentos
+    # firmados (docs/respaldo-drive.md). Sin las cuatro primeras, apagado.
+    drive_client_id: str = ""
+    drive_client_secret: str = ""
+    drive_refresh_token: str = ""
+    drive_carpeta_id: str = ""
+    drive_respaldos_conservar: int = 30
+
     timezone: str = "America/Bogota"
     log_level: str = "INFO"
 
