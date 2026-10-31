@@ -424,3 +424,15 @@ async def test_concepto_de_otro_miembro_y_borrar(
     await bot.manejar_update(db, respuesta("Juan Invitado\nborrar"))
     caso = await repo.get_caso(db, 1)
     assert caso and caso.conceptos == []
+
+
+def test_health_falla_en_railway_sin_volumen(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    monkeypatch.setattr("os.path.ismount", lambda _: False)
+    with TestClient(app) as client:
+        r = client.get("/health")
+    assert r.status_code == 503
+    assert r.json()["ok"] is False
+    monkeypatch.setattr("os.path.ismount", lambda _: True)
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200

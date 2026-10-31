@@ -5,6 +5,7 @@ import logging
 import os
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.db.session import connect
@@ -147,10 +148,11 @@ async def cifras(
         await db.close()
 
 
-@router.get("/health")
-async def health() -> dict[str, object]:
-    return {
-        "ok": True,
+@router.get("/health", response_model=None)
+async def health() -> dict[str, object] | JSONResponse:
+    sin_volumen = sin_volumen_en_railway()
+    cuerpo: dict[str, object] = {
+        "ok": not sin_volumen,
         "servicio": settings.bot_servicio,
         "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7],
         "modelo": settings.extraction_model,
@@ -162,6 +164,19 @@ async def health() -> dict[str, object]:
         else None,
         "almacenamiento": _almacenamiento(),
     }
+    if sin_volumen:
+        # Sin volumen, cada despliegue arranca con la base vacía. Al fallar el
+        # healthcheck, Railway no reemplaza el despliegue que está corriendo.
+        cuerpo["error"] = f"{settings.data_dir} no es un volumen montado."
+        return JSONResponse(cuerpo, status_code=503)
+    return cuerpo
+
+
+def sin_volumen_en_railway() -> bool:
+    """En Railway los datos deben vivir en un volumen montado en DATA_DIR."""
+    if not os.environ.get("RAILWAY_ENVIRONMENT"):
+        return False
+    return not os.path.ismount(settings.data_dir)
 
 
 def _almacenamiento() -> dict[str, object]:
@@ -173,4 +188,9 @@ def _almacenamiento() -> dict[str, object]:
         for patron in ("*.db", "*/*.db", "*/*/*.db")
         for b in raiz.glob(patron)
     )
-    return {"data_dir": str(raiz), "db_path": str(settings.db_path), "bases": bases}
+    return {
+        "data_dir": str(raiz),
+        "volumen_montado": os.path.ismount(raiz),
+        "db_path": str(settings.db_path),
+        "bases": bases,
+    }
