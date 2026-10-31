@@ -28,7 +28,7 @@ MemorIA/                                     ← DRIVE_CARPETA_ID
 
 - Con SQLite (sin `DATABASE_URL`), la copia se toma con el API de respaldo de SQLite (`sqlite3` `backup`): es consistente aunque el servicio esté escribiendo. El nombre es `memoria_<servicio>_<AAAAMMDD>.db.gz`.
 - Con Postgres (`DATABASE_URL`, ver `docs/base-de-datos.md`), la copia es `pg_dump --schema=<DB_SCHEMA>` en formato custom (ya comprimido): solo el esquema del servicio, nunca el de otro. El nombre es `memoria_<servicio>_<AAAAMMDD>.dump`. La SQLite que haya quedado en el volumen ya no se copia.
-  - `pg_dump` viene en la imagen (cliente 17 de PGDG, sirve para Postgres 16 y 17). Si falta, el endpoint responde `activo: false` con un `motivo` y no sube nada. Si `pg_dump` falla (por ejemplo, un servidor más nuevo que el cliente), responde 502 y el cron queda en rojo.
+  - `pg_dump` viene en la imagen (cliente 18 de PGDG, sirve para Postgres 16 a 18). Si falta, el endpoint responde `activo: false` con un `motivo` y no sube nada. Si `pg_dump` falla (por ejemplo, un servidor más nuevo que el cliente), responde 502 y el cron queda en rojo.
   - La clave va por `PGPASSWORD`, no en la línea de comandos.
 - Si se corre dos veces el mismo día, se reemplaza la copia de ese día.
 - Se conservan las últimas `DRIVE_RESPALDOS_CONSERVAR` copias (30 por defecto). Las más viejas van a la **papelera** de Drive, y solo las de `Respaldos/<servicio>/` con ese patrón de nombre. Drive vacía la papelera a los 30 días; mientras tanto se pueden recuperar.
