@@ -248,6 +248,7 @@ def test_webhook_exige_secreto(monkeypatch: pytest.MonkeyPatch) -> None:
         assert r.status_code == 403
         r = client.get("/health")
         assert r.json()["ok"] is True
+        assert r.json()["almacenamiento"]["db_path"] == str(settings.db_path)
         r = client.post("/internal/borrador-diario")
         assert r.status_code == 403
 
