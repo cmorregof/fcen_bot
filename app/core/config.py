@@ -9,6 +9,8 @@ from typing import Any, Literal, Self
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+RAIZ = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -61,8 +63,14 @@ class Settings(BaseSettings):
     periodo_inicio: date | None = None
 
     # Jurados de Trabajo de Grado que se presentan como mínimo. No es norma:
-    # es instrucción del Consejo de Facultad (reunión del 28-oct-2026).
-    jurados_minimo: int = 6
+    # es instrucción del Consejo de Facultad (reunión del 28-oct-2026). El
+    # valor por defecto está en config/solicitudes.yaml; si JURADOS_MINIMO se
+    # define, tiene prioridad.
+    jurados_minimo: int | None = None
+
+    # Rutas de decisión y umbrales de las solicitudes (lo edita la
+    # Vicedecanatura Académica; ver docs/solicitudes.md).
+    solicitudes_path: Path = RAIZ / "config" / "solicitudes.yaml"
 
     # Almacenamiento. Si DB_PATH, MEDIA_DIR u OUTPUT_DIR no se definen, se
     # derivan de DATA_DIR por servicio: <DATA_DIR>/<servicio>/... En Docker,
@@ -88,6 +96,11 @@ class Settings(BaseSettings):
     @classmethod
     def _fecha_vacia(cls, valor: object) -> object:
         # En .env.example la variable viene vacía: eso es "sin configurar".
+        return None if valor == "" else valor
+
+    @field_validator("jurados_minimo", mode="before")
+    @classmethod
+    def _entero_vacio(cls, valor: object) -> object:
         return None if valor == "" else valor
 
     @model_validator(mode="before")

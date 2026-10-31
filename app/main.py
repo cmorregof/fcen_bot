@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.web import crear_router
 from app.api.web.config import web_settings
+from app.core import solicitudes
 from app.core.config import settings
 from app.db import repo
 from app.db.session import connect
@@ -23,6 +24,9 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    if settings.bot_servicio == "actas":
+        # Sin rutas ni umbrales válidos el servicio no arranca (error claro).
+        solicitudes.recargar()
     db = await connect()  # crea las tablas si no existen
     await repo.reabrir_interrumpidos(db)
     await db.close()

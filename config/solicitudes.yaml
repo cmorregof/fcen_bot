@@ -1,0 +1,175 @@
+# Rutas de decisión y umbrales de las solicitudes estudiantiles (servicio de actas).
+#
+# Lo edita la Vicedecanatura Académica. Cómo hacerlo: docs/solicitudes.md.
+# Si este archivo falta o tiene un error, el servicio de actas no arranca y el
+# registro dice qué línea revisar.
+#
+# El comité asesor NUNCA decide: solo recomienda APROBAR o NO APROBAR. Decide
+# el Consejo de Facultad, el Consejo de Sede o el Consejo Superior, según el
+# trámite.
+#
+# Instancias válidas en «decide»:
+#   consejo_facultad | consejo_sede | consejo_superior | por_confirmar
+#
+# «normas» y «norma» son nombres de las normas transcritas literalmente en
+# app/normativa/base.py (por ejemplo ACUERDO_008_ART_10). Aquí no se escribe
+# texto de normas: si hace falta una norma nueva, primero se transcribe allí.
+#
+# Solo se llenó lo que dicen las normas literales de app/normativa/base.py.
+# Lo demás queda «por_confirmar» hasta que lo confirme la Vicedecanatura.
+
+umbrales:
+  carga_minima:
+    valor: 10
+    norma: ACUERDO_008_ART_10
+    nota: >-
+      Pregunta abierta del Consejo (28-oct-2026): confirmar si el Acuerdo 230
+      de 2026 modifica la carga mínima. Sin texto literal en el repositorio.
+  semana_limite_asignaturas:
+    valor: 10
+    norma: ACUERDO_027_ART_1
+  semana_limite_tdg_actividades:
+    valor: 13
+    norma: ACUERDO_027_ART_1
+  semana_limite_traslado:
+    valor: 7
+    # El texto del Acuerdo 089 de 2014 aún no está transcrito en app/normativa.
+    fuente: Acuerdo 089 de 2014, art. 2 (antes de la semana 7)
+  jurados_minimo:
+    valor: 6
+    # La variable de entorno JURADOS_MINIMO, si está definida, tiene prioridad.
+    fuente: instrucción del Consejo de Facultad, 28-oct-2026
+  # Créditos disciplinares aprobados que exige cada programa para inscribir
+  # Trabajo de Grado. Un programa que no aparece no tiene esta regla.
+  tdg_creditos_disciplinares:
+    ing_fisica:
+      valor: 46
+      norma: RES_CFCEN_060_ART_5
+
+solicitudes:
+  inscripcion_extemporanea:
+    recomienda: comite_asesor
+    decide: consejo_facultad
+    acto: por_confirmar
+    normas: [ACUERDO_350_ART_1_2, ACUERDO_027_ART_1]
+
+  carga_minima:
+    recomienda: comite_asesor
+    decide: consejo_facultad
+    acto: por_confirmar
+    normas: [ACUERDO_008_ART_10]
+
+  cancelacion:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  trabajo_grado:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: [RES_CFCEN_060_ART_5, ACUERDO_027_ART_1]
+    nota: >-
+      Lo confirma la Vicedecanatura Académica. Las normas citadas fijan
+      requisitos y plazos, pero no dicen quién decide la inscripción ordinaria.
+
+  designacion_jurados:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  proyecto_tesis:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  excepcion_norma:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Lo confirma la Vicedecanatura Académica. Depende de la norma que se
+      exceptúa.
+
+  pae:
+    recomienda: comite_asesor
+    decide: consejo_facultad
+    acto: por_confirmar
+    normas: [PAE_PROCEDIMIENTO]
+
+  permiso_academico:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  reingreso:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  traslado:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  doble_titulacion:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  movilidad:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  reexpedicion_recibo:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  cancelacion_periodo:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  reserva_cupo:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  homologacion:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.
+
+  otro:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: Lo confirma la Vicedecanatura Académica.

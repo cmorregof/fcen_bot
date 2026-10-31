@@ -11,11 +11,12 @@ import re
 
 from docx import Document
 
+from app.core import solicitudes
 from app.core.programas import PROGRAMAS
 from app.schemas.caso import Jurado, Sentido, TipoSolicitud
 from app.services.documento import construir_acta, construir_oficio
 from app.services.ficha import ficha
-from app.services.reglas import JURADOS_MINIMO, analizar
+from app.services.reglas import analizar
 from tests.conftest import extraccion_ejemplo
 from tests.test_documento import _datos
 from tests.test_lenguaje_recomendacion import _textos_docx
@@ -52,7 +53,7 @@ def _datos_jurados(n: int):
     return datos
 
 
-def _mensajes(n: int, *, objeto: str = _OBJETO, minimo: int = JURADOS_MINIMO):
+def _mensajes(n: int, *, objeto: str = _OBJETO, minimo: int | None = None):
     e = extraccion_ejemplo(**_cambios(n, objeto))
     a = analizar(
         e,
@@ -65,7 +66,7 @@ def _mensajes(n: int, *, objeto: str = _OBJETO, minimo: int = JURADOS_MINIMO):
 
 
 def test_minimo_por_defecto_es_seis() -> None:
-    assert JURADOS_MINIMO == 6
+    assert solicitudes.jurados_minimo() == 6
 
 
 def test_menos_de_seis_jurados_avisa_y_dice_que_no_es_norma() -> None:

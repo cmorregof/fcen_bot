@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from html import escape
 
+from app.core import solicitudes
 from app.core.programas import PROGRAMAS
 from app.normativa.base import normas_para
-from app.schemas.caso import TITULOS_TIPO, Caso, Sentido
+from app.schemas.caso import TITULOS_TIPO, Caso, Sentido, TipoSolicitud
 from app.services.reglas import Analisis
 
 _ICONO = {"error": "🔴", "aviso": "🟡", "info": "ℹ️"}
@@ -22,6 +23,16 @@ def _num(valor: float | None) -> str:
         return "—"
     texto = f"{valor:.1f}" if isinstance(valor, float) else str(valor)
     return texto.replace(".", ",")
+
+
+def linea_ruta(tipos: list[TipoSolicitud]) -> str:
+    """Quién recomienda y quién decide (config/solicitudes.yaml)."""
+    linea = (
+        f"Recomienda: comité asesor · Decide: {escape(solicitudes.texto_decide(tipos))}"
+    )
+    if any(r.por_confirmar for r, _ in solicitudes.decisores(tipos)):
+        linea += " <i>(lo confirma la Vicedecanatura Académica)</i>"
+    return linea
 
 
 def ficha(caso: Caso, analisis: Analisis) -> str:
@@ -42,6 +53,7 @@ def ficha(caso: Caso, analisis: Analisis) -> str:
     lineas.append(f"Solicitud del {fecha}")
     if e.tipos:
         lineas.append("Tipo: " + ", ".join(escape(TITULOS_TIPO[t]) for t in e.tipos))
+    lineas.append(linea_ruta(e.tipos))
     if e.objeto_solicitud:
         lineas.append(f"Pide: {escape(e.objeto_solicitud)}")
     if e.modalidad_trabajo_grado:
