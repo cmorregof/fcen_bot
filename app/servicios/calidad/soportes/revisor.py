@@ -22,6 +22,7 @@ from app.servicios.calidad.soportes.describir import (
     clave_descripcion,
     describir_todos,
 )
+from app.servicios.calidad.soportes.indice import guardar_indice
 from app.servicios.calidad.soportes.inventario import inventariar
 from app.servicios.calidad.soportes.modelos import (
     PRECIOS_USD_POR_MILLON,
@@ -222,6 +223,7 @@ async def revisar(
         progreso=progreso_desc,
     )  # fmt: skip
     decir(f"Descripciones listas. Costo hasta ahora: {uso.costo():.2f} USD.")
+    guardar_indice(cache, programa, descripciones, archivos)
 
     marcar("cruce", 0, len(acciones))
     cruzadas = [0]
