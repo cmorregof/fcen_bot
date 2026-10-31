@@ -89,6 +89,16 @@ MATRIZ: dict[str, dict[str, set[str]]] = {
         "/api/web/actas/documentos": {"administrativa"},
         "/api/web/actas/consejo": {"administrativa", "admin"},
         "/api/web/actas/tablero": {"decanatura", "admin"},
+        "/api/web/actas/indicadores?periodo=2026-10": {
+            "administrativa",
+            "decanatura",
+            "admin",
+        },
+        "/api/web/actas/indicadores/xlsx?periodo=2026-10": {
+            "administrativa",
+            "decanatura",
+            "admin",
+        },
         "/api/web/usuarios": {"admin"},
     },
 }

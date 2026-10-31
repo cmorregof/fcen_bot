@@ -1,0 +1,30 @@
+name: Reporte mensual de indicadores
+
+on:
+  schedule:
+    # Día 1 de cada mes, 7:30 a. m. hora de Bogotá (12:30 UTC).
+    - cron: "30 12 1 * *"
+  workflow_dispatch:
+
+# El job solo llama a la app con curl: no necesita permisos sobre el repositorio.
+permissions: {}
+
+# Dos corridas a la vez (programada y manual) no se pisan.
+concurrency:
+  group: reporte-mensual
+  cancel-in-progress: false
+
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir el reporte mensual al servicio de actas
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          INTERNAL_CRON_SECRET: ${{ secrets.INTERNAL_CRON_SECRET }}
+        run: |
+          # Con REPORTE_MENSUAL_ACTIVO=false (por defecto) responde activo=false y no envía.
+          # Si el reporte del mes ya salió, responde ya_enviado=true y no lo repite.
+          curl --fail --silent --show-error --max-time 300 -X POST \
+            -H "X-Cron-Secret: ${INTERNAL_CRON_SECRET}" \
+            "${APP_URL}/internal/reporte-mensual"

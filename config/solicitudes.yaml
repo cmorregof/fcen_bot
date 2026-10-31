@@ -46,6 +46,20 @@ umbrales:
       valor: 46
       norma: RES_CFCEN_060_ART_5
 
+# Plazos para el indicador «casos fuera de plazo» (docs/indicadores.md), en
+# días calendario. Están vacíos porque ninguna norma transcrita los fija:
+# mientras sigan así, el indicador dice «sin plazo configurado» y no cuenta
+# ningún caso. Para fijarlos, cambie «null» por un bloque como este:
+#
+#   comite:
+#     dias: 15
+#     fuente: <norma, circular o instrucción que fija el plazo>
+plazos:
+  # De la solicitud a la recomendación del comité asesor.
+  comite: null
+  # De la recomendación del comité a la decisión del Consejo (fecha del acta).
+  consejo: null
+
 solicitudes:
   inscripcion_extemporanea:
     recomienda: comite_asesor

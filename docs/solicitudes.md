@@ -80,6 +80,21 @@ nuevo y la norma citada seguirá diciendo el anterior.
 
 Para usar otro archivo (por ejemplo, en pruebas), defina `SOLICITUDES_PATH`.
 
+### Plazos (indicador «fuera de plazo»)
+
+```yaml
+plazos:
+  comite:            # de la solicitud a la recomendación del comité
+    dias: 15
+    fuente: <norma, circular o instrucción que fija el plazo>
+  consejo: null      # de la recomendación a la decisión del Consejo
+```
+
+Son días calendario y cada plazo necesita `fuente`. Hoy los dos están en
+`null`: ninguna norma transcrita fija esos plazos, y el indicador dice «sin
+plazo configurado» hasta que la Vicedecanatura los defina. Ver
+`docs/indicadores.md`.
+
 ## Pendiente de confirmar
 
 Solo se llenó lo que dicen las normas transcritas: decide el Consejo de

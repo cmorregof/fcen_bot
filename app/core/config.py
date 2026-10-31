@@ -20,6 +20,12 @@ def _es_verdadero(valor: object) -> bool:
         return False
 
 
+def _ids(valor: str) -> frozenset[int]:
+    """Ids de Telegram separados por comas (o punto y coma)."""
+    partes = valor.replace(";", ",").split(",")
+    return frozenset(int(i) for i in (x.strip() for x in partes) if i.isdigit())
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -53,6 +59,18 @@ class Settings(BaseSettings):
     # URL pública de los servicios de calidad y admisión (solo en actas).
     resumen_calidad_url: str = ""
     resumen_admision_url: str = ""
+    # Administradores en Telegram: ids separados por comas. Pueden usar
+    # /indicadores, igual que la decanatura.
+    admin_telegram_ids: str = ""
+    # Vicedecanatura Académica: ids de Telegram que reciben el consolidado del
+    # reporte mensual de indicadores.
+    vicedecanatura_telegram_ids: str = ""
+    # El cron del día 1 solo envía el reporte mensual si esto es true. Apagado
+    # por defecto: se enciende cuando el área y la Vicedecanatura lo aprueben.
+    reporte_mensual_activo: bool = False
+    # Columnas del Excel de indicadores (mientras llega la plantilla oficial de
+    # Calidad; ver docs/indicadores.md).
+    indicadores_path: Path = RAIZ / "config" / "indicadores.yaml"
     # Al confirmar una decisión del acta del Consejo, avisar por Telegram a las
     # personas del área del caso. Apagado por defecto.
     aviso_consejo_telegram: bool = False
@@ -108,8 +126,15 @@ class Settings(BaseSettings):
 
     @property
     def ids_decanatura(self) -> frozenset[int]:
-        ids = self.decanatura_telegram_ids.replace(";", ",").split(",")
-        return frozenset(int(i) for i in (x.strip() for x in ids) if i.isdigit())
+        return _ids(self.decanatura_telegram_ids)
+
+    @property
+    def ids_admin(self) -> frozenset[int]:
+        return _ids(self.admin_telegram_ids)
+
+    @property
+    def ids_vicedecanatura(self) -> frozenset[int]:
+        return _ids(self.vicedecanatura_telegram_ids)
 
     @field_validator("periodo_inicio", mode="before")
     @classmethod

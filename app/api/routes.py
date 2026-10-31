@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 from app.core.config import settings
 from app.db.session import connect
 from app.schemas.telegram import Update
-from app.services import borrador, resumen
+from app.services import borrador, indicadores, reporte_mensual, resumen
 from app.servicios import despachar_update
 from app.servicios.calidad import alertas as alertas_calidad
 from app.servicios.calidad import reloj as reloj_calidad
@@ -98,6 +98,25 @@ async def resumen_semanal(
     db = await connect()
     try:
         resultado = await resumen.enviar_semanal(db)
+    finally:
+        await db.close()
+    return {"ok": True, **resultado}
+
+
+@router.post("/internal/reporte-mensual")
+async def reporte_mensual_ruta(
+    x_cron_secret: str | None = Header(None),
+) -> dict[str, object]:
+    if (
+        not settings.internal_cron_secret
+        or x_cron_secret != settings.internal_cron_secret
+    ):
+        raise HTTPException(status_code=403, detail="secreto inválido")
+    if settings.bot_servicio != "actas":
+        raise HTTPException(status_code=404, detail="no aplica a este servicio")
+    db = await connect()
+    try:
+        resultado = await reporte_mensual.enviar(db, indicadores.hoy_local())
     finally:
         await db.close()
     return {"ok": True, **resultado}

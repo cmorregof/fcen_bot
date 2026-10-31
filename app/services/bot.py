@@ -24,7 +24,15 @@ from app.integrations import telegram
 from app.schemas.caso import Caso, EstadoCaso, Sentido
 from app.schemas.consejo import ETIQUETA_SENTIDO_CONSEJO, Cruce
 from app.schemas.telegram import CallbackQuery, Document, Message, Update
-from app.services import borrador, casos, consejo, ficha, formatos, resumen
+from app.services import (
+    borrador,
+    casos,
+    consejo,
+    ficha,
+    formatos,
+    indicadores,
+    resumen,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +97,14 @@ async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
     chat_id = msg.chat.id
     texto = (msg.text or "").strip()
     usuario = await repo.get_usuario(db, msg.from_.id)
+
+    # Decanatura y admin: indicadores de lectura. Para los demás no existe.
+    comando, _, argumento = texto.partition(" ")
+    if comando.split("@")[0].lower() == "/indicadores" and (
+        resumen.puede_ver_indicadores(msg.from_.id)
+    ):
+        await _indicadores(db, chat_id, argumento)
+        return
 
     # Decanatura: solo el resumen, de lectura. Para los demás /resumen no existe.
     if resumen.es_decanatura(msg.from_.id):
@@ -323,6 +339,39 @@ async def _comando(
         await _costo(db, chat_id)
     else:
         await telegram.send_message(chat_id, "No conozco ese comando. Escribe /ayuda.")
+
+
+async def _indicadores(db: aiosqlite.Connection, chat_id: int, argumento: str) -> None:
+    """/indicadores [periodo]: toda la Facultad, solo cifras, y el Excel."""
+    hoy = indicadores.hoy_local()
+    try:
+        periodo = indicadores.periodo_de(argumento, hoy)
+    except indicadores.PeriodoInvalido as exc:
+        await telegram.send_message(chat_id, escape(str(exc)))
+        return
+    reporte = await indicadores.reporte(db, periodo, hoy)
+    # El Excel se arma antes de enviar: si config/indicadores.yaml falla, se
+    # avisa en vez de cortar después del texto.
+    archivo: bytes | None = None
+    try:
+        archivo = indicadores.xlsx(reporte)
+    except indicadores.ConfigIndicadoresError:
+        logger.exception("No pude armar el Excel de indicadores")
+    await telegram.send_message(chat_id, indicadores.formatear(reporte))
+    if archivo is None:
+        await telegram.send_message(
+            chat_id,
+            "No pude armar el Excel: config/indicadores.yaml tiene un error. "
+            "Las cifras de arriba no cambian.",
+        )
+        return
+    await telegram.send_document(
+        chat_id,
+        nombre=indicadores.nombre_xlsx(reporte),
+        contenido=archivo,
+        mime=indicadores.MIME_XLSX,
+        caption="Los mismos indicadores en Excel, con la pestaña «fuentes».",
+    )
 
 
 async def _listar(db: aiosqlite.Connection, chat_id: int, direccion: str) -> None:

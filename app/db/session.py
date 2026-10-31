@@ -96,6 +96,17 @@ _ESQUEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_casos_estado ON casos(estado, programa)",
+    # A quién ya salió el reporte mensual de cada mes (AAAA-MM): un área o
+    # «vicedecanatura». Un re-run del cron envía solo a los que faltan.
+    """
+    CREATE TABLE IF NOT EXISTS reportes_mensuales (
+        mes        TEXT NOT NULL,
+        destino    TEXT NOT NULL,
+        enviados   INTEGER NOT NULL,
+        enviado    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (mes, destino)
+    )
+    """,
     # Actas del Consejo (Facultad, Sede o Superior) y su cruce con los casos.
     """
     CREATE TABLE IF NOT EXISTS actas_consejo (
@@ -145,7 +156,11 @@ _ESQUEMA = (
 
 
 # Columnas agregadas después de la primera versión: (tabla, columna, tipo).
-_COLUMNAS_NUEVAS = (("borradores", "ultima_modificacion", "TEXT"),)
+_COLUMNAS_NUEVAS = (
+    ("borradores", "ultima_modificacion", "TEXT"),
+    # Cuándo se registró la recomendación del comité (indicadores de tiempos).
+    ("casos", "recomendado", "TIMESTAMP"),
+)
 
 
 async def init_db(db: aiosqlite.Connection) -> None:

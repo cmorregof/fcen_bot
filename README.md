@@ -118,6 +118,8 @@ Las normas que se citan en el oficio están en `app/normativa/base.py`, con su t
 
 Para la decanatura (ids en `DECANATURA_TELEGRAM_IDS`): `/resumen`, con cifras por programa y estado, sin nombres. También llega solo cada lunes a las 7:30 a. m.; se apaga con `RESUMEN_SEMANAL_ACTIVO=false`. Ver `docs/despliegue-servicios.md` §7.
 
+Para la decanatura y los administradores (`ADMIN_TELEGRAM_IDS`): `/indicadores [periodo]`, con casos recibidos, recomendados, decididos por el Consejo y pendientes de acta, y los días de la solicitud a la recomendación y de la recomendación al Consejo (mediana y percentil 90), más el Excel con la pestaña «fuentes». En la web, la pantalla «Indicadores» muestra lo mismo: toda la Facultad a la decanatura y al admin, y su área a cada administrativa. Con `REPORTE_MENSUAL_ACTIVO=true` (apagado por defecto), el día 1 de cada mes a las 7:30 a. m. cada área recibe sus cifras y la Vicedecanatura el consolidado. Definiciones: `docs/indicadores.md`.
+
 ## Puesta en marcha
 
 1. **Créditos de la API.** En claude.ai, ve a Settings → Billing → API credits y vincula una organización de la Console (el plan Max 5x trae 100 USD al mes). Luego crea una API key en la Console.
