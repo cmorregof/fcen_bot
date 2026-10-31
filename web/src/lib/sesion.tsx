@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { ErrorApi, SERVICIOS, Servicio, llamar, servicioConfigurado } from "./api";
 
-export type Rol = "administrativa" | "comite" | "calidad" | "admision" | "decanatura" | "admin";
+export type Rol = "administrativa" | "comite" | "secretaria" | "calidad" | "admision" | "decanatura" | "admin";
 
 export type SesionServicio = {
   token: string;
@@ -96,6 +96,7 @@ export function useSesion(): Contexto {
 export const NOMBRE_ROL: Record<Rol, string> = {
   administrativa: "Administrativa de área curricular",
   comite: "Comité asesor",
+  secretaria: "Secretaría de Facultad",
   calidad: "Calidad",
   admision: "Responsable de admisión",
   decanatura: "Decanatura",

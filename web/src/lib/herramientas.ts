@@ -40,6 +40,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     roles: ["comite"],
   },
   {
+    ruta: "/secretaria",
+    titulo: "Notificaciones",
+    descripcion: "Registrar número y fechas del oficio o resolución de cada caso decidido, y el Excel de tiempos de respuesta.",
+    servicio: "actas",
+    roles: ["secretaria", "admin"],
+  },
+  {
     ruta: "/indicadores",
     titulo: "Indicadores",
     descripcion: "Casos, recomendaciones, decisiones del Consejo y tiempos de respuesta, con Excel.",

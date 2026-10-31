@@ -23,9 +23,10 @@ def crear_router(servicio: str) -> APIRouter:
 
         router.include_router(admision.router)
     elif servicio == "actas":
-        from app.api.web import actas
+        from app.api.web import actas, secretaria
 
         router.include_router(actas.router)
+        router.include_router(secretaria.router)
     return router
 
 
