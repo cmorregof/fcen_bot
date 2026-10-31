@@ -295,10 +295,10 @@ AVISO_APAGADO = (
 _OCUPADO = "Hay una revisión en curso. Espere a que termine."
 
 
-async def _revisor_activo(usuario: _Calidad) -> Usuario:
-    # Primero el rol (en `_Calidad`), luego el interruptor. Apagado, además,
-    # se borra lo que hubiera quedado en el volumen.
-    if not calidad_settings.revisor_activo:
+async def _evidencias_activo(usuario: _Calidad) -> Usuario:
+    # Primero el rol (en `_Calidad`), luego los interruptores. Con los dos
+    # apagados, además, se borra lo que hubiera quedado en el volumen.
+    if not (calidad_settings.revisor_activo or calidad_settings.evidencias_activo):
         if corrida.base().exists():
             await asyncio.to_thread(corrida.limpiar)
         raise HTTPException(403, AVISO_APAGADO)
@@ -306,6 +306,16 @@ async def _revisor_activo(usuario: _Calidad) -> Usuario:
         corrida.validar_base()
     except corrida.CarpetaNoDedicada as exc:
         raise HTTPException(503, str(exc)) from exc
+    return usuario
+
+
+_Evidencias = Annotated[Usuario, Depends(_evidencias_activo)]
+
+
+async def _revisor_activo(usuario: _Evidencias) -> Usuario:
+    """La revisión con el modelo: aparte de carpetas, nombres e índice."""
+    if not calidad_settings.revisor_activo:
+        raise HTTPException(403, AVISO_APAGADO)
     return usuario
 
 
@@ -318,11 +328,12 @@ def _estado_revisor() -> dict[str, object]:
         "tope_usd": calidad_settings.revisor_tope_usd,
         "max_mb": calidad_settings.revisor_max_mb,
         "retencion_dias": calidad_settings.revisor_retencion_dias,
+        "revisor_activo": calidad_settings.revisor_activo,
     }
 
 
 @router.get("/revisor")
-async def revisor_estado(_: _Revisor) -> dict[str, object]:
+async def revisor_estado(_: _Evidencias) -> dict[str, object]:
     """En qué va la revisión: carga, estimación, pasos y descargas."""
     await corrida.limpiar_de_vez_en_cuando()
     return _estado_revisor()
@@ -330,7 +341,7 @@ async def revisor_estado(_: _Revisor) -> dict[str, object]:
 
 @router.post("/revisor/soportes")
 async def revisor_subir(
-    programa: str, request: Request, usuario: _Revisor, db: Db
+    programa: str, request: Request, usuario: _Evidencias, db: Db
 ) -> dict[str, object]:
     """Recibe el zip como cuerpo de la petición (no multipart: así no pasa por
     archivos temporales fuera del volumen) y estima archivos y costo. No
@@ -390,7 +401,7 @@ async def revisor_correr(
 
 
 @router.get("/revisor/descargar/{clave}")
-async def revisor_descargar(clave: str, _: _Revisor) -> FileResponse:
+async def revisor_descargar(clave: str, _: _Evidencias) -> FileResponse:
     encontrado = corrida.descarga(clave)
     if encontrado is None:
         raise HTTPException(404, "Ese archivo no está listo.")
@@ -399,7 +410,7 @@ async def revisor_descargar(clave: str, _: _Revisor) -> FileResponse:
 
 
 @router.delete("/revisor")
-async def revisor_borrar(_: _Revisor, cache: bool = False) -> dict[str, object]:
+async def revisor_borrar(_: _Evidencias, cache: bool = False) -> dict[str, object]:
     """Borra soportes y salidas; con `cache=true`, también las descripciones
     guardadas (la próxima corrida las vuelve a pagar)."""
     try:

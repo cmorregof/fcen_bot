@@ -270,6 +270,9 @@ def _preparar(
     org = revisar_organizacion(archivos)
     organizacion_xlsx(_salidas() / DESCARGAS["organizacion"][0], org)
     indice_electronico_xlsx(_salidas() / DESCARGAS["indice"][0], org)
+    if not calidad_settings.revisor_activo:
+        # Sin la revisión con el modelo los soportes no se guardan.
+        shutil.rmtree(_soportes(), ignore_errors=True)
     estado: dict[str, Any] = {
         "estado": "cargado",
         # La confirmación de costo queda atada a esta carga (ver `lanzar`).
@@ -453,7 +456,9 @@ def limpiar(*, al_arrancar: bool = False) -> None:
 
     Solo toca `actual/` y `cache/` dentro de una carpeta dedicada
     (`validar_base`), y con el cerrojo tomado.
-    - Interruptor apagado: borra todo lo del revisor.
+    - Revisor y evidencias apagados: borra todo lo del revisor.
+    - Solo evidencias: borra la caché y los soportes; las salidas siguen la
+      retención de una carga.
     - Al arrancar: si la corrida quedó cortada («corriendo») o no hay estado,
       borra los soportes y el zip a medio subir.
     - Una carga subida y nunca lanzada: a las `revisor_retencion_carga_horas`.
@@ -478,13 +483,17 @@ def limpiar(*, al_arrancar: bool = False) -> None:
 
 def _limpiar(raiz: Path, al_arrancar: bool) -> None:
     if not calidad_settings.revisor_activo:
-        for nombre in _PROPIAS:
-            shutil.rmtree(raiz / nombre, ignore_errors=True)
-        try:
-            raiz.rmdir()  # solo si quedó vacía
-        except OSError:
-            pass
-        return
+        if not calidad_settings.evidencias_activo:
+            for nombre in _PROPIAS:
+                shutil.rmtree(raiz / nombre, ignore_errors=True)
+            try:
+                raiz.rmdir()  # solo si quedó vacía
+            except OSError:
+                pass
+            return
+        # Solo evidencias: ni caché del modelo ni soportes guardados.
+        shutil.rmtree(raiz / "cache", ignore_errors=True)
+        shutil.rmtree(raiz / "actual" / "soportes", ignore_errors=True)
     actual = raiz / "actual"
     ruta_estado = actual / "estado.json"
     try:
