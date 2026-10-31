@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 CARPETA = "Respaldos"
 MIME_GZIP = "application/gzip"
 MIME_DUMP = "application/octet-stream"
-# Cliente de Postgres que instala el Dockerfile (vuelca servidores 16 y 17).
+# Cliente de Postgres que instala el Dockerfile (vuelca servidores 16 a 18).
 PG_DUMP = "pg_dump"
 
 

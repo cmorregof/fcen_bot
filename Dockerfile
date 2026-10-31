@@ -8,13 +8,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # pg_dump para la copia nocturna en Drive cuando la base está en Postgres
-# (DATABASE_URL). Cliente 17 del repositorio oficial PGDG: pg_dump vuelca
-# servidores de su versión o anteriores, así que sirve para Postgres 16 y 17.
-# Si Railway pasa a Postgres 18, hay que subir este número.
+# (DATABASE_URL). Cliente 18 del repositorio oficial PGDG: pg_dump vuelca
+# servidores de su versión o anteriores: sirve para Postgres 16 a 18 (Railway
+# crea la base en 18). Si el servidor pasa a una versión mayor, subir este número.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends postgresql-common ca-certificates \
     && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
-    && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && apt-get install -y --no-install-recommends postgresql-client-18 \
     && rm -rf /var/lib/apt/lists/* \
     && pg_dump --version
 
