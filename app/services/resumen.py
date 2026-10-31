@@ -37,6 +37,7 @@ AYUDA = (
     "/resumen — el resumen ahora\n"
     "/indicadores [periodo] — tiempos de respuesta y decisiones del Consejo, "
     "con Excel (periodo: 2026-10, 2026 o vacío para el periodo en curso)\n"
+    "/suit [año] — datos de operación (SUIT) de la Secretaría por mes, con Excel\n"
     "Cada lunes en la mañana llega solo."
 )
 

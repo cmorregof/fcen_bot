@@ -139,3 +139,30 @@ Falta que Calidad defina:
 9. **Indicadores adicionales,** por ejemplo el porcentaje de recomendaciones acogidas por el Consejo o los casos devueltos.
 
 Cuando llegue la plantilla, los puntos 1 y 7 se resuelven editando `config/indicadores.yaml` y `config/solicitudes.yaml`. Los demás piden un cambio en `app/services/indicadores.py` y en este documento.
+
+## Datos de operación (SUIT)
+
+Cada trimestre la Secretaría de Facultad diligencia en Drive («Datos de Operación») un Excel por trámite. Cada Excel lleva el número de solicitudes resueltas por mes y por Facultad.
+
+`/suit [año]`, o el botón «Datos SUIT del año» en Indicadores (decanatura y admin), arma la fila de la FCEN para los numerales que pasan por los comités. El código está en `app/services/suit.py`.
+
+| Numeral SUIT | Trámites de MemorIA |
+|---|---|
+| 6. Reingreso a un programa académico | reingreso |
+| 9. Aplazamiento de semestre | reserva de cupo |
+| 13. Registro de asignaturas | inscripción extemporánea y cancelación de asignaturas |
+| 22. Cancelación de la matrícula académica | cancelación del periodo académico |
+| 23. Transferencia de estudiantes de pregrado | traslado (solo programas de pregrado) |
+
+Reglas del conteo:
+
+- **Resuelta** quiere decir decidida por el Consejo de Facultad, desde un acta confirmada: aprobó, no aprobó u otra decisión. Un aplazamiento no cuenta como resuelta.
+- **El mes** es el de la sesión del Consejo.
+- **Un caso con varios trámites** cuenta una vez en cada numeral que le aplique.
+
+Los demás numerales de la lista (certificados, matrículas, grados, inscripciones de aspirantes, intersemestrales y duplicados) no pasan por los comités y MemorIA no los cuenta.
+
+**Pendiente con la Secretaría:**
+
+- en qué bloque van las cifras: «parcialmente en línea» o «presencial»;
+- si el numeral 13 debe contar solo las solicitudes aprobadas.

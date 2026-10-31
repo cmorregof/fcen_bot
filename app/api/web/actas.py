@@ -28,7 +28,7 @@ from app.schemas.consejo import (
     EstadoDecision,
     Instancia,
 )
-from app.services import borrador, casos, consejo, indicadores
+from app.services import borrador, casos, consejo, indicadores, suit
 
 router = APIRouter(prefix="/actas")
 
@@ -715,5 +715,29 @@ async def descargar_indicadores(
             "Content-Disposition": (
                 f'attachment; filename="{indicadores.nombre_xlsx(reporte)}"'
             )
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Datos SUIT (trimestrales) de la Secretaría de Facultad: solo cifras de toda
+# la Facultad, para decanatura y admin.
+# ---------------------------------------------------------------------------
+
+_Facultad = Annotated[Usuario, Depends(auth.requiere("decanatura", "admin"))]
+
+
+@router.get("/suit/xlsx")
+async def descargar_suit(_: _Facultad, db: Db, ano: str = "") -> Response:
+    try:
+        elegido = suit.ano_de(ano, indicadores.hoy_local())
+    except suit.AnoInvalido as exc:
+        raise HTTPException(422, str(exc)) from None
+    r = await suit.reporte(db, elegido, indicadores.hoy_local())
+    return Response(
+        content=suit.xlsx(r),
+        media_type=suit.MIME_XLSX,
+        headers={
+            "Content-Disposition": f'attachment; filename="{suit.nombre_xlsx(r)}"'
         },
     )
