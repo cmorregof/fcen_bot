@@ -20,9 +20,9 @@ from html import escape
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import aiosqlite
 import httpx
 
+from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import PROGRAMAS
 from app.integrations import telegram
@@ -151,7 +151,7 @@ def _fecha(valor: object) -> datetime:
     return datetime.fromisoformat(str(valor)).replace(tzinfo=UTC)
 
 
-async def cifras_actas(db: aiosqlite.Connection, ahora: datetime) -> CifrasActas:
+async def cifras_actas(db: Conexion, ahora: datetime) -> CifrasActas:
     """Conteos de los casos del periodo y de los que siguen en curso."""
     inicio = settings.periodo_inicio.isoformat() if settings.periodo_inicio else ""
     cur = await db.execute(
@@ -204,9 +204,7 @@ async def cifras_actas(db: aiosqlite.Connection, ahora: datetime) -> CifrasActas
     return cifras
 
 
-async def actas_de_la_semana(
-    db: aiosqlite.Connection, ahora: datetime
-) -> list[ActaSemana]:
+async def actas_de_la_semana(db: Conexion, ahora: datetime) -> list[ActaSemana]:
     """Decisiones del Consejo confirmadas en MemorIA en los últimos 7 días,
     por acta (instancia, número y fecha). Solo conteos."""
     desde = (ahora - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
@@ -444,7 +442,7 @@ def _ahora() -> datetime:
     return datetime.now(UTC)
 
 
-async def armar(db: aiosqlite.Connection) -> str:
+async def armar(db: Conexion) -> str:
     ahora = _ahora()
     hoy = ahora.astimezone(ZoneInfo(settings.timezone)).date()
     return formatear(await cifras_actas(db, ahora), hoy, await externos())
@@ -463,7 +461,7 @@ async def enviar_a(ids: Iterable[int], texto: str) -> int:
     return enviados
 
 
-async def enviar_semanal(db: aiosqlite.Connection) -> dict[str, object]:
+async def enviar_semanal(db: Conexion) -> dict[str, object]:
     """Para el cron del lunes."""
     if not settings.resumen_semanal_activo:
         return {"activo": False, "enviados": 0}

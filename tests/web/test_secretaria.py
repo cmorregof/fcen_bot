@@ -23,8 +23,9 @@ async def _caso_decidido(
     db = await connect()
     try:
         await db.execute(
-            "INSERT OR IGNORE INTO actas_consejo (id, instancia, numero, fecha, texto,"
-            " subido_por) VALUES (1, 'facultad', '35', ?, 'acta ficticia', 'x@unal.edu.co')",
+            "INSERT INTO actas_consejo (id, instancia, numero, fecha, texto,"
+            " subido_por) VALUES (1, 'facultad', '35', ?, 'acta ficticia', 'x@unal.edu.co')"
+            " ON CONFLICT DO NOTHING",
             (acta_fecha,),
         )
         cur = await db.execute(
@@ -139,7 +140,7 @@ async def test_permisos(cliente: Cliente) -> None:  # noqa: F811
     assert c.put(f"{RUTA}/{caso_id}", json={}, headers=dec).status_code == 403
     assert c.get(f"{RUTA}/xlsx", headers=dec).status_code == 200
     assert c.get(RUTA).status_code == 401
-    assert settings.db_path.exists()
+    assert settings.database_url or settings.db_path.exists()
 
 
 async def test_secretaria_descarga_el_borrador(cliente: Cliente) -> None:  # noqa: F811

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -125,6 +126,12 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/actas/fcen.db")
     media_dir: Path = Path("data/actas/media")
     output_dir: Path = Path("data/actas/out")
+    # Postgres (opcional). Con DATABASE_URL, la base va a Postgres en el
+    # esquema DB_SCHEMA (por defecto, el nombre del servicio; en práctica,
+    # practica_<servicio>). Sin ella, SQLite en DB_PATH. media y out siguen en
+    # DATA_DIR. Ver docs/base-de-datos.md.
+    database_url: str = ""
+    db_schema: str = ""
 
     # Conversión a PDF
     soffice_bin: str = "soffice"
@@ -177,6 +184,8 @@ class Settings(BaseSettings):
             and not (base / "fcen.db").exists()
         ):
             base = data_dir
+        if not datos.get("db_schema"):
+            datos["db_schema"] = f"practica_{servicio}" if practica else servicio
         for campo, nombre in (
             ("db_path", "fcen.db"),
             ("media_dir", "media"),
@@ -203,7 +212,16 @@ class Settings(BaseSettings):
             self.resumen_admision_url = ""
             self.telegram_bot_token = ""
             self.telegram_webhook_secret = ""
+        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", self.db_schema):
+            raise ValueError(f"DB_SCHEMA={self.db_schema!r} no es un esquema válido.")
+        if self.memoria_practica and not self.db_schema.startswith("practica_"):
+            raise ValueError("MEMORIA_PRACTICA=true exige un esquema practica_*.")
         # Un servicio nunca usa la base de actas (AGENTS.md).
+        if self.bot_servicio != "actas" and self.db_schema == "actas":
+            raise ValueError(
+                f"DB_SCHEMA=actas es el esquema de actas; "
+                f"el servicio {self.bot_servicio} necesita el suyo."
+            )
         if self.bot_servicio != "actas":
             legado = {
                 self.data_dir / "fcen.db",

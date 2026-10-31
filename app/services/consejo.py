@@ -21,8 +21,7 @@ import re
 from dataclasses import dataclass, field
 from html import escape
 
-import aiosqlite
-
+from app.core.conexion import Conexion, Fila
 from app.core.config import settings
 from app.core.programas import PROGRAMAS, normalizar
 from app.db import repo
@@ -355,9 +354,7 @@ def cruzar(
 # ---------------------------------------------------------------------------
 
 
-async def _casos_candidatos(
-    db: aiosqlite.Connection, direccion: str | None
-) -> list[Caso]:
+async def _casos_candidatos(db: Conexion, direccion: str | None) -> list[Caso]:
     marcas = ",".join("?" for _ in _CANDIDATOS)
     sql = f"SELECT id FROM casos WHERE estado IN ({marcas})"
     params: list[object] = [e.value for e in _CANDIDATOS]
@@ -373,11 +370,11 @@ async def _casos_candidatos(
     return casos
 
 
-async def decision_de(db: aiosqlite.Connection, caso_id: int) -> DecisionConsejo | None:
+async def decision_de(db: Conexion, caso_id: int) -> DecisionConsejo | None:
     return await repo.decision_consejo(db, caso_id)
 
 
-async def _decididos(db: aiosqlite.Connection) -> dict[int, SentidoConsejo]:
+async def _decididos(db: Conexion) -> dict[int, SentidoConsejo]:
     cur = await db.execute("SELECT caso_id, sentido FROM decisiones_consejo")
     return {int(r[0]): SentidoConsejo(r[1]) for r in await cur.fetchall()}
 
@@ -389,7 +386,7 @@ class ActaRegistrada:
 
 
 async def registrar_acta(
-    db: aiosqlite.Connection,
+    db: Conexion,
     *,
     leida: ActaLeida,
     texto: str,
@@ -439,7 +436,7 @@ async def registrar_acta(
 
 
 async def leer_y_registrar(
-    db: aiosqlite.Connection,
+    db: Conexion,
     *,
     datos: bytes,
     nombre_archivo: str,
@@ -523,7 +520,7 @@ class Acta:
     creado: str | None
 
 
-async def get_acta(db: aiosqlite.Connection, acta_id: int) -> Acta | None:
+async def get_acta(db: Conexion, acta_id: int) -> Acta | None:
     cur = await db.execute("SELECT * FROM actas_consejo WHERE id = ?", (acta_id,))
     r = await cur.fetchone()
     if r is None:
@@ -555,7 +552,7 @@ class FilaDecision:
     revisado_por: str | None
 
 
-def _fila(r: aiosqlite.Row) -> FilaDecision:
+def _fila(r: Fila) -> FilaDecision:
     return FilaDecision(
         id=int(r["id"]),
         acta_id=int(r["acta_id"]),
@@ -571,9 +568,7 @@ def _fila(r: aiosqlite.Row) -> FilaDecision:
     )
 
 
-async def decisiones_del_acta(
-    db: aiosqlite.Connection, acta_id: int
-) -> list[FilaDecision]:
+async def decisiones_del_acta(db: Conexion, acta_id: int) -> list[FilaDecision]:
     cur = await db.execute(
         "SELECT * FROM acta_consejo_decisiones WHERE acta_id = ? ORDER BY orden",
         (acta_id,),
@@ -581,7 +576,7 @@ async def decisiones_del_acta(
     return [_fila(r) for r in await cur.fetchall()]
 
 
-async def _get_fila(db: aiosqlite.Connection, decision_id: int) -> FilaDecision | None:
+async def _get_fila(db: Conexion, decision_id: int) -> FilaDecision | None:
     cur = await db.execute(
         "SELECT * FROM acta_consejo_decisiones WHERE id = ?", (decision_id,)
     )
@@ -589,7 +584,7 @@ async def _get_fila(db: aiosqlite.Connection, decision_id: int) -> FilaDecision 
     return _fila(r) if r else None
 
 
-async def texto_acta(db: aiosqlite.Connection, acta_id: int) -> str:
+async def texto_acta(db: Conexion, acta_id: int) -> str:
     cur = await db.execute("SELECT texto FROM actas_consejo WHERE id = ?", (acta_id,))
     r = await cur.fetchone()
     return str(r[0]) if r else ""
@@ -607,7 +602,7 @@ def asignable_a_mano(fila: FilaDecision, texto: str) -> bool:
 
 
 async def fila_visible(
-    db: aiosqlite.Connection, fila: FilaDecision, acta: Acta, direccion: str | None
+    db: Conexion, fila: FilaDecision, acta: Acta, direccion: str | None
 ) -> bool:
     """Quien no es admin solo ve y toca las decisiones cuyo caso o candidatos
     son de su área. Una decisión sin caso ni candidatos solo la ve el área que
@@ -628,7 +623,7 @@ async def fila_visible(
 
 
 async def _fila_de_su_area(
-    db: aiosqlite.Connection, decision_id: int, direccion: str | None
+    db: Conexion, decision_id: int, direccion: str | None
 ) -> tuple[FilaDecision, Acta]:
     fila = await _get_fila(db, decision_id)
     acta = await get_acta(db, fila.acta_id) if fila else None
@@ -644,7 +639,7 @@ async def _fila_de_su_area(
 
 
 async def _tomar(
-    db: aiosqlite.Connection,
+    db: Conexion,
     fila_id: int,
     estado: EstadoDecision,
     persona: str,
@@ -664,7 +659,7 @@ async def _tomar(
 
 
 async def aplicar(
-    db: aiosqlite.Connection,
+    db: Conexion,
     decision_id: int,
     *,
     caso_id: int | None,
@@ -744,7 +739,7 @@ async def aplicar(
 
 
 async def _guardar_decision(
-    db: aiosqlite.Connection,
+    db: Conexion,
     decision: DecisionConsejo,
     acta_id: int,
     fila_id: int,
@@ -768,7 +763,7 @@ async def _guardar_decision(
             confirmado_por = excluded.confirmado_por,
             confirmado = CURRENT_TIMESTAMP
         WHERE decisiones_consejo.sentido = 'aplazo'
-            OR (? AND excluded.sentido != 'aplazo')
+            OR (? = 1 AND excluded.sentido != 'aplazo')
         """,
         (
             decision.caso_id,
@@ -792,7 +787,7 @@ async def _guardar_decision(
 
 
 async def descartar(
-    db: aiosqlite.Connection,
+    db: Conexion,
     decision_id: int,
     *,
     persona: str,
@@ -804,7 +799,7 @@ async def descartar(
 
 
 async def aplicar_exactos(
-    db: aiosqlite.Connection, acta_id: int, *, persona: str, direccion: str | None
+    db: Conexion, acta_id: int, *, persona: str, direccion: str | None
 ) -> list[DecisionConsejo]:
     """Confirma de una vez los cruces exactos pendientes (botón explícito)."""
     aplicadas = []
@@ -843,7 +838,7 @@ def texto_decision(d: DecisionConsejo) -> str:
     )
 
 
-async def avisar(db: aiosqlite.Connection, caso: Caso, d: DecisionConsejo) -> int:
+async def avisar(db: Conexion, caso: Caso, d: DecisionConsejo) -> int:
     """Mensaje al chat del área del caso. Apagado salvo AVISO_CONSEJO_TELEGRAM."""
     if not settings.aviso_consejo_telegram:
         return 0
@@ -870,7 +865,7 @@ async def avisar(db: aiosqlite.Connection, caso: Caso, d: DecisionConsejo) -> in
 
 
 async def no_aparecieron(
-    db: aiosqlite.Connection, acta_id: int, direccion: str | None
+    db: Conexion, acta_id: int, direccion: str | None
 ) -> list[Caso]:
     """Casos recomendados por el comité, sin decisión final del Consejo, que no
     aparecen en ninguna decisión del acta (ni como candidatos)."""

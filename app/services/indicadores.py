@@ -28,13 +28,13 @@ from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import aiosqlite
 import yaml
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.core import solicitudes
+from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import DIRECCIONES, PROGRAMAS, normalizar
 from app.schemas.caso import TITULOS_TIPO, EstadoCaso, Sentido, TipoSolicitud
@@ -469,7 +469,7 @@ def _instancia(
 
 
 async def leer_casos(
-    db: aiosqlite.Connection, periodo: Periodo, direccion: str | None = None
+    db: Conexion, periodo: Periodo, direccion: str | None = None
 ) -> list[FilaCaso]:
     """Casos recibidos en el periodo (sin descartados), de un área o de todas."""
     config = solicitudes.actual()
@@ -724,7 +724,7 @@ def nombre_area(direccion: str | None) -> str:
 
 
 async def reporte(
-    db: aiosqlite.Connection,
+    db: Conexion,
     periodo: Periodo,
     hoy: date,
     direccion: str | None = None,

@@ -11,8 +11,7 @@ import logging
 import re
 import unicodedata
 
-import aiosqlite
-
+from app.core.conexion import Conexion
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.telegram import CallbackQuery, Message, Update
@@ -77,7 +76,7 @@ def aviso_html() -> str:
 # ---------------------------------------------------------------------------
 
 
-async def manejar_update(db: aiosqlite.Connection, update: Update) -> None:
+async def manejar_update(db: Conexion, update: Update) -> None:
     if not await repo.marcar_update(db, update.update_id):
         return
     await almacen.asegurar_tablas(db)
@@ -98,7 +97,7 @@ async def manejar_update(db: aiosqlite.Connection, update: Update) -> None:
         await _pregunta(db, msg.chat.id, texto)
 
 
-async def _start(db: aiosqlite.Connection, chat_id: int) -> None:
+async def _start(db: Conexion, chat_id: int) -> None:
     await almacen.reiniciar(db, chat_id)
     _PENDIENTES.pop(chat_id, None)
     await _decir(
@@ -108,7 +107,7 @@ async def _start(db: aiosqlite.Connection, chat_id: int) -> None:
     )
 
 
-async def _callback(db: aiosqlite.Connection, cb: CallbackQuery) -> None:
+async def _callback(db: Conexion, cb: CallbackQuery) -> None:
     if cb.message is None or not cb.data or not cb.data.startswith("adm:"):
         return
     chat_id = cb.message.chat.id
@@ -176,7 +175,7 @@ async def _listo(chat_id: int) -> None:
     )
 
 
-async def _puede_preguntar(db: aiosqlite.Connection, chat_id: int) -> bool:
+async def _puede_preguntar(db: Conexion, chat_id: int) -> bool:
     est = await almacen.estado(db, chat_id)
     if not est["acepto"] or est["menor"] is None:
         await _sin_aviso(chat_id)
@@ -184,7 +183,7 @@ async def _puede_preguntar(db: aiosqlite.Connection, chat_id: int) -> bool:
     return True
 
 
-async def _puede_revisar(db: aiosqlite.Connection, chat_id: int) -> bool:
+async def _puede_revisar(db: Conexion, chat_id: int) -> bool:
     if not await _puede_preguntar(db, chat_id):
         return False
     est = await almacen.estado(db, chat_id)
@@ -211,7 +210,7 @@ async def _avisar_credenciales(chat_id: int) -> None:
     )
 
 
-async def _pregunta(db: aiosqlite.Connection, chat_id: int, texto: str) -> None:
+async def _pregunta(db: Conexion, chat_id: int, texto: str) -> None:
     if filtro.filtrar(texto).credenciales:
         await _avisar_credenciales(chat_id)
         if not filtro.tiene_contenido(filtro.filtrar(texto).texto):
@@ -256,7 +255,7 @@ def _tipo_por_texto(texto: str) -> str | None:
     return max(candidatos, key=lambda d: len(d.nombre)).clave
 
 
-async def _archivo(db: aiosqlite.Connection, msg: Message) -> None:
+async def _archivo(db: Conexion, msg: Message) -> None:
     chat_id = msg.chat.id
     leyenda = filtro.filtrar(msg.caption or "")
     if leyenda.credenciales:
@@ -291,9 +290,7 @@ async def _archivo(db: aiosqlite.Connection, msg: Message) -> None:
     await _decir(chat_id, "¿Qué documento es?", botones)
 
 
-async def _revisar_pendiente(
-    db: aiosqlite.Connection, chat_id: int, clave: str
-) -> None:
+async def _revisar_pendiente(db: Conexion, chat_id: int, clave: str) -> None:
     pendiente = _PENDIENTES.pop(chat_id, None)
     if pendiente is None:
         await _decir(chat_id, "Ya no tengo el archivo. Envíalo de nuevo, por favor.")
@@ -303,9 +300,7 @@ async def _revisar_pendiente(
     await _revisar(db, chat_id, pendiente[0], clave)
 
 
-async def _revisar(
-    db: aiosqlite.Connection, chat_id: int, file_id: str, clave: str
-) -> None:
+async def _revisar(db: Conexion, chat_id: int, file_id: str, clave: str) -> None:
     if chequeo.cargar().buscar(clave) is None:
         await _decir(chat_id, "No conozco ese tipo de documento.")
         return
@@ -356,7 +351,7 @@ def _informe(resultado: flujo.Revision) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _metricas(db: aiosqlite.Connection, msg: Message) -> None:
+async def _metricas(db: Conexion, msg: Message) -> None:
     usuario = msg.from_.id if msg.from_ else None
     if usuario is None or usuario not in config.admins:
         await _decir(msg.chat.id, "No tienes permiso para ver las métricas.")

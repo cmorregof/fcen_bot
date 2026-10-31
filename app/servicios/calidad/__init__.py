@@ -7,8 +7,7 @@ import json
 import re
 from html import escape
 
-import aiosqlite
-
+from app.core.conexion import Conexion
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.telegram import Message, Update
@@ -38,14 +37,14 @@ BOTONES_IMPORTACION = [
 # ---------------------------------------------------------------------------
 
 
-async def _es_usuario(db: aiosqlite.Connection, telegram_id: int) -> bool:
+async def _es_usuario(db: Conexion, telegram_id: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM cal_usuarios WHERE telegram_id = ?", (telegram_id,)
     )
     return await cur.fetchone() is not None
 
 
-async def _registrar(db: aiosqlite.Connection, msg: Message, codigo: str) -> str:
+async def _registrar(db: Conexion, msg: Message, codigo: str) -> str:
     uid = msg.from_.id if msg.from_ else msg.chat.id
     if await _es_usuario(db, uid):
         return f"{textos.ALCANCE}\n\n{textos.AYUDA}"
@@ -64,9 +63,7 @@ async def _registrar(db: aiosqlite.Connection, msg: Message, codigo: str) -> str
     return f"Listo, quedaste registrado.\n\n{textos.ALCANCE}\n\n{textos.AYUDA}"
 
 
-async def _esperar(
-    db: aiosqlite.Connection, chat_id: int, esperando: str, dato: str = ""
-) -> None:
+async def _esperar(db: Conexion, chat_id: int, esperando: str, dato: str = "") -> None:
     await db.execute(
         "INSERT INTO cal_estado_chat (chat_id, esperando, dato) VALUES (?, ?, ?) "
         "ON CONFLICT(chat_id) DO UPDATE SET esperando=excluded.esperando, "
@@ -76,7 +73,7 @@ async def _esperar(
     await db.commit()
 
 
-async def _estado(db: aiosqlite.Connection, chat_id: int) -> tuple[str, str] | None:
+async def _estado(db: Conexion, chat_id: int) -> tuple[str, str] | None:
     cur = await db.execute(
         "SELECT esperando, dato FROM cal_estado_chat WHERE chat_id = ?", (chat_id,)
     )
@@ -84,7 +81,7 @@ async def _estado(db: aiosqlite.Connection, chat_id: int) -> tuple[str, str] | N
     return (str(fila["esperando"]), str(fila["dato"])) if fila else None
 
 
-async def _limpiar(db: aiosqlite.Connection, chat_id: int) -> None:
+async def _limpiar(db: Conexion, chat_id: int) -> None:
     await db.execute("DELETE FROM cal_estado_chat WHERE chat_id = ?", (chat_id,))
     await db.commit()
 
@@ -101,7 +98,7 @@ def _comando(texto: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def _importar(db: aiosqlite.Connection, msg: Message, uid: int) -> None:
+async def _importar(db: Conexion, msg: Message, uid: int) -> None:
     doc = msg.document
     if doc is None:
         await _esperar(db, msg.chat.id, "plan")
@@ -143,7 +140,7 @@ async def _importar(db: aiosqlite.Connection, msg: Message, uid: int) -> None:
 
 
 async def _confirmar_importacion(
-    db: aiosqlite.Connection, chat_id: int, uid: int, aceptar: bool
+    db: Conexion, chat_id: int, uid: int, aceptar: bool
 ) -> str:
     estado = await _estado(db, chat_id)
     if estado is None or estado[0] != "confirmar_plan":
@@ -169,7 +166,7 @@ async def _confirmar_importacion(
 
 
 async def _programa_o_lista(
-    db: aiosqlite.Connection, chat_id: int, arg: str, uso: str
+    db: Conexion, chat_id: int, arg: str, uso: str
 ) -> str | None:
     programas = await plan.listar_programas(db)
     if not programas:
@@ -187,7 +184,7 @@ async def _programa_o_lista(
     return programa
 
 
-async def _cmd_plan(db: aiosqlite.Connection, chat_id: int, arg: str) -> None:
+async def _cmd_plan(db: Conexion, chat_id: int, arg: str) -> None:
     programa = await _programa_o_lista(db, chat_id, arg, "/plan &lt;programa&gt;")
     if programa is None:
         return
@@ -199,9 +196,7 @@ async def _cmd_plan(db: aiosqlite.Connection, chat_id: int, arg: str) -> None:
 _RE_CODIGO = re.compile(r"^\d+(?:\.\d+)*\.?$")
 
 
-async def _cmd_evidencia(
-    db: aiosqlite.Connection, msg: Message, uid: int, arg: str
-) -> None:
+async def _cmd_evidencia(db: Conexion, msg: Message, uid: int, arg: str) -> None:
     uso = "/evidencia &lt;programa&gt; &lt;código de acción&gt; [enlace]"
     palabras = arg.split()
     i = next((n for n, p in enumerate(palabras) if _RE_CODIGO.match(p)), None)
@@ -238,7 +233,7 @@ async def _cmd_evidencia(
 
 
 async def _guardar_evidencia(
-    db: aiosqlite.Connection,
+    db: Conexion,
     msg: Message,
     uid: int,
     guardado: plan.PlanGuardado,
@@ -275,7 +270,7 @@ async def _guardar_evidencia(
     )
 
 
-async def _cmd_alerta(db: aiosqlite.Connection, chat_id: int) -> None:
+async def _cmd_alerta(db: Conexion, chat_id: int) -> None:
     mapa = await alertas.construir_alertas(db, reloj.hoy())
     if not mapa:
         await telegram.send_message(
@@ -291,7 +286,7 @@ async def _cmd_alerta(db: aiosqlite.Connection, chat_id: int) -> None:
         await telegram.send_message(chat_id, texto)
 
 
-async def _cmd_reporte(db: aiosqlite.Connection, chat_id: int, arg: str) -> None:
+async def _cmd_reporte(db: Conexion, chat_id: int, arg: str) -> None:
     programa = await _programa_o_lista(db, chat_id, arg, "/reporte &lt;programa&gt;")
     guardado = await plan.cargar_plan(db, programa) if programa else None
     if guardado is None:
@@ -326,7 +321,7 @@ async def _cmd_a_quien(chat_id: int, arg: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _callback(db: aiosqlite.Connection, update: Update) -> None:
+async def _callback(db: Conexion, update: Update) -> None:
     cb = update.callback_query
     if cb is None or cb.message is None or not cb.data:
         return
@@ -342,7 +337,7 @@ async def _callback(db: aiosqlite.Connection, update: Update) -> None:
         await telegram.send_message(cb.message.chat.id, texto)
 
 
-async def manejar_update(db: aiosqlite.Connection, update: Update) -> None:
+async def manejar_update(db: Conexion, update: Update) -> None:
     await init_calidad(db)
     if not await repo.marcar_update(db, update.update_id):
         return
@@ -384,7 +379,7 @@ async def manejar_update(db: aiosqlite.Connection, update: Update) -> None:
         await _continuar(db, msg, uid)
 
 
-async def _continuar(db: aiosqlite.Connection, msg: Message, uid: int) -> None:
+async def _continuar(db: Conexion, msg: Message, uid: int) -> None:
     """Mensaje sin comando: completa lo que el chat dejó pendiente."""
     estado = await _estado(db, msg.chat.id)
     if estado is None:

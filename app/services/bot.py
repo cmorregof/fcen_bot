@@ -15,8 +15,7 @@ from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
-import aiosqlite
-
+from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import DIRECCIONES, PROGRAMAS, normalizar, programas_de
 from app.db import repo
@@ -80,7 +79,7 @@ AYUDA = """<b>Cómo funciona</b>
 # ---------------------------------------------------------------------------
 
 
-async def manejar_update(db: aiosqlite.Connection, update: Update) -> None:
+async def manejar_update(db: Conexion, update: Update) -> None:
     if not await repo.marcar_update(db, update.update_id):
         return
     if update.callback_query is not None:
@@ -93,7 +92,7 @@ async def manejar_update(db: aiosqlite.Connection, update: Update) -> None:
         await _mensaje(db, msg)
 
 
-async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
+async def _mensaje(db: Conexion, msg: Message) -> None:
     assert msg.from_ is not None
     chat_id = msg.chat.id
     texto = (msg.text or "").strip()
@@ -177,7 +176,7 @@ async def _mensaje(db: aiosqlite.Connection, msg: Message) -> None:
 
 
 async def _guardar_concepto(
-    db: aiosqlite.Connection,
+    db: Conexion,
     chat_id: int,
     usuario: repo.Usuario,
     miembro: str,
@@ -230,7 +229,7 @@ def _normalizar(texto: str) -> str:
     return normalizar(texto).strip(" .!¡?¿")
 
 
-async def _registro(db: aiosqlite.Connection, msg: Message, texto: str) -> None:
+async def _registro(db: Conexion, msg: Message, texto: str) -> None:
     assert msg.from_ is not None
     partes = texto.split(maxsplit=1)
     codigo = partes[1].strip() if len(partes) == 2 and partes[0] == "/start" else ""
@@ -265,7 +264,7 @@ async def _pedir_direccion(chat_id: int) -> None:
 
 
 async def _comando(
-    db: aiosqlite.Connection, msg: Message, usuario: repo.Usuario, texto: str
+    db: Conexion, msg: Message, usuario: repo.Usuario, texto: str
 ) -> None:
     chat_id = msg.chat.id
     nombre, _, arg = texto.partition(" ")
@@ -347,7 +346,7 @@ async def _comando(
         await telegram.send_message(chat_id, "No conozco ese comando. Escribe /ayuda.")
 
 
-async def _indicadores(db: aiosqlite.Connection, chat_id: int, argumento: str) -> None:
+async def _indicadores(db: Conexion, chat_id: int, argumento: str) -> None:
     """/indicadores [periodo]: toda la Facultad, solo cifras, y el Excel."""
     hoy = indicadores.hoy_local()
     try:
@@ -380,7 +379,7 @@ async def _indicadores(db: aiosqlite.Connection, chat_id: int, argumento: str) -
     )
 
 
-async def _suit(db: aiosqlite.Connection, chat_id: int, argumento: str) -> None:
+async def _suit(db: Conexion, chat_id: int, argumento: str) -> None:
     """/suit [año]: datos de operación de la Secretaría, solo cifras, y el Excel."""
     hoy = indicadores.hoy_local()
     try:
@@ -399,7 +398,7 @@ async def _suit(db: aiosqlite.Connection, chat_id: int, argumento: str) -> None:
     )
 
 
-async def _listar(db: aiosqlite.Connection, chat_id: int, direccion: str) -> None:
+async def _listar(db: Conexion, chat_id: int, direccion: str) -> None:
     casos = await repo.casos_recientes(db, direccion=direccion)
     if not casos:
         await telegram.send_message(chat_id, "Todavía no hay casos.")
@@ -415,7 +414,7 @@ async def _listar(db: aiosqlite.Connection, chat_id: int, direccion: str) -> Non
     await telegram.send_message(chat_id, "\n".join(lineas))
 
 
-async def _costo(db: aiosqlite.Connection, chat_id: int) -> None:
+async def _costo(db: Conexion, chat_id: int) -> None:
     mes = datetime.now(UTC).strftime("%Y-%m")
     uso = await repo.uso_del_mes(db, mes)
     usd = (
@@ -437,9 +436,7 @@ async def _costo(db: aiosqlite.Connection, chat_id: int) -> None:
     )
 
 
-async def _ofrecer_cierre(
-    db: aiosqlite.Connection, chat_id: int, direccion: str
-) -> None:
+async def _ofrecer_cierre(db: Conexion, chat_id: int, direccion: str) -> None:
     casos = await repo.casos_listos(db, direccion=direccion)
     con_sentido = [c for c in casos if c.sentido != Sentido.PENDIENTE and c.programa]
     if not con_sentido:
@@ -465,9 +462,7 @@ async def _ofrecer_cierre(
 # ---------------------------------------------------------------------------
 
 
-async def _agregar_al_caso(
-    db: aiosqlite.Connection, msg: Message, usuario: repo.Usuario
-) -> None:
+async def _agregar_al_caso(db: Conexion, msg: Message, usuario: repo.Usuario) -> None:
     chat_id = msg.chat.id
     assert usuario.direccion is not None
     estado = await repo.get_estado(db, chat_id)
@@ -519,9 +514,7 @@ async def _agregar_al_caso(
         )
 
 
-async def _documento(
-    db: aiosqlite.Connection, chat_id: int, caso_id: int, doc: Document
-) -> None:
+async def _documento(db: Conexion, chat_id: int, caso_id: int, doc: Document) -> None:
     """Un formato de solicitud se lee; los demás soportes solo se registran por
     nombre: no se guardan ni se envían al modelo."""
     nombre = doc.file_name or "archivo"
@@ -583,9 +576,7 @@ async def _documento(
     )
 
 
-async def _acta_consejo(
-    db: aiosqlite.Connection, msg: Message, usuario: repo.Usuario
-) -> None:
+async def _acta_consejo(db: Conexion, msg: Message, usuario: repo.Usuario) -> None:
     """Lee el acta del Consejo y propone el cruce con los casos del área."""
     assert msg.document is not None and usuario.direccion is not None
     chat_id = msg.chat.id
@@ -613,7 +604,7 @@ async def _acta_consejo(
 
 
 async def _resumen_acta(
-    db: aiosqlite.Connection, registrada: consejo.ActaRegistrada, direccion: str
+    db: Conexion, registrada: consejo.ActaRegistrada, direccion: str
 ) -> tuple[str, list[list[dict[str, str]]] | None]:
     exactos = [p for p in registrada.propuestas if p.cruce == Cruce.EXACTO]
     duda = [
@@ -656,7 +647,7 @@ async def _resumen_acta(
 
 
 async def _guardar_imagen(
-    db: aiosqlite.Connection, caso_id: int, file_id: str, unique: str, ext: str
+    db: Conexion, caso_id: int, file_id: str, unique: str, ext: str
 ) -> None:
     carpeta = settings.media_dir / str(caso_id)
     carpeta.mkdir(parents=True, exist_ok=True)
@@ -669,7 +660,7 @@ async def _guardar_imagen(
 
 
 async def _procesar(
-    db: aiosqlite.Connection, chat_id: int, usuario: repo.Usuario, caso_id: int
+    db: Conexion, chat_id: int, usuario: repo.Usuario, caso_id: int
 ) -> None:
     caso = await _caso_propio(db, caso_id, usuario)
     if caso is None:
@@ -699,7 +690,7 @@ async def _procesar(
 
 
 async def _corregir(
-    db: aiosqlite.Connection,
+    db: Conexion,
     chat_id: int,
     usuario: repo.Usuario,
     caso_id: int,
@@ -749,7 +740,7 @@ async def _enviar_ficha(chat_id: int, caso: Caso) -> None:
 
 
 async def _caso_propio(
-    db: aiosqlite.Connection, caso_id: int, usuario: repo.Usuario
+    db: Conexion, caso_id: int, usuario: repo.Usuario
 ) -> Caso | None:
     caso = await repo.get_caso(db, caso_id)
     if caso is None or caso.direccion != usuario.direccion:
@@ -762,7 +753,7 @@ async def _caso_propio(
 # ---------------------------------------------------------------------------
 
 
-async def _callback(db: aiosqlite.Connection, cq: CallbackQuery) -> None:
+async def _callback(db: Conexion, cq: CallbackQuery) -> None:
     usuario = await repo.get_usuario(db, cq.from_.id)
     data = cq.data or ""
     chat_id = cq.message.chat.id if cq.message else cq.from_.id

@@ -13,4 +13,4 @@ Bot de Telegram para los comités asesores de la FCEN (UNAL Manizales). El READM
 
 ## Stack
 
-Python 3.11+, FastAPI, Pydantic, aiosqlite, anthropic, python-docx y LibreOffice (PDF).
+Python 3.11+, FastAPI, Pydantic, aiosqlite o psycopg (Postgres), anthropic, python-docx y LibreOffice (PDF).

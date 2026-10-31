@@ -14,13 +14,13 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Annotated
 
-import aiosqlite
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from app.api.web import auth
 from app.api.web.auth import Admitido, Db, Usuario
 from app.api.web.config import web_settings
+from app.core.conexion import Conexion
 from app.servicios import admision
 from app.servicios.admision import almacen, chequeo, flujo, fuentes
 from app.servicios.admision.config import config
@@ -277,7 +277,7 @@ async def tablero(_: _Lectura, db: Db) -> dict[str, object]:
     return await cifras_tablero(db)
 
 
-async def cifras_tablero(db: aiosqlite.Connection) -> dict[str, object]:
+async def cifras_tablero(db: Conexion) -> dict[str, object]:
     """Solo conteos; también lo pide actas por /internal/cifras."""
     await almacen.asegurar_tablas(db)
     m = await almacen.totales(db)

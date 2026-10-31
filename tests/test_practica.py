@@ -17,6 +17,7 @@ from app.api.web.config import web_settings
 from app.core.config import Settings, settings
 from app.integrations import telegram
 from app.services import casos
+from tests.conftest import abrir_base
 
 
 @pytest.fixture
@@ -130,7 +131,7 @@ async def test_fuera_de_practica_si_llama_a_telegram(
 
 
 async def _contar(sql: str) -> int:
-    async with aiosqlite.connect(settings.db_path) as db:
+    async with abrir_base() as db:
         cur = await db.execute(sql)
         fila = await cur.fetchone()
         return int(fila[0]) if fila else 0
@@ -198,7 +199,7 @@ async def test_reiniciar_conserva_usuarios_y_borra_lo_creado(
 ) -> None:
     monkeypatch.setattr(settings, "bot_servicio", "actas")
     await practica.reiniciar()
-    async with aiosqlite.connect(settings.db_path) as db:
+    async with abrir_base() as db:
         await db.execute(
             "INSERT INTO web_usuarios (correo, rol, direccion) VALUES (?, ?, ?)",
             ("asistente@unal.edu.co", "administrativa", "matematicas"),
@@ -247,7 +248,7 @@ def test_reinicio_exige_admin(
     import asyncio
 
     async def _alta() -> None:
-        async with aiosqlite.connect(settings.db_path) as db:
+        async with abrir_base() as db:
             await db.execute(auth._ESQUEMA)
             await db.execute(
                 "INSERT INTO web_usuarios (correo, rol, direccion) VALUES (?, ?, ?)",
@@ -306,7 +307,7 @@ async def test_primer_arranque_siembra_y_los_siguientes_no(
     monkeypatch.setattr(settings, "bot_servicio", "actas")
     with TestClient(app):
         assert await _contar("SELECT COUNT(*) FROM casos") == 8
-    async with aiosqlite.connect(settings.db_path) as db:
+    async with abrir_base() as db:
         await db.execute("DELETE FROM casos")
         await db.commit()
     with TestClient(app):

@@ -4,20 +4,19 @@ from __future__ import annotations
 
 from datetime import date
 
-import aiosqlite
-
+from app.core.conexion import Conexion
 from app.integrations import telegram
 from app.servicios.calidad import plan, textos
 from app.servicios.calidad.config import calidad_settings
 
 
-async def construir_alertas(db: aiosqlite.Connection, hoy: date) -> dict[str, str]:
+async def construir_alertas(db: Conexion, hoy: date) -> dict[str, str]:
     return {
         pg.programa: textos.texto_alerta(pg, hoy) for pg in await plan.listar_planes(db)
     }
 
 
-async def enviar_alertas(db: aiosqlite.Connection, hoy: date) -> dict[str, object]:
+async def enviar_alertas(db: Conexion, hoy: date) -> dict[str, object]:
     if not calidad_settings.alertas_activas:
         return {"activas": False, "enviados": 0}
     alertas = await construir_alertas(db, hoy)

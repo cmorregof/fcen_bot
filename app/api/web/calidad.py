@@ -6,13 +6,13 @@ import asyncio
 from datetime import date
 from typing import Annotated
 
-import aiosqlite
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.api.web import auth
 from app.api.web.auth import Db, Usuario
+from app.core.conexion import Conexion
 from app.servicios.calidad import directorio, plan, plantilla, reloj, reporte
 from app.servicios.calidad.avance import corrida as avance
 from app.servicios.calidad.config import calidad_settings
@@ -257,7 +257,7 @@ async def tablero(_: _Lectura, db: Db) -> dict[str, object]:
     return await cifras_tablero(db)
 
 
-async def cifras_tablero(db: aiosqlite.Connection) -> dict[str, object]:
+async def cifras_tablero(db: Conexion) -> dict[str, object]:
     """Lo mismo que /tablero; también lo pide actas por /internal/cifras."""
     await init_calidad(db)
     hoy = reloj.hoy()

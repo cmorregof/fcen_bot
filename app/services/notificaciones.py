@@ -23,11 +23,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-import aiosqlite
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from pydantic import BaseModel, field_validator
 
+from app.core.conexion import Conexion
 from app.core.programas import PROGRAMAS
 from app.schemas.caso import TITULOS_TIPO, EstadoCaso, TipoSolicitud
 from app.schemas.consejo import (
@@ -147,7 +147,7 @@ def _dia(valor: object) -> date | None:
         return None
 
 
-async def listar(db: aiosqlite.Connection, semestre: Semestre) -> list[Fila]:
+async def listar(db: Conexion, semestre: Semestre) -> list[Fila]:
     """Casos decididos por el Consejo de Facultad en el semestre (sin aplazados)."""
     cur = await db.execute(
         "SELECT c.id, c.programa, c.extraccion_json, c.recomendado,"
@@ -204,9 +204,7 @@ async def listar(db: aiosqlite.Connection, semestre: Semestre) -> list[Fila]:
     return filas
 
 
-async def guardar(
-    db: aiosqlite.Connection, caso_id: int, registro: Registro, usuario: str
-) -> None:
+async def guardar(db: Conexion, caso_id: int, registro: Registro, usuario: str) -> None:
     def iso(d: date | None) -> str | None:
         return d.isoformat() if d else None
 
@@ -233,7 +231,7 @@ async def guardar(
     await db.commit()
 
 
-async def decidido_por_facultad(db: aiosqlite.Connection, caso_id: int) -> bool:
+async def decidido_por_facultad(db: Conexion, caso_id: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM decisiones_consejo d JOIN casos c ON c.id = d.caso_id"
         " WHERE d.caso_id = ? AND d.instancia = ? AND d.sentido != ?"

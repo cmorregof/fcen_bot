@@ -13,8 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 
-import aiosqlite
-
+from app.core.conexion import Conexion
 from app.servicios.calidad.config import calidad_settings
 from app.servicios.calidad.plantilla import Accion, Corte, Objetivo, Plan, plegar
 
@@ -141,12 +140,12 @@ class PlanGuardado:
         return next((a for a in self.plan.acciones if a.codigo == codigo), None)
 
 
-async def listar_programas(db: aiosqlite.Connection) -> list[str]:
+async def listar_programas(db: Conexion) -> list[str]:
     cur = await db.execute("SELECT programa FROM cal_planes ORDER BY programa")
     return [str(r[0]) for r in await cur.fetchall()]
 
 
-async def buscar_programa(db: aiosqlite.Connection, texto: str) -> str | None:
+async def buscar_programa(db: Conexion, texto: str) -> str | None:
     """Coincidencia exacta o, si no, por subcadena única (sin tildes)."""
     clave = plegar(texto)
     if not clave:
@@ -159,7 +158,7 @@ async def buscar_programa(db: aiosqlite.Connection, texto: str) -> str | None:
     return parecidos[0] if len(parecidos) == 1 else None
 
 
-async def cargar_plan(db: aiosqlite.Connection, programa: str) -> PlanGuardado | None:
+async def cargar_plan(db: Conexion, programa: str) -> PlanGuardado | None:
     clave = plegar(programa)
     cur = await db.execute(
         "SELECT p.datos_json, p.importacion_id, i.archivo FROM cal_planes p "
@@ -213,7 +212,7 @@ async def cargar_plan(db: aiosqlite.Connection, programa: str) -> PlanGuardado |
     return guardado
 
 
-async def listar_planes(db: aiosqlite.Connection) -> list[PlanGuardado]:
+async def listar_planes(db: Conexion) -> list[PlanGuardado]:
     planes = [await cargar_plan(db, p) for p in await listar_programas(db)]
     return [p for p in planes if p is not None]
 
@@ -256,7 +255,7 @@ def _clave_corte(k: Corte) -> str:
     return k.fecha.isoformat() if k.fecha else plegar(k.rotulo)
 
 
-async def resumir(db: aiosqlite.Connection, plan: Plan) -> ResumenImportacion:
+async def resumir(db: Conexion, plan: Plan) -> ResumenImportacion:
     """Qué pasaría al guardar este plan, sin guardar nada."""
     previo = await cargar_plan(db, plan.programa)
     resumen = ResumenImportacion(
@@ -301,7 +300,7 @@ async def resumir(db: aiosqlite.Connection, plan: Plan) -> ResumenImportacion:
 
 
 async def aplicar_importacion(
-    db: aiosqlite.Connection,
+    db: Conexion,
     plan: Plan,
     *,
     archivo: str,
@@ -379,7 +378,7 @@ async def aplicar_importacion(
 
 
 async def _cambio(
-    db: aiosqlite.Connection,
+    db: Conexion,
     accion_id: int,
     imp: int,
     tipo: str,
@@ -392,9 +391,7 @@ async def _cambio(
     )
 
 
-async def _guardar_corte(
-    db: aiosqlite.Connection, accion_id: int, imp: int, k: Corte
-) -> None:
+async def _guardar_corte(db: Conexion, accion_id: int, imp: int, k: Corte) -> None:
     clave = _clave_corte(k)
     cur = await db.execute(
         "SELECT id, descripcion, evidencias FROM cal_cortes "
@@ -438,7 +435,7 @@ async def _guardar_corte(
 
 
 async def registrar_soporte(
-    db: aiosqlite.Connection,
+    db: Conexion,
     accion_id: int,
     *,
     tipo: str,

@@ -35,6 +35,7 @@ COPY docs/admision/aviso_datos.md ./docs/admision/aviso_datos.md
 # Entorno de práctica (MEMORIA_PRACTICA=true): plan ficticio y script de siembra.
 COPY docs/calidad/plantilla_plan_mejoramiento_beta.xlsx ./docs/calidad/plantilla_plan_mejoramiento_beta.xlsx
 COPY scripts/sembrar_practica.py ./scripts/sembrar_practica.py
+COPY scripts/migrar_sqlite_a_postgres.py ./scripts/migrar_sqlite_a_postgres.py
 RUN uv sync --frozen --no-dev
 
 ENV BOT_SERVICIO=actas DATA_DIR=/data
