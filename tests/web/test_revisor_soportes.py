@@ -215,6 +215,9 @@ async def test_flujo_completo_con_cliente_falso(
         assert 0 < est["costo_usd"] < est["tope_usd"] and not est["excede_tope"]
         assert falso.llamadas == []
         assert not (corrida.base() / "actual" / "subida.zip").exists()
+        # Carpetas y nombres: sin modelo y antes de pagar.
+        assert estado["descargas"] == ["organizacion"]
+        assert estado["organizacion"]["archivos_con_observaciones"] > 0
 
         # Paso 3: sin confirmar el costo, no corre.
         r = c.post(f"{RUTA}/correr", json={}, headers=cab)
@@ -233,7 +236,12 @@ async def test_flujo_completo_con_cliente_falso(
         assert falso.llamadas.count("registrar_descripcion") == 5
         # Los soportes se borran al terminar; las salidas y la caché quedan.
         assert not estado["soportes_presentes"]
-        assert sorted(estado["descargas"]) == ["borrador", "cruce", "inventario"]
+        assert sorted(estado["descargas"]) == [
+            "borrador",
+            "cruce",
+            "inventario",
+            "organizacion",
+        ]
         assert list((corrida.base() / "cache").glob("desc-*.json"))
 
         for clave, extension in [

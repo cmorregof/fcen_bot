@@ -42,12 +42,14 @@ from app.servicios.calidad.soportes.cliente import ClienteAnthropic, ClienteMode
 from app.servicios.calidad.soportes.describir import Cache
 from app.servicios.calidad.soportes.inventario import inventariar
 from app.servicios.calidad.soportes.modelos import Accion, Archivo, Uso
+from app.servicios.calidad.soportes.organizacion import revisar as revisar_organizacion
 from app.servicios.calidad.soportes.revisor import (
     PASOS,
     estimar,
     excede_tope,
     revisar,
 )
+from app.servicios.calidad.soportes.salidas import organizacion_xlsx
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,7 @@ DESCARGAS: dict[str, tuple[str, str]] = {
     "inventario": ("inventario_soportes.xlsx", XLSX),
     "cruce": ("cruce_acciones.xlsx", XLSX),
     "borrador": ("borrador_cierre.docx", DOCX),
+    "organizacion": ("organizacion_evidencias.xlsx", XLSX),
 }
 
 _tarea: asyncio.Task[None] | None = None
@@ -259,6 +262,9 @@ def _preparar(
     archivos = inventariar(_soportes())
     if not archivos:
         raise ZipNoValido("El zip no trae soportes.")
+    # Carpetas y nombres según el instructivo: sin modelo, antes de pagar.
+    org = revisar_organizacion(archivos)
+    organizacion_xlsx(_salidas() / DESCARGAS["organizacion"][0], org)
     estado: dict[str, Any] = {
         "estado": "cargado",
         # La confirmación de costo queda atada a esta carga (ver `lanzar`).
@@ -267,6 +273,7 @@ def _preparar(
         "cargado_por": usuario,
         "cargado": reloj.ahora().isoformat(timespec="seconds"),
         "estimacion": _estimacion(archivos, acciones),
+        "organizacion": org.resumen(),
     }
     _guardar(estado)
     return leer_estado()
