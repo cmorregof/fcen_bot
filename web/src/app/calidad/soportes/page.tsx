@@ -250,7 +250,11 @@ export default function RevisionSoportes() {
               <input id="zip" type="file" accept=".zip" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} />
               <div className="botones">
                 <button type="button" disabled={!programa || !archivo || ocupado !== null} onClick={subir}>
-                  {ocupado === "subir" ? "Subiendo y contando… puede tardar unos minutos" : "Subir y calcular el costo"}
+                  {ocupado === "subir"
+                    ? "Subiendo y contando… puede tardar unos minutos"
+                    : estado.revisor_activo
+                      ? "Subir y calcular el costo"
+                      : "Subir y revisar carpetas y nombres"}
                 </button>
               </div>
               {error && errorDe === "subir" ? <Mensaje tipo="error">{error}</Mensaje> : null}

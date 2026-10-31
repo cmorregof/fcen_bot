@@ -702,3 +702,20 @@ async def test_admitido_no_puede_subir_insumos(
     )
     assert r.status_code in (401, 403)
     assert not carpeta.exists() or list(carpeta.iterdir()) == []
+
+
+def test_cors_permite_todos_los_metodos_de_la_web() -> None:
+    """El navegador pide permiso (preflight) antes de un PUT o un DELETE: un
+    método que falte en CORS deja la pantalla en «No hay conexión»."""
+    from fastapi.middleware.cors import CORSMiddleware
+
+    from app.main import app
+
+    cors = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
+    permitidos = set(cors.kwargs["allow_methods"])
+    for servicio in ("actas", "calidad", "admision"):
+        web = FastAPI()
+        web.include_router(crear_router(servicio))
+        for ruta, metodos in web.openapi()["paths"].items():
+            faltan = {m.upper() for m in metodos} - permitidos
+            assert not faltan, f"{servicio} {ruta}: {faltan}"

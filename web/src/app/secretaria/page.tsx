@@ -47,7 +47,9 @@ const vacio = (c: Caso): Registro =>
   };
 
 const dias = (e: Est) =>
-  e.casos === 0 ? "—" : `${String(e.mediana).replace(".", ",")} días (p90: ${e.p90}) · ${e.casos} casos`;
+  e.casos === 0
+    ? "—"
+    : `${String(e.mediana).replace(".", ",")} días (p90: ${e.p90}) · ${e.casos} ${e.casos === 1 ? "caso" : "casos"}`;
 
 function FilaCaso({ caso, token, alGuardar }: { caso: Caso; token: string | null; alGuardar: () => void }) {
   const [r, setR] = useState<Registro>(vacio(caso));
@@ -211,7 +213,7 @@ export default function PaginaSecretaria() {
             <Mensaje tipo="info">No hay casos decididos por el Consejo de Facultad en este semestre.</Mensaje>
           ) : (
             <div className="tabla">
-              <table>
+              <table className="notificaciones">
                 <thead>
                   <tr>
                     <th>Caso</th>

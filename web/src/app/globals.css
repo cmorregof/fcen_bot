@@ -82,12 +82,12 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 label { display: block; font-weight: 600; margin: 1rem 0 0.35rem; }
 .ayuda { display: block; font-weight: 400; color: var(--suave); font-size: 0.9rem; }
-input[type="text"], input[type="email"], input[type="url"], textarea, select {
+input:not([type]), input[type="text"], input[type="email"], input[type="url"], input[type="date"], textarea, select {
   width: 100%; max-width: 46rem; font: inherit; padding: 0.6rem 0.75rem;
   border: 2px solid var(--borde); border-radius: 0.4rem; background: #fff; color: var(--texto);
 }
 textarea { min-height: 8rem; }
-input[type="file"] { font: inherit; }
+input[type="file"] { font: inherit; max-width: 100%; }
 fieldset { border: 2px solid var(--borde); border-radius: 0.4rem; padding: 0.75rem 1rem; margin: 1rem 0; }
 legend { font-weight: 600; padding: 0 0.25rem; }
 .opcion { display: flex; gap: 0.6rem; align-items: center; font-weight: 400; margin: 0.4rem 0; }
@@ -119,6 +119,8 @@ th, td { text-align: left; padding: 0.6rem; border-bottom: 1px solid var(--borde
 th { background: var(--marino); color: #fff; }
 tbody tr:nth-child(even) td { background: var(--panel); }
 .tabla { overflow-x: auto; }
+/* Los campos de cada fila no se aprietan: la tabla se desplaza de lado. */
+.notificaciones td { min-width: 10rem; }
 
 .cifra { font-size: 2rem; font-weight: 700; display: block; line-height: 1.1; }
 .estado { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 0.3rem; font-weight: 600; font-size: 0.9rem; border: 2px solid; }

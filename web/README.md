@@ -32,6 +32,7 @@ Requisitos: `uv` y Node 20 o superior. No hace falta instalar nada global.
    |---|---|
    | `administrativa@unal.edu.co` | Casos del comité, ficha, recomendación, oficio y acta |
    | `comite@unal.edu.co` | Consulta de casos y conceptos |
+   | `secretaria@unal.edu.co` | Notificaciones: fechas, Excel de tiempos y borrador del oficio del Consejo |
    | `calidad@unal.edu.co` | Plan de mejoramiento, alertas, reporte, «¿A quién acudo?» |
    | `admision@unal.edu.co` | Métricas y lista de chequeo de admisión |
    | `decana@unal.edu.co` | Tablero de la Facultad (solo lectura) |
