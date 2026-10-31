@@ -444,10 +444,18 @@ async def _sembrar_admision(db: Conexion) -> int:
     return len(metricas)
 
 
+async def _sembrar_oportunidades(db: Conexion) -> int:
+    from app.services.indicadores import hoy_local
+    from app.servicios.oportunidades import practica
+
+    return await practica.sembrar(db, hoy_local())
+
+
 _SEMBRAR = {
     "actas": _sembrar_actas,
     "calidad": _sembrar_calidad,
     "admision": _sembrar_admision,
+    "oportunidades": _sembrar_oportunidades,
 }
 
 

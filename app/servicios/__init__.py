@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from app.core.conexion import Conexion
 from app.core.config import settings
 from app.schemas.telegram import Update
-from app.servicios import actas, admision, calidad
+from app.servicios import actas, admision, calidad, oportunidades
 
 TipoManejador = Callable[[Conexion, Update], Awaitable[None]]
 
@@ -19,6 +19,8 @@ def obtener_manejador(servicio: str) -> TipoManejador:
         return admision.manejar_update
     if servicio == "calidad":
         return calidad.manejar_update
+    if servicio == "oportunidades":
+        return oportunidades.manejar_update
     raise ValueError(f"Servicio no soportado: {servicio}")
 
 
@@ -34,4 +36,5 @@ __all__ = [
     "calidad",
     "despachar_update",
     "obtener_manejador",
+    "oportunidades",
 ]

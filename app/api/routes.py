@@ -127,6 +127,37 @@ async def reporte_mensual_ruta(
     return {"ok": True, **resultado}
 
 
+@router.post("/internal/vigia-semanal")
+async def vigia_semanal(
+    x_cron_secret: str | None = Header(None),
+) -> dict[str, object]:
+    """Vigía de oportunidades: busca, verifica y arma el borrador del boletín.
+    No publica nada (docs/oportunidades.md)."""
+    if not settings.internal_cron_secret or not hmac.compare_digest(
+        (x_cron_secret or "").encode(), settings.internal_cron_secret.encode()
+    ):
+        raise HTTPException(status_code=403, detail="secreto inválido")
+    if settings.bot_servicio != "oportunidades":
+        raise HTTPException(status_code=404, detail="no aplica a este servicio")
+    from app.servicios.oportunidades import buscador
+    from app.servicios.oportunidades.config import config as oportunidades
+
+    if not oportunidades.vigia_activa:
+        return {"ok": True, "activo": False}
+    db = await connect()
+    try:
+        from app.servicios.oportunidades.db import init_oportunidades
+
+        await init_oportunidades(db)
+        corrida_id = await buscador.iniciar(db, "cron")
+    except buscador.CorridaEnCurso as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    finally:
+        await db.close()
+    resultado = await buscador.ejecutar(corrida_id, indicadores.hoy_local())
+    return {"ok": True, "activo": True, **resultado}
+
+
 @router.post("/internal/respaldo-drive")
 async def respaldo_drive(
     x_cron_secret: str | None = Header(None),

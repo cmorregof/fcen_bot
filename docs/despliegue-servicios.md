@@ -12,6 +12,8 @@ El proyecto **MemorIA** (`fcen_bot`) aloja tres agentes de Telegram que comparte
 
 > Admisión tiene su guía propia, con insumos, OCR y web: [`docs/admision/despliegue.md`](admision/despliegue.md).
 
+> El servicio de estudiantes y oportunidades (`BOT_SERVICIO=oportunidades`, solo web, sin bot) se despliega como se describe en [`docs/oportunidades.md`](oportunidades.md).
+
 Cada servicio se despliega de manera independiente en Railway a partir del mismo repositorio y rama, con sus propias variables de entorno, su propio bot en Telegram y su propia base de datos SQLite. **Un servicio nunca lee ni escribe en la base de datos de otro.**
 
 ---

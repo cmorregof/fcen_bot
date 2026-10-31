@@ -14,7 +14,7 @@ jobs:
       matrix:
         # Cada servicio respalda solo su propia base. Si el secret de la URL
         # no existe, ese servicio se salta.
-        servicio: [actas, calidad, admision]
+        servicio: [actas, calidad, admision, oportunidades]
     steps:
       - name: Pedir la copia de la base al servicio
         env:
@@ -22,12 +22,14 @@ jobs:
           APP_URL: ${{ secrets.APP_URL }}
           CALIDAD_APP_URL: ${{ secrets.CALIDAD_APP_URL }}
           ADMISION_APP_URL: ${{ secrets.ADMISION_APP_URL }}
+          OPORTUNIDADES_APP_URL: ${{ secrets.OPORTUNIDADES_APP_URL }}
           INTERNAL_CRON_SECRET: ${{ secrets.INTERNAL_CRON_SECRET }}
         run: |
           case "$SERVICIO" in
             actas) URL="$APP_URL" ;;
             calidad) URL="$CALIDAD_APP_URL" ;;
             admision) URL="$ADMISION_APP_URL" ;;
+            oportunidades) URL="$OPORTUNIDADES_APP_URL" ;;
           esac
           if [ -z "$URL" ]; then
             echo "Sin URL para $SERVICIO; se salta."

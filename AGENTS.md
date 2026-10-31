@@ -6,6 +6,7 @@ El proyecto se llama **MemorIA**. Cuenta con tres servicios de Telegram que comp
 1. **actas**: Asistencia a comités asesores de área curricular (preparación de casos, fichas con alertas, extracción SIA y generación de oficios y actas).
 2. **admision**: Gestión y verificación de documentación de admitidos.
 3. **calidad**: Plan de mejoramiento, seguimiento de indicadores y acreditación.
+4. **oportunidades**: Vigía semanal de ofertas de empleo, prácticas, convocatorias y becas, con boletín que aprueba una persona. Solo web, sin bot (docs/oportunidades.md).
 
 El archivo `README.md` describe a fondo el flujo del bot de actas.
 
