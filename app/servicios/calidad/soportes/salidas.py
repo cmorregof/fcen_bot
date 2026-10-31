@@ -471,3 +471,177 @@ LEEME_ORGANIZACION = [
     "metadatos del archivo; «AAAAMMDD» indica que no se encontró. Revise que la "
     "descripción sea clara antes de usarlo.",
 ]
+
+
+# Formato «Índice electrónico» de la Vicedecanatura para el expediente de los
+# planes de mejoramiento (00IndiceElectronicoPlanesMejoraFCEN.xlsx).
+_FORMATOS = {"pdf": "pdf", "imagen": "imagen", "xlsx": "excel", "docx": "word"}
+_COLUMNAS_INDICE = [
+    "Nombre Documento", "Fecha Creación Documento", "Fecha Incorporación Expediente",
+    "Orden Documento", "Número Páginas", "Página Inicio", "Página Fin", "Formato",
+    "Tamaño", "Origen", "Observaciones",
+]  # fmt: skip
+_CARPETAS_INDICE = {
+    "producto final": "Producto final",
+    "soportes": "Soportes de producto final",
+}
+
+
+def _fecha_dmy(iso: str | None) -> str:
+    if not iso:
+        return ""
+    try:
+        return date.fromisoformat(iso[:10]).strftime("%d/%m/%Y")
+    except ValueError:
+        return ""
+
+
+def _tamano_kb(n: int) -> str:
+    return f"{max(1, round(n / 1024))} kb"
+
+
+def indice_electronico_xlsx(ruta: Path, org: Organizacion) -> None:
+    """Índice electrónico del expediente, prellenado desde el inventario.
+
+    Una fila por documento (sin los zip contenedores), ordenadas por acción y
+    carpeta. Página inicio y fin llevan las mismas fórmulas del formato. Lo
+    que el inventario no sabe (identificación del expediente, fecha de
+    incorporación, páginas de un Word o un Excel) queda en amarillo.
+    """
+    from openpyxl.styles import Border, Side
+
+    libro = Workbook()
+    ws = libro.active
+    assert ws is not None
+    ws.title = "Formato"
+    borde = Border(*(Side(style="thin"),) * 4)
+    negrita = Font(bold=True)
+    amarillo = PatternFill("solid", fgColor="FFFF00")
+    for col, ancho in zip(
+        "ABCDEFGHIJKL", [2, 42, 14, 14, 10, 10, 9, 9, 10, 10, 13, 40], strict=True
+    ):
+        ws.column_dimensions[col].width = ancho
+
+    for fila, texto in [
+        (3, "FONDO UNIVERSIDAD NACIONAL DE COLOMBIA"),
+        (4, "SUBFONDO"),
+        (5, "Vicedecanatura Facultad Ciencias Exactas y Naturales"),
+    ]:
+        ws.merge_cells(f"B{fila}:L{fila}")
+        ws[f"B{fila}"] = texto
+        ws[f"B{fila}"].font = Font(bold=True, size=13)
+        ws[f"B{fila}"].alignment = Alignment(horizontal="center")
+    datos = [
+        ("Oficina Productora", "Vicedecanatura Ciencias Exactas y Naturales"),
+        ("Serie", "PLANES"),
+        ("Subserie Documental", "PLANES DE MEJORAMIENTO DE PROGRAMAS CURRICULARES"),
+        ("Identificación del expediente", ""),
+    ]
+    fisico = [
+        ("EXPEDIENTE FÍSICO", None),
+        ("El expediente posee documentos físicos:", "NO"),
+        ("No. de carpetas", ""),
+        ("No. de folios", ""),
+    ]
+    for i, ((rotulo, valor), (rot_f, val_f)) in enumerate(
+        zip(datos, fisico, strict=True), start=7
+    ):
+        ws.merge_cells(f"C{i}:G{i}")
+        ws[f"B{i}"], ws[f"C{i}"] = rotulo, valor
+        ws[f"B{i}"].font = negrita
+        for c in ("B", "C"):
+            ws[f"{c}{i}"].border = borde
+        if not valor:
+            ws[f"C{i}"].fill = amarillo
+        if val_f is None:
+            ws.merge_cells(f"I{i}:L{i}")
+            ws[f"I{i}"] = rot_f
+            ws[f"I{i}"].font = negrita
+        else:
+            ws.merge_cells(f"I{i}:J{i}")
+            ws.merge_cells(f"K{i}:L{i}")
+            ws[f"I{i}"], ws[f"K{i}"] = rot_f, val_f
+
+    for j, titulo in enumerate(_COLUMNAS_INDICE, start=2):
+        c = ws.cell(row=12, column=j, value=titulo)
+        c.font = negrita
+        c.border = borde
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.row_dimensions[12].height = 45
+
+    documentos = [r for r in org.archivos if r.archivo.tipo != "zip"]
+    orden_carpeta = {"producto final": 0, "soportes": 1, "suelto": 2, "": 3}
+    documentos.sort(
+        key=lambda r: (
+            r.archivo.accion == "",
+            [int(x) for x in r.archivo.accion.split(".")] if r.archivo.accion else [],
+            orden_carpeta[r.carpeta],
+            r.archivo.ruta.casefold(),
+        )
+    )
+    primera = 13
+    for k, r in enumerate(documentos):
+        a = r.archivo
+        n = primera + k
+        if a.accion:
+            obs = f"Acción {a.accion}"
+            if r.carpeta in _CARPETAS_INDICE:
+                obs += f" — {_CARPETAS_INDICE[r.carpeta]}"
+        else:
+            obs = "Documento general del plan"
+        inicio = f'=IF(F{n}=0,"0","1")' if k == 0 else f'=IF(F{n}=0,"0",(1+H{n - 1}))'
+        valores: list[Any] = [
+            Path(a.nombre).stem,
+            _fecha_dmy(a.fecha),
+            "",
+            k + 1,
+            a.paginas,
+            inicio,
+            f"=G{n}+(F{n}-1)" if k else f"=G{n}+(F{n}-G{n})",
+            _FORMATOS.get(a.tipo, a.extension.lstrip(".").lower()),
+            _tamano_kb(a.tamano),
+            "Electrónico",
+            obs,
+        ]
+        for j, v in enumerate(valores, start=2):
+            c = ws.cell(row=n, column=j, value=celda(v) if j not in (7, 8) else v)
+            c.border = borde
+            if j > 2:
+                c.alignment = Alignment(horizontal="center")
+        ws.cell(row=n, column=4).fill = amarillo  # fecha de incorporación
+        if not a.fecha:
+            ws.cell(row=n, column=3).fill = amarillo
+        if a.paginas is None:
+            ws.cell(row=n, column=6).fill = amarillo
+    fin = primera + len(documentos) + 1
+    ws[f"B{fin}"] = "Fecha de cierre del expediente"
+    ws[f"B{fin + 2}"] = "Firma del jefe de la oficina productora"
+    for c in (f"B{fin}", f"B{fin + 2}"):
+        ws[c].font = negrita
+
+    leeme = libro.create_sheet("Léeme")
+    leeme.column_dimensions["A"].width = 120
+    for linea in LEEME_INDICE:
+        leeme.append([linea])
+    leeme["A1"].font = Font(bold=True, size=13)
+    for fila in leeme.iter_rows(min_row=2):
+        fila[0].alignment = Alignment(wrap_text=True)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    libro.save(ruta)
+
+
+LEEME_INDICE = [
+    "Índice electrónico del expediente — prellenado por MemorIA",
+    "Sigue el formato de la Vicedecanatura (00IndiceElectronicoPlanesMejoraFCEN). "
+    "Una fila por documento del zip de soportes, en orden de acción y carpeta "
+    "(Producto final primero). Se arma sin modelo de lenguaje y no gasta créditos.",
+    "Nombre, formato y tamaño salen del archivo. La fecha de creación sale de los "
+    "metadatos (PDF, foto o propiedades del documento); si no hay, queda en "
+    "amarillo. El número de páginas se cuenta en PDF e imágenes; en Word y Excel "
+    "queda en amarillo para que se escriba.",
+    "Página inicio y página fin llevan las fórmulas del formato: la foliación "
+    "sigue de un documento al siguiente.",
+    "En amarillo lo que debe llenar la oficina productora: identificación del "
+    "expediente, fecha de incorporación, páginas que falten, fecha de cierre y "
+    "firma. Revise el orden antes de copiar las filas al índice del Drive.",
+]

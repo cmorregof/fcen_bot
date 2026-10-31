@@ -49,7 +49,10 @@ from app.servicios.calidad.soportes.revisor import (
     excede_tope,
     revisar,
 )
-from app.servicios.calidad.soportes.salidas import organizacion_xlsx
+from app.servicios.calidad.soportes.salidas import (
+    indice_electronico_xlsx,
+    organizacion_xlsx,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +63,7 @@ DESCARGAS: dict[str, tuple[str, str]] = {
     "cruce": ("cruce_acciones.xlsx", XLSX),
     "borrador": ("borrador_cierre.docx", DOCX),
     "organizacion": ("organizacion_evidencias.xlsx", XLSX),
+    "indice": ("indice_electronico.xlsx", XLSX),
 }
 
 _tarea: asyncio.Task[None] | None = None
@@ -265,6 +269,7 @@ def _preparar(
     # Carpetas y nombres según el instructivo: sin modelo, antes de pagar.
     org = revisar_organizacion(archivos)
     organizacion_xlsx(_salidas() / DESCARGAS["organizacion"][0], org)
+    indice_electronico_xlsx(_salidas() / DESCARGAS["indice"][0], org)
     estado: dict[str, Any] = {
         "estado": "cargado",
         # La confirmación de costo queda atada a esta carga (ver `lanzar`).
