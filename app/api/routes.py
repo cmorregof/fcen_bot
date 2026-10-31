@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+import sqlite3
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 from fastapi.responses import JSONResponse
@@ -12,6 +13,8 @@ from app.core.config import settings
 from app.db.session import connect
 from app.schemas.telegram import Update
 from app.services import borrador, indicadores, reporte_mensual, resumen
+from app.services.drive import cliente as drive
+from app.services.drive import respaldo
 from app.servicios import despachar_update
 from app.servicios.calidad import alertas as alertas_calidad
 from app.servicios.calidad import reloj as reloj_calidad
@@ -121,6 +124,24 @@ async def reporte_mensual_ruta(
         resultado = await reporte_mensual.enviar(db, indicadores.hoy_local())
     finally:
         await db.close()
+    return {"ok": True, **resultado}
+
+
+@router.post("/internal/respaldo-drive")
+async def respaldo_drive(
+    x_cron_secret: str | None = Header(None),
+) -> dict[str, object]:
+    """Copia nocturna de la base de este servicio en Drive. Sin las variables
+    DRIVE_*, responde activo=false y no hace nada (docs/respaldo-drive.md)."""
+    if not settings.internal_cron_secret or not hmac.compare_digest(
+        (x_cron_secret or "").encode(), settings.internal_cron_secret.encode()
+    ):
+        raise HTTPException(status_code=403, detail="secreto inválido")
+    try:
+        resultado = await respaldo.respaldar(drive.obtener(), indicadores.hoy_local())
+    except (drive.ErrorDrive, OSError, sqlite3.Error, respaldo.ErrorVolcado) as exc:
+        logger.exception("Falló el respaldo en Drive")
+        raise HTTPException(status_code=502, detail=f"respaldo fallido: {exc}") from exc
     return {"ok": True, **resultado}
 
 

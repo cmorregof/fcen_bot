@@ -7,6 +7,17 @@ RUN apt-get update \
         libreoffice-writer-nogui poppler-utils fonts-dejavu fonts-crosextra-carlito fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
+# pg_dump para la copia nocturna en Drive cuando la base está en Postgres
+# (DATABASE_URL). Cliente 17 del repositorio oficial PGDG: pg_dump vuelca
+# servidores de su versión o anteriores, así que sirve para Postgres 16 y 17.
+# Si Railway pasa a Postgres 18, hay que subir este número.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-common ca-certificates \
+    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+    && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pg_dump --version
+
 # OCR para los insumos escaneados de admisión. Solo se instala si el servicio
 # define la variable INSTALAR_OCR=1 (Railway la pasa como argumento de build);
 # actas y calidad no la necesitan. Sin OCR, el servicio usa la caché
@@ -36,6 +47,8 @@ COPY docs/admision/aviso_datos.md ./docs/admision/aviso_datos.md
 COPY docs/calidad/plantilla_plan_mejoramiento_beta.xlsx ./docs/calidad/plantilla_plan_mejoramiento_beta.xlsx
 COPY scripts/sembrar_practica.py ./scripts/sembrar_practica.py
 COPY scripts/migrar_sqlite_a_postgres.py ./scripts/migrar_sqlite_a_postgres.py
+# Restaurar la base desde Drive dentro del contenedor (docs/respaldo-drive.md).
+COPY scripts/drive_restaurar.py ./scripts/drive_restaurar.py
 RUN uv sync --frozen --no-dev
 
 ENV BOT_SERVICIO=actas DATA_DIR=/data
