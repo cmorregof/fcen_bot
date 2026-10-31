@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import re
 from typing import Any
 
 import httpx
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 _LIMITE = 4096
 _TAG_RE = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9-]*)(?:\s[^>]*)?>")
@@ -73,6 +76,10 @@ def _corte_seguro(texto: str, limite: int) -> int:
 
 
 async def _post(metodo: str, **kwargs: Any) -> dict[str, Any]:
+    if settings.memoria_practica:
+        # Entorno de práctica: nada sale a Telegram, ni siquiera con un token.
+        logger.info("Práctica: Telegram %s no se envía.", metodo)
+        return {"ok": True, "result": {}}
     for intento in range(3):
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -171,6 +178,8 @@ async def descargar_archivo(file_id: str, *, max_bytes: int = 15_000_000) -> byt
     ruta = str(meta.get("result", {}).get("file_path", ""))
     if not ruta:
         raise RuntimeError("Telegram no devolvió la ruta del archivo")
+    if settings.memoria_practica:
+        raise RuntimeError("Entorno de práctica: no se descargan archivos de Telegram")
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.get(f"{_file_base()}/{ruta}")
         resp.raise_for_status()

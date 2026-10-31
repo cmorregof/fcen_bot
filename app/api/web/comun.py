@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app import practica
 from app.api.web import auth
 from app.api.web.auth import Db, Rol, Usuario
 from app.api.web.config import web_settings
@@ -61,6 +62,12 @@ async def sesion_dev(cuerpo: SesionDev, db: Db) -> RespuestaSesion:
     if usuario is None:
         raise HTTPException(403, "Su correo no está autorizado en este servicio.")
     return _respuesta(usuario, None)
+
+
+@router.get("/entorno")
+async def entorno() -> dict[str, object]:
+    """Público: la web lo usa para mostrar el banner del entorno de práctica."""
+    return {"servicio": settings.bot_servicio, "practica": settings.memoria_practica}
 
 
 @router.get("/yo")
@@ -141,3 +148,16 @@ async def retirar_usuario(correo: str, _: _Admin, db: Db) -> dict[str, bool]:
     )
     await db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Entorno de práctica (solo admin, solo con MEMORIA_PRACTICA=true)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/practica/reiniciar")
+async def reiniciar_practica(_: _Admin) -> dict[str, object]:
+    """Vuelve a cargar los datos ficticios de este servicio."""
+    if not settings.memoria_practica:
+        raise HTTPException(404, "No disponible.")
+    return await practica.reiniciar()
