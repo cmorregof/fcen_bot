@@ -752,11 +752,12 @@ async def descargar_indicadores(
 # la Facultad, para decanatura y admin.
 # ---------------------------------------------------------------------------
 
-_Facultad = Annotated[Usuario, Depends(auth.requiere("decanatura", "admin"))]
+# La Secretaría de Facultad es quien reporta el SUIT.
+_Suit = Annotated[Usuario, Depends(auth.requiere("secretaria", "decanatura", "admin"))]
 
 
 @router.get("/suit/xlsx")
-async def descargar_suit(_: _Facultad, db: Db, ano: str = "") -> Response:
+async def descargar_suit(_: _Suit, db: Db, ano: str = "") -> Response:
     try:
         elegido = suit.ano_de(ano, indicadores.hoy_local())
     except suit.AnoInvalido as exc:

@@ -155,3 +155,13 @@ async def test_secretaria_descarga_el_borrador(cliente: Cliente) -> None:  # noq
     adm = await _token("adm2@unal.edu.co", "administrativa", "fisica")
     ruta = f"/api/web/actas/secretaria/casos/{caso_id}/oficio-consejo"
     assert c.get(ruta, headers=adm).status_code == 403
+
+
+async def test_secretaria_descarga_suit(cliente: Cliente) -> None:  # noqa: F811
+    c = cliente("actas")
+    await _caso_decidido()
+    cab = await _token("secretaria@unal.edu.co", "secretaria")
+    r = c.get("/api/web/actas/suit/xlsx?ano=2026", headers=cab)
+    assert r.status_code == 200, r.text
+    adm = await _token("adm@unal.edu.co", "administrativa", "fisica")
+    assert c.get("/api/web/actas/suit/xlsx", headers=adm).status_code == 403

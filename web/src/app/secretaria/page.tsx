@@ -174,6 +174,16 @@ export default function PaginaSecretaria() {
     }
   };
 
+  const descargarSuit = async () => {
+    const ano = (datos?.semestre ?? "").slice(0, 4);
+    try {
+      const archivo = await llamar<Blob>("actas", `/actas/suit/xlsx?ano=${encodeURIComponent(ano)}`, { token: t });
+      guardarArchivo(archivo, `datos_suit_fcen_${ano || "actual"}.xlsx`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   return (
     <Pantalla
       titulo="Notificaciones"
@@ -183,6 +193,7 @@ export default function PaginaSecretaria() {
         "Lista los casos que el Consejo de Facultad decidió en el semestre, según las actas confirmadas en MemorIA.",
         "Le permite descargar el borrador del oficio o la resolución, y registrar su número y las fechas de ingreso, expedición y notificación.",
         "Calcula los tiempos de respuesta para el indicador de divulgación de la información oficial, con Excel.",
+        "Descarga las estadísticas del semestre para Calidad y los datos SUIT del año, solo con cifras.",
       ]}
       noHace={[
         "No notifica ni envía nada: solo guarda las fechas que usted registra.",
@@ -207,6 +218,9 @@ export default function PaginaSecretaria() {
           </button>
           <button type="button" className="secundario" onClick={descargarEstadisticas} disabled={!datos}>
             Estadísticas para Calidad (Excel)
+          </button>
+          <button type="button" className="secundario" onClick={descargarSuit} disabled={!datos}>
+            Datos SUIT del año (Excel)
           </button>
         </div>
       </form>
