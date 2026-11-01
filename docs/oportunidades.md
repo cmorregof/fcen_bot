@@ -174,10 +174,12 @@ Mismo patrón que calidad y admisión (`docs/despliegue-servicios.md`, `docs/bas
    ```
 
    No necesita `TELEGRAM_BOT_TOKEN`.
-3. En Vercel, agregar `NEXT_PUBLIC_API_OPORTUNIDADES=https://fcen-oportunidades.up.railway.app` y volver a desplegar.
+3. En Vercel, agregar `NEXT_PUBLIC_API_OPORTUNIDADES=https://fcen-oportunidades-production.up.railway.app` y volver a desplegar.
 4. En GitHub, agregar el secreto `OPORTUNIDADES_APP_URL`.
 5. En la web, como admin, autorizar los correos con rol `oportunidades` o `decanatura`.
 6. Encender las fuentes aprobadas en `config/oportunidades.yaml` (PR) y luego `OPORTUNIDADES_VIGIA_ACTIVA=true`.
+
+Desplegado el 1-nov-2026 como `fcen-oportunidades` (`https://fcen-oportunidades-production.up.railway.app`), con las variables comunes como referencias a `fcen_bot` y una `WEB_SESSION_SECRET` propia generada por Railway.
 
 El esquema `oportunidades` se crea solo al arrancar. La copia nocturna a Drive (`respaldo-drive.yml`, que ya incluye este servicio con el mismo secreto `OPORTUNIDADES_APP_URL`) y los respaldos de Railway Pro lo cubren igual que a los demás.
 
