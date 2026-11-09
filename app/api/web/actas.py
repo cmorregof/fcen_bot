@@ -37,6 +37,7 @@ from app.services import (
     borrador,
     casos,
     consejo,
+    firma,
     flujo,
     indicadores,
     oficio_consejo,
@@ -49,6 +50,8 @@ _Administrativa = Annotated[Usuario, Depends(auth.requiere("administrativa"))]
 _Area = Annotated[Usuario, Depends(auth.requiere("administrativa", "comite"))]
 _Lectura = Annotated[Usuario, Depends(auth.requiere("decanatura", "admin"))]
 _ActaConsejo = Annotated[Usuario, Depends(auth.requiere("administrativa", "admin"))]
+# Oficio, acta y firma: la administrativa o admin, siempre de su dirección.
+_Firma = Annotated[Usuario, Depends(auth.requiere("administrativa", "admin"))]
 
 _IMAGENES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 _MAX_IMAGEN = 10_000_000
@@ -499,7 +502,7 @@ async def concepto(
 
 
 @router.get("/documentos")
-async def documentos(usuario: _Administrativa, db: Db) -> dict[str, object]:
+async def documentos(usuario: _Firma, db: Db) -> dict[str, object]:
     """Programas con casos listos para el borrador de oficio y acta."""
     listos = await repo.casos_listos(db, direccion=_direccion(usuario))
     programas = sorted({c.programa for c in listos if c.programa in PROGRAMAS})
@@ -509,6 +512,11 @@ async def documentos(usuario: _Administrativa, db: Db) -> dict[str, object]:
                 "clave": p,
                 "nombre": PROGRAMAS[p].nombre,
                 "casos": sum(1 for c in listos if c.programa == p),
+                "con_recomendacion": sum(
+                    1
+                    for c in listos
+                    if c.programa == p and c.sentido != Sentido.PENDIENTE
+                ),
             }
             for p in programas
         ],
@@ -517,9 +525,7 @@ async def documentos(usuario: _Administrativa, db: Db) -> dict[str, object]:
 
 
 @router.get("/documentos/{programa}/{tipo}")
-async def descargar(
-    programa: str, tipo: str, usuario: _Administrativa, db: Db
-) -> Response:
+async def descargar(programa: str, tipo: str, usuario: _Firma, db: Db) -> Response:
     if tipo not in ("oficio", "acta"):
         raise HTTPException(404, "Documento desconocido.")
     borradores, _ = await borrador.armar_borradores(
@@ -538,6 +544,165 @@ async def descargar(
         headers={
             "Content-Disposition": f'attachment; filename="{archivo.ruta_docx.name}"'
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Firma del oficio y del acta (app/services/firma.py)
+# ---------------------------------------------------------------------------
+
+_MIME = {
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pdf": "application/pdf",
+}
+
+
+class PedidoFirma(BaseModel):
+    radicado: str
+    numero_acta: str
+    fecha_sesion: str
+    hora: str
+    lugar: str
+    # Los casos que la persona vio en el resumen: si cambiaron, no se firma.
+    caso_ids: list[int]
+    confirmo: bool = False
+
+
+def _firma_json(f: firma.Firma) -> dict[str, object]:
+    programa = PROGRAMAS.get(f.programa)
+    return {
+        "id": f.id,
+        "programa": f.programa,
+        "programa_nombre": programa.nombre if programa else f.programa,
+        "radicado": f.radicado,
+        "numero_acta": f.numero_acta,
+        "fecha_sesion": f.fecha_sesion,
+        "hora": f.hora,
+        "lugar": f.lugar,
+        "caso_ids": f.caso_ids,
+        "firmante": f.firmante,
+        "firmado_por": f.firmado_por,
+        "rol": f.rol,
+        "canal": f.canal,
+        "con_imagen": f.con_imagen,
+        "firmado": f.firmado,
+        "archivos": [
+            {
+                "documento": a.documento,
+                "formato": a.formato,
+                "nombre": a.ruta.name,
+                "sha256": a.sha256,
+            }
+            for a in f.archivos
+        ],
+    }
+
+
+@router.get("/firmar/{programa}")
+async def preparar_firma(programa: str, usuario: _Firma, db: Db) -> dict[str, object]:
+    """Resumen antes de firmar: no escribe nada."""
+    try:
+        prep = await firma.preparar(
+            db, direccion=_direccion(usuario), clave=programa, rol=usuario.rol
+        )
+    except firma.FirmaNoPermitida as exc:
+        raise HTTPException(404, str(exc)) from None
+    return {
+        "programa": prep.programa.clave,
+        "programa_nombre": prep.programa.nombre,
+        "firmante": (
+            {
+                "nombre": prep.firmante.nombre,
+                "cargo": prep.firmante.cargo.split(",")[0],
+            }
+            if prep.firmante
+            else None
+        ),
+        "firma_en_nombre": _persona(usuario),
+        "tiene_imagen": prep.tiene_imagen,
+        "radicado_propuesto": prep.radicado_propuesto,
+        "casos": [
+            {
+                "id": c.id,
+                "estudiante": (
+                    c.extraccion.nombre_estudiante if c.extraccion else None
+                ),
+                "sentido": c.sentido.value,
+                "sentido_texto": ETIQUETA_SENTIDO[c.sentido],
+            }
+            for c in prep.casos
+        ],
+        "caso_ids": prep.caso_ids,
+        "pendientes": [c.id for c in prep.pendientes],
+        "bloqueos": prep.bloqueos,
+        "avisos": prep.avisos,
+    }
+
+
+@router.post("/firmar/{programa}")
+async def firmar(
+    programa: str, cuerpo: PedidoFirma, usuario: _Firma, db: Db
+) -> dict[str, object]:
+    """Firma con confirmación explícita: genera el .docx y el PDF finales,
+    registra la firma y los casos pasan al Consejo."""
+    if not cuerpo.confirmo:
+        raise HTTPException(400, "Falta confirmar la firma.")
+    try:
+        sesion = firma.validar_sesion(
+            numero_acta=cuerpo.numero_acta,
+            fecha_sesion=cuerpo.fecha_sesion,
+            hora=cuerpo.hora,
+            lugar=cuerpo.lugar,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    try:
+        hecha = await firma.firmar(
+            db,
+            direccion=_direccion(usuario),
+            clave=programa,
+            radicado=cuerpo.radicado,
+            sesion=sesion,
+            caso_ids=cuerpo.caso_ids,
+            persona=_persona(usuario),
+            rol=usuario.rol,
+            canal="web",
+        )
+    except (firma.FirmaNoPermitida, flujo.TransicionNoPermitida) as exc:
+        raise HTTPException(409, str(exc)) from None
+    return _firma_json(hecha)
+
+
+@router.get("/firmas")
+async def firmas(usuario: _Firma, db: Db) -> dict[str, object]:
+    """Documentos firmados de la dirección, el más reciente primero."""
+    return {
+        "firmas": [
+            _firma_json(f) for f in await firma.de_la_direccion(db, _direccion(usuario))
+        ]
+    }
+
+
+@router.get("/firmas/{firma_id}/{documento}/{formato}")
+async def descargar_firmado(
+    firma_id: int, documento: str, formato: str, usuario: _Firma, db: Db
+) -> Response:
+    hecha = await firma.obtener(db, firma_id)
+    if hecha is None or hecha.direccion != _direccion(usuario):
+        raise HTTPException(404, "No encontré esa firma en su dirección.")
+    archivo = hecha.archivo(documento, formato)
+    if archivo is None or formato not in _MIME:
+        raise HTTPException(404, "Ese documento no se generó.")
+    try:
+        contenido = firma.leer_verificado(archivo)
+    except FileNotFoundError:
+        raise HTTPException(404, "El archivo ya no está en el volumen.") from None
+    except firma.FirmaNoPermitida as exc:
+        raise HTTPException(409, str(exc)) from None
+    return Response(
+        contenido,
+        media_type=_MIME[formato],
+        headers={"Content-Disposition": f'attachment; filename="{archivo.ruta.name}"'},
     )
 
 

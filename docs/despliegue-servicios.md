@@ -57,6 +57,7 @@ Para cada uno de los servicios nuevos (`admision` y `calidad`), así como para `
        casos - Lista de últimos casos
        caso - Muestra la ficha del caso N
        acta - Genera oficio y acta ahora
+       firmar - Firma el oficio y el acta de un programa
        cerrar_acta - Cierra casos tratados por el comité
        costo - Consumo del modelo este mes
        ayuda - Instrucciones de uso

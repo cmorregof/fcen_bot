@@ -187,6 +187,53 @@ _ESQUEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_caso_eventos ON caso_eventos(caso_id, id)",
+    # Firma del oficio y del acta de un programa (app/services/firma.py): quién
+    # firmó, cuándo, con qué radicado y datos de la sesión, y qué casos entraron.
+    """
+    CREATE TABLE IF NOT EXISTS firmas (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        direccion     TEXT NOT NULL,
+        programa      TEXT NOT NULL,
+        radicado      TEXT NOT NULL UNIQUE,
+        numero_acta   TEXT NOT NULL,
+        fecha_sesion  TEXT NOT NULL,
+        hora          TEXT NOT NULL,
+        lugar         TEXT NOT NULL,
+        caso_ids      TEXT NOT NULL,
+        firmante      TEXT NOT NULL,
+        firmado_por   TEXT NOT NULL,
+        rol           TEXT NOT NULL,
+        canal         TEXT NOT NULL,
+        con_imagen    INTEGER NOT NULL,
+        firmado       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    # Cada documento final (oficio o acta, .docx o PDF) con su SHA-256.
+    """
+    CREATE TABLE IF NOT EXISTS firma_archivos (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        firma_id   INTEGER NOT NULL REFERENCES firmas(id),
+        documento  TEXT NOT NULL,
+        formato    TEXT NOT NULL,
+        ruta       TEXT NOT NULL,
+        sha256     TEXT NOT NULL,
+        UNIQUE (firma_id, documento, formato)
+    )
+    """,
+    # Datos de firma que esperan la confirmación en el bot (uno por chat).
+    """
+    CREATE TABLE IF NOT EXISTS firmas_pendientes (
+        chat_id       INTEGER PRIMARY KEY,
+        programa      TEXT NOT NULL,
+        radicado      TEXT NOT NULL,
+        numero_acta   TEXT NOT NULL,
+        fecha_sesion  TEXT NOT NULL,
+        hora          TEXT NOT NULL,
+        lugar         TEXT NOT NULL,
+        caso_ids      TEXT NOT NULL,
+        creado        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
 )
 
 

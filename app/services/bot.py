@@ -34,18 +34,21 @@ from app.services import (
     casos,
     consejo,
     ficha,
+    firma,
     flujo,
     formatos,
     indicadores,
     resumen,
     suit,
 )
+from app.services.documento import fecha_larga
 
 logger = logging.getLogger(__name__)
 
 _RE_CASO = re.compile(r"Caso #(\d+)")
 _RE_NOTA = re.compile(r"Nota del comité · caso #(\d+)")
 _RE_CONCEPTO = re.compile(r"Concepto de (.+?) · caso #(\d+)")
+_RE_FIRMA = re.compile(r"Datos para firmar · .+? \((\w+)\)")
 _OTRO_MIEMBRO = "otro miembro"
 _RE_TRATAMIENTO = re.compile(r"^(el profesor|la profesora)\s+", re.IGNORECASE)
 # Palabras sueltas que equivalen a /listo cuando hay un caso abierto.
@@ -68,6 +71,7 @@ AYUDA = """<b>Cómo funciona</b>
 4. Con <b>Concepto</b> registras lo que opinó cada profesor del comité; va al acta, no al oficio.
 5. Después del comité, marca cada caso: Recomendar aprobar, Recomendar no aprobar o Pendiente.
 6. Cada día hábil a las 4:50 p. m. te llegan, por programa, el oficio y el acta (.docx y PDF). También con /acta.
+7. Después de la sesión, <b>/firmar programa</b>: revisas el resumen, confirmas el radicado y los datos de la sesión, y recibes el oficio y el acta finales con la firma. Los casos firmados pasan al Consejo.
 
 <b>Comandos</b>
 /nuevo — empieza otro caso
@@ -76,7 +80,8 @@ AYUDA = """<b>Cómo funciona</b>
 /casos — últimos casos
 /caso N — vuelve a mostrar la ficha del caso N
 /acta — oficio y acta ahora
-/cerrar_acta — saca del borrador los casos ya tratados por el comité
+/firmar programa — firma el oficio y el acta del programa
+/cerrar_acta — saca del borrador los casos ya tratados por el comité (sin firmar)
 /acta_consejo — sube el acta del Consejo para registrar sus decisiones
 /costo — consumo del modelo este mes"""
 
@@ -156,6 +161,11 @@ async def _mensaje(db: Conexion, msg: Message) -> None:
 
     if msg.reply_to_message and msg.reply_to_message.text and texto:
         respondido = msg.reply_to_message.text
+        # Respuesta al pedido de los datos para firmar.
+        m = _RE_FIRMA.search(respondido)
+        if m:
+            await _datos_firma(db, chat_id, usuario, m.group(1), texto)
+            return
         # Respuesta al mensaje que pide la nota del comité.
         m = _RE_NOTA.search(respondido)
         if m:
@@ -340,6 +350,19 @@ async def _comando(
                 "Sin programa asignado (no entraron): "
                 + ", ".join(f"#{i}" for i in sin_programa),
             )
+    elif nombre == "/firmar":
+        if not arg.strip():
+            await _ofrecer_firma(db, chat_id, usuario.direccion)
+            return
+        programa = firma.programa_de_la_direccion(arg, usuario.direccion)
+        if programa is None:
+            await telegram.send_message(
+                chat_id,
+                "No conozco ese programa en tu dirección. Escribe /firmar para "
+                "ver los botones.",
+            )
+            return
+        await _resumen_firma(db, chat_id, usuario, programa.clave)
     elif nombre == "/cerrar_acta":
         await _ofrecer_cierre(db, chat_id, usuario.direccion)
     elif nombre == "/acta_consejo":
@@ -474,6 +497,224 @@ async def _ofrecer_cierre(db: Conexion, chat_id: int, direccion: str) -> None:
         "Cerrar saca del borrador los casos que ya tienen recomendación del comité "
         "(recomendar aprobar o no aprobar). Los pendientes siguen en curso.",
         botones=botones,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Firma del oficio y del acta (app/services/firma.py)
+# ---------------------------------------------------------------------------
+
+_CAMPOS_FIRMA = {
+    "radicado": "radicado",
+    "acta": "numero_acta",
+    "numero de acta": "numero_acta",
+    "numero del acta": "numero_acta",
+    "no. acta": "numero_acta",
+    "acta no.": "numero_acta",
+    "fecha": "fecha_sesion",
+    "fecha de la sesion": "fecha_sesion",
+    "hora": "hora",
+    "lugar": "lugar",
+}
+
+
+async def _ofrecer_firma(db: Conexion, chat_id: int, direccion: str) -> None:
+    casos_listos = await repo.casos_listos(db, direccion=direccion)
+    programas = sorted(
+        {
+            c.programa
+            for c in casos_listos
+            if c.programa in PROGRAMAS and c.sentido != Sentido.PENDIENTE
+        }
+    )
+    if not programas:
+        await telegram.send_message(
+            chat_id, "No hay casos con recomendación del comité para firmar."
+        )
+        return
+    botones = [
+        [{"text": f"Firmar {PROGRAMAS[p].nombre}", "callback_data": f"fir:{p}"}]
+        for p in programas
+    ]
+    await telegram.send_message(
+        chat_id,
+        "¿Qué programa vas a firmar? Primero te muestro el resumen.",
+        botones=botones,
+    )
+
+
+def _linea_caso_firma(caso: Caso) -> str:
+    e = caso.extraccion
+    nombre = escape((e.nombre_estudiante or "sin nombre").title()) if e else "?"
+    sentido = (
+        "recomienda APROBAR"
+        if caso.sentido == Sentido.APROBAR
+        else "recomienda NO APROBAR"
+    )
+    return f"• #{caso.id} · {nombre} · {sentido}"
+
+
+def _texto_resumen(prep: firma.Preparacion, persona: str) -> str:
+    p = prep.programa
+    lineas = [f"<b>Firma · {escape(p.nombre)}</b>"]
+    if prep.firmante:
+        lineas.append(
+            f"Firma: {escape(prep.firmante.nombre)}, "
+            f"{escape(prep.firmante.cargo.split(',')[0])}. "
+            f"Firmas en su nombre: {escape(persona)}."
+        )
+    lineas.append(f"\nEntran {len(prep.casos)} caso(s) al oficio y al acta:")
+    lineas += [_linea_caso_firma(c) for c in prep.casos]
+    for aviso in prep.avisos:
+        lineas.append(f"\n⚠️ {escape(aviso)}")
+    return "\n".join(lineas)
+
+
+async def _resumen_firma(
+    db: Conexion, chat_id: int, usuario: repo.Usuario, clave: str
+) -> None:
+    assert usuario.direccion is not None
+    try:
+        prep = await firma.preparar(db, direccion=usuario.direccion, clave=clave)
+    except firma.FirmaNoPermitida as exc:
+        await telegram.send_message(chat_id, escape(str(exc)))
+        return
+    if prep.bloqueos:
+        await telegram.send_message(
+            chat_id,
+            f"No se puede firmar {escape(prep.programa.nombre)}:\n"
+            + "\n".join(f"• {escape(b)}" for b in prep.bloqueos),
+        )
+        return
+    await telegram.send_message(chat_id, _texto_resumen(prep, _persona(usuario)))
+    radicado = prep.radicado_propuesto or f"Mz.FCEN.1.0__-___-{firma.hoy_local():%y}"
+    await telegram.send_message(
+        chat_id,
+        f"Datos para firmar · {escape(prep.programa.nombre)} ({clave})\n"
+        "Responde a este mensaje con los datos. El radicado es una propuesta "
+        "(siguiente de la dirección): corrígelo si la dirección ya usó ese "
+        "número por fuera de MemorIA.\n\n"
+        f"<pre>Radicado: {escape(radicado)}\n"
+        "Acta: \n"
+        "Fecha: DD/MM/AAAA\n"
+        "Hora: \n"
+        "Lugar: </pre>\n"
+        "Lugar puede ser «sesión ad referéndum». Nada se firma hasta que confirmes.",
+        forzar_respuesta=True,
+    )
+
+
+def _leer_datos_firma(texto: str) -> dict[str, str]:
+    datos: dict[str, str] = {}
+    for linea in texto.splitlines():
+        clave, separador, valor = linea.partition(":")
+        if not separador:
+            continue
+        campo = _CAMPOS_FIRMA.get(normalizar(clave).strip(" .-•"))
+        if campo:
+            datos[campo] = valor.strip()
+    return datos
+
+
+async def _datos_firma(
+    db: Conexion, chat_id: int, usuario: repo.Usuario, clave: str, texto: str
+) -> None:
+    assert usuario.direccion is not None
+    datos = _leer_datos_firma(texto)
+    try:
+        prep = await firma.preparar(db, direccion=usuario.direccion, clave=clave)
+        if prep.bloqueos:
+            raise firma.FirmaNoPermitida(prep.bloqueos[0])
+        radicado = firma.normalizar_radicado(datos.get("radicado", ""))
+        if await firma.radicado_usado(db, radicado):
+            raise ValueError(f"El radicado {radicado} ya se usó en otra firma.")
+        sesion = firma.validar_sesion(
+            numero_acta=datos.get("numero_acta", ""),
+            fecha_sesion=datos.get("fecha_sesion", ""),
+            hora=datos.get("hora", ""),
+            lugar=datos.get("lugar", ""),
+        )
+    except (ValueError, firma.FirmaNoPermitida) as exc:
+        await telegram.send_message(
+            chat_id,
+            f"{escape(str(exc))}\nVuelve a responder al mensaje «Datos para "
+            "firmar» con los datos corregidos.",
+        )
+        return
+    await firma.guardar_pendiente(
+        db,
+        chat_id,
+        firma.Pendiente(clave, radicado, sesion, prep.caso_ids),
+    )
+    p = prep.programa
+    texto_confirmar = (
+        _texto_resumen(prep, _persona(usuario))
+        + f"\n\nRadicado: <b>{escape(radicado)}</b>"
+        + f"\nActa {escape(sesion.numero_acta)} · "
+        + f"{fecha_larga(sesion.fecha_sesion)} · {escape(sesion.hora)} · "
+        + f"{escape(sesion.lugar)}"
+        + "\n\nAl confirmar genero el oficio y el acta finales con la firma, "
+        "registro quién firmó y los casos pasan al Consejo de Facultad. "
+        "¿Confirmas la firma?"
+    )
+    await telegram.send_message(
+        chat_id,
+        texto_confirmar,
+        botones=[
+            [{"text": f"✍️ Firmar {p.nombre}", "callback_data": "fok"}],
+            [{"text": "Cancelar", "callback_data": "fno"}],
+        ],
+    )
+
+
+async def _confirmar_firma(
+    db: Conexion, chat_id: int, usuario: repo.Usuario, callback_id: str
+) -> None:
+    assert usuario.direccion is not None
+    pendiente = await firma.leer_pendiente(db, chat_id)
+    if pendiente is None:
+        await telegram.responder_callback(callback_id, "No hay una firma pendiente.")
+        return
+    await firma.borrar_pendiente(db, chat_id)
+    await telegram.responder_callback(callback_id, "Firmando…")
+    try:
+        hecha = await firma.firmar(
+            db,
+            direccion=usuario.direccion,
+            clave=pendiente.programa,
+            radicado=pendiente.radicado,
+            sesion=pendiente.sesion,
+            caso_ids=pendiente.caso_ids,
+            persona=_persona(usuario),
+            rol=flujo.ADMINISTRATIVA,
+            canal=_CANAL,
+        )
+    except (firma.FirmaNoPermitida, flujo.TransicionNoPermitida) as exc:
+        await telegram.send_message(
+            chat_id, f"No firmé: {escape(str(exc))}\nVuelve a empezar con /firmar."
+        )
+        return
+    programa = PROGRAMAS[hecha.programa]
+    for archivo in hecha.archivos:
+        rotulo = "Oficio al Consejo" if archivo.documento == "oficio" else "Acta"
+        await telegram.send_document(
+            chat_id,
+            nombre=archivo.ruta.name,
+            contenido=firma.leer_verificado(archivo),
+            mime=borrador.DOCX_MIME if archivo.formato == "docx" else "application/pdf",
+            caption=f"<b>{escape(programa.nombre)}</b> · {rotulo} firmado · "
+            f"{escape(hecha.radicado)}",
+        )
+    hashes = "\n".join(
+        f"{escape(a.ruta.name)}: <code>{a.sha256}</code>" for a in hecha.archivos
+    )
+    await telegram.send_message(
+        chat_id,
+        f"Firmado. Radicado <b>{escape(hecha.radicado)}</b>, acta "
+        f"{escape(hecha.numero_acta)}. Los casos "
+        + ", ".join(f"#{i}" for i in hecha.caso_ids)
+        + " pasan al Consejo de Facultad.\n\nSHA-256 de cada documento:\n"
+        + hashes,
     )
 
 
@@ -864,6 +1105,26 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
             f"Cerré {len(ids)} caso(s) de {PROGRAMAS[clave].nombre}: "
             + ", ".join(f"#{i}" for i in ids),
         )
+        return
+
+    if partes[0] == "fir" and len(partes) == 2:
+        await telegram.responder_callback(cq.id)
+        if cq.message:
+            await telegram.editar_botones(chat_id, cq.message.message_id, None)
+        await _resumen_firma(db, chat_id, usuario, partes[1])
+        return
+    if data == "fok":
+        if cq.message:
+            await telegram.editar_botones(chat_id, cq.message.message_id, None)
+        async with _locks[chat_id]:
+            await _confirmar_firma(db, chat_id, usuario, cq.id)
+        return
+    if data == "fno":
+        if cq.message:
+            await telegram.editar_botones(chat_id, cq.message.message_id, None)
+        await firma.borrar_pendiente(db, chat_id)
+        await telegram.responder_callback(cq.id, "Cancelado")
+        await telegram.send_message(chat_id, "Cancelado. No se firmó nada.")
         return
 
     if caso_id is None:

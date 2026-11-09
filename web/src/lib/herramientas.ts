@@ -21,9 +21,9 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     ruta: "/actas/documentos",
     titulo: "Oficio y acta",
-    descripcion: "Descargar el borrador del oficio y del acta en Word.",
+    descripcion: "Descargar el borrador del oficio y del acta en Word, y firmarlos.",
     servicio: "actas",
-    roles: ["administrativa"],
+    roles: ["administrativa", "admin"],
   },
   {
     ruta: "/actas/consejo",
