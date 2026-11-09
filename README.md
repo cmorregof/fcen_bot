@@ -14,8 +14,9 @@ Ellas pegan el correo del estudiante y los pantallazos del SIA. El bot lee el ca
 4. **Corregir.** Basta responder a la ficha con el cambio, por ejemplo «el documento es 1053…». Solo se corrige lo que se pide.
 5. **Comité.** Botones: Recomendar aprobar, Recomendar no aprobar, Pendiente, Nota y **Concepto**. Con Concepto se elige el profesor (los integrantes de cada comité están en `app/core/programas.py`, o «Otro miembro»; la representación estudiantil y las firmas se configuran fuera del repositorio: `docs/integrantes-y-firmas.md`) y se responde con su concepto tal como lo envió; va al acta, nunca al oficio. Responder «borrar» lo quita.
 6. **Borrador.** Cada día hábil a las 4:50 p. m. llegan el oficio y el acta de cada programa que haya cambiado. También se pueden pedir con `/acta`. Lo que el comité completa en Word (número de acta, hora, lugar, quórum, varios) y los casos pendientes (`[APROBAR / NO APROBAR]`) salen resaltados en amarillo.
-7. **Cierre.** `/cerrar_acta` saca del borrador los casos que ya tienen recomendación del comité.
-8. **Acta del Consejo.** Con `/acta_consejo` (o en la web, pantalla «Acta del Consejo», roles administrativa y admin) se sube el acta del Consejo de Facultad, de Sede o Superior (PDF con texto o Word). Claude copia cada decisión con su texto literal y los identificadores que aparezcan; cada fragmento se comprueba contra el acta. El sentido (aprobó, no aprobó, aplazó, otro) sale del texto literal con una regla fija, y el cruce con los casos es determinista: número de caso, documento y nombre. Lo que no cruza con certeza queda en duda para asignarlo a mano o descartarlo. Nada se registra hasta que una persona confirma. Con `AVISO_CONSEJO_TELEGRAM=true` las personas del área reciben la decisión por Telegram.
+7. **Firma.** Después de la sesión, `/firmar <programa>` (o en la web, pantalla «Oficio y acta», botón **Firmar…**, roles administrativa y admin de su propia dirección). Primero muestra un resumen: quién firma (el primer integrante del comité), los casos con recomendación que entran, los que quedan fuera y las advertencias, por ejemplo si falta la imagen de firma del programa. Luego pide el radicado, que se propone como el siguiente `Mz.FCEN.1.0xx-NNN-AA` de la dirección y la persona confirma o corrige, y los datos de la sesión: número de acta, fecha, hora y lugar. Con la confirmación explícita (botón en Telegram, casilla y botón en la web) genera el oficio y el acta finales en .docx y PDF, con la imagen de la firma y sin la marca de borrador, y registra quién firmó, cuándo, el radicado, los casos y el SHA-256 de cada documento. Los casos firmados pasan a «en el Consejo». Detalle en `docs/integrantes-y-firmas.md`.
+8. **Cierre sin firma.** `/cerrar_acta` saca del borrador los casos que ya tienen recomendación del comité, sin generar documentos (para oficios firmados por fuera de MemorIA).
+9. **Acta del Consejo.** Con `/acta_consejo` (o en la web, pantalla «Acta del Consejo», roles administrativa y admin) se sube el acta del Consejo de Facultad, de Sede o Superior (PDF con texto o Word). Claude copia cada decisión con su texto literal y los identificadores que aparezcan; cada fragmento se comprueba contra el acta. El sentido (aprobó, no aprobó, aplazó, otro) sale del texto literal con una regla fija, y el cruce con los casos es determinista: número de caso, documento y nombre. Lo que no cruza con certeza queda en duda para asignarlo a mano o descartarlo. Nada se registra hasta que una persona confirma. Con `AVISO_CONSEJO_TELEGRAM=true` las personas del área reciben la decisión por Telegram.
 
 ## Arquitectura
 
@@ -72,7 +73,7 @@ stateDiagram-v2
     Procesando --> Abierto: error
     Procesando --> Listo: datos validados
     Listo --> Listo: corrección · sentido · nota
-    Listo --> Cerrado: /cerrar_acta
+    Listo --> Cerrado: /firmar o /cerrar_acta
     Listo --> DecididoConsejo: acta del Consejo confirmada
     Cerrado --> DecididoConsejo: acta del Consejo confirmada
     Abierto --> Descartado: /cancelar
@@ -114,7 +115,7 @@ Las normas que se citan en el oficio están en `app/normativa/base.py`, con su t
 
 ## Comandos
 
-`/nuevo` · `/listo` · `/cancelar` · `/casos` · `/caso N` · `/acta` · `/cerrar_acta` · `/acta_consejo` · `/costo` · `/ayuda`
+`/nuevo` · `/listo` · `/cancelar` · `/casos` · `/caso N` · `/acta` · `/firmar programa` · `/cerrar_acta` · `/acta_consejo` · `/costo` · `/ayuda`
 
 Para la decanatura (ids en `DECANATURA_TELEGRAM_IDS`): `/resumen`, con cifras por programa y estado, sin nombres. También llega solo cada lunes a las 7:30 a. m.; se apaga con `RESUMEN_SEMANAL_ACTIVO=false`. Ver `docs/despliegue-servicios.md` §7.
 
@@ -195,5 +196,5 @@ Pendiente: definir con la Facultad el plazo de retención de imágenes y la auto
 
 1. **Hecha:** lectura de casos, ficha con alertas, plantilla única y borrador diario.
 2. Índice de la normativa completa (por artículo, con vigencias) y citas verificadas contra la fuente.
-3. Firma (imagen del firmante por programa, radicado confirmado, registro de quién firmó) y datos de la sesión capturados en el bot.
+3. **Hecha:** firma (imagen del firmante por programa, radicado confirmado, registro de quién firmó con el SHA-256 de cada documento) y datos de la sesión capturados en el bot y en la web.
 4. Google Drive institucional, si DNTIC autoriza la app.

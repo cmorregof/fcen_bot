@@ -107,7 +107,7 @@ stateDiagram-v2
 | `completar` | incompleta | llegada | administrativa | — | Ya llegó lo que faltaba |
 | `recomendar` | en_comite, recomendada (y llegada sin prerrevisión obligatoria) | recomendada | administrativa (registra lo que recomendó el comité) | ✅ / ❌ | Recomendar aprobar / no aprobar |
 | `quitar_recomendacion` | recomendada | en_comite | administrativa | ⏳ Pendiente | Pendiente |
-| `enviar_consejo` | recomendada | en_consejo | administrativa | Cerrar programa | **Enviar al Consejo (nuevo)** |
+| `enviar_consejo` | recomendada | en_consejo | administrativa, admin (al firmar) | `/firmar` o Cerrar programa | Firmar… (Oficio y acta) o Enviar al Consejo |
 | `volver_al_comite` | en_consejo | recomendada | administrativa | — | Volver al comité |
 | `aplazar` | llegada … en_consejo | en_consejo | administrativa, admin | Acta del Consejo | Acta del Consejo |
 | `decidir` | llegada … en_consejo, decidida (reemplazo) | decidida | administrativa, admin | Acta del Consejo | Acta del Consejo |
@@ -173,6 +173,10 @@ copia `caso_eventos`.
 ## 4. Cambios de comportamiento (correcciones)
 
 - **La web tiene «Enviar al Consejo».** Antes solo Telegram cerraba los casos.
+- **Firmar el oficio también es enviarlo al Consejo.** `/firmar` y «Firmar…»
+  en la web registran `enviar_consejo` para los casos firmados, con el
+  radicado en el detalle (`docs/integrantes-y-firmas.md`). Admin de una
+  dirección puede firmar, así que esa transición también la puede hacer admin.
 - **En el Consejo, la recomendación ya no se cambia con el botón.** Hay que
   «Volver al comité» primero (queda registrado y el caso vuelve al borrador).
   Antes se podía cambiar el sentido incluso después de la decisión del Consejo.

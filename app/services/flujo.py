@@ -193,8 +193,9 @@ def transiciones(flujo: solicitudes.Flujo | None = None) -> dict[Accion, Transic
         Accion.QUITAR_RECOMENDACION: Transicion(
             frozenset({Etapa.RECOMENDADA}), Etapa.EN_COMITE, adm
         ),
+        # Admin también: firma el oficio de su dirección (app/services/firma.py).
         Accion.ENVIAR_CONSEJO: Transicion(
-            frozenset({Etapa.RECOMENDADA}), Etapa.EN_CONSEJO, adm
+            frozenset({Etapa.RECOMENDADA}), Etapa.EN_CONSEJO, acta
         ),
         Accion.VOLVER_AL_COMITE: Transicion(
             frozenset({Etapa.EN_CONSEJO}), Etapa.RECOMENDADA, adm
@@ -622,9 +623,12 @@ async def enviar_consejo(
     rol: str,
     persona: str | None,
     canal: str,
+    detalle: str | None = None,
+    commit: bool = True,
 ) -> list[int]:
     """El oficio del comité va al Consejo: los casos recomendados salen del
-    borrador en curso. Devuelve los que pasaron a «en el Consejo»."""
+    borrador en curso. Devuelve los que pasaron a «en el Consejo». `detalle`
+    lleva, por ejemplo, el radicado del oficio firmado."""
     enviados: list[int] = []
     for caso_id in caso_ids:
         etapa = await etapa_de(db, caso_id)
@@ -639,11 +643,13 @@ async def enviar_consejo(
             rol=rol,
             persona=persona,
             canal=canal,
+            detalle=detalle,
             commit=False,
         )
         enviados.append(caso_id)
     await repo.cerrar_casos(db, caso_ids, commit=False)
-    await db.commit()
+    if commit:
+        await db.commit()
     return enviados
 
 

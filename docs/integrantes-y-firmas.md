@@ -55,9 +55,7 @@ carpeta `firmas/`, con el nombre de la clave del programa: `matematicas.jpg`,
   cargo del firmante. Si falta la imagen, queda «[falta la imagen de la
   firma]» en amarillo.
 
-Hoy el bot y la web solo generan borradores: el paso de firmar (`/firmar`,
-fase 3 del README) todavía no existe. Las firmas quedan cargadas para cuando
-ese paso genere el documento final.
+El documento final sale del paso de firmar, descrito más abajo.
 
 ### Cargar las firmas en Railway
 
@@ -97,6 +95,83 @@ Firmas del 3-nov-2026: «Firma David» → `matematicas`, «Firma prof Fabian» 
 En local se usa el mismo comando con la ruta del archivo:
 `uv run python -m app.services.firmas cargar estadistica "Firma Nubia.jpg"`.
 La carpeta local es `data/actas/firmas/`, que está fuera de git.
+
+## Firmar el oficio y el acta
+
+Firmar es una acción explícita de una persona autorizada: la administrativa
+de la dirección, facultada para firmar en nombre de quien preside el comité, o
+admin, siempre de su propia dirección. El modelo no interviene. Código:
+`app/services/firma.py`. Pruebas: `tests/test_firma.py`.
+
+**En el bot.** `/firmar` muestra un botón por programa con casos recomendados.
+`/firmar <programa>` acepta la clave o el nombre, por ejemplo `/firmar
+estadistica` o `/firmar ciencias de la computación`.
+
+1. **Resumen.** Quién firma, los casos que entran (los que tienen
+   recomendación del comité: aprobar o no aprobar) y las advertencias: los
+   casos que quedan fuera (pendientes o sin ficha), **la falta de la imagen de
+   firma del programa**, la falta del nombre de la representación estudiantil
+   y la falta de LibreOffice (sin PDF). No se puede firmar si no hay casos
+   recomendados, si el programa no tiene integrantes del comité en
+   `programas.py` o si un caso está en una etapa que no puede ir al Consejo.
+2. **Datos.** El bot pide responder a su mensaje con esta plantilla:
+
+   ```
+   Radicado: Mz.FCEN.1.065-012-26
+   Acta: 019
+   Fecha: 05/11/2026
+   Hora: 10:00 a. m.
+   Lugar: Sala de reuniones del bloque …
+   ```
+
+   El radicado viene propuesto: el siguiente consecutivo de la dirección en el
+   año, con el prefijo del programa (`radicado_prefijo` en `programas.py`) o,
+   si no lo tiene, el último que confirmó la dirección. La dirección emite
+   otros oficios por fuera de MemorIA, así que la persona lo corrige si ese
+   número ya se usó. Debe tener la forma `Mz.FCEN.1.0xx-NNN-AA` y el año en
+   curso, y no puede repetirse. La fecha va como DD/MM/AAAA o AAAA-MM-DD. El
+   lugar puede ser «sesión ad referéndum».
+3. **Confirmación.** El bot repite el resumen con los datos y muestra
+   **✍️ Firmar** y **Cancelar**. Nada se firma antes.
+4. **Documentos finales.** Genera el oficio y el acta con `borrador=False`:
+   sin la marca de borrador, con el radicado, el número y los datos de la
+   sesión, y con la imagen de firma encima del nombre y el cargo (si falta,
+   «[falta la imagen de la firma]» en amarillo). Envía el .docx y el PDF de
+   cada uno y el SHA-256 de cada archivo.
+
+**En la web.** Pantalla «Oficio y acta», botón **Firmar…** de cada programa:
+el mismo resumen, un formulario con el radicado propuesto y los datos de la
+sesión, «Revisar antes de firmar» y, para firmar, la casilla «Confirmo que el
+comité trató estos casos y que firmo en nombre de …» y el botón **Firmar**. La
+lista «Documentos firmados» guarda las firmas de la dirección para volver a
+descargarlas. La descarga comprueba el SHA-256: si el archivo del volumen no
+coincide con el que se firmó, no se entrega.
+
+Si los casos del programa cambian entre el resumen y la confirmación (llega
+una recomendación nueva, por ejemplo), no se firma y hay que revisar de nuevo.
+
+### Qué se registra
+
+En la base del servicio (SQLite o Postgres, `docs/base-de-datos.md`):
+
+- `firmas`: dirección, programa, radicado (único), número de acta, fecha,
+  hora y lugar de la sesión, casos incluidos, quién firma (el integrante del
+  comité), quién firmó en su nombre (`firmado_por`), su rol, el canal
+  (telegram o web), si llevaba la imagen de firma y cuándo se firmó (`firmado`,
+  UTC).
+- `firma_archivos`: por cada documento (oficio o acta) y formato (docx o
+  pdf), la ruta en el volumen y su SHA-256.
+- `firmas_pendientes`: los datos que esperan la confirmación en el bot, uno
+  por chat. Se borran al confirmar o cancelar.
+
+Los archivos quedan en el volumen, en `<OUTPUT_DIR>/firmados/<año>/<dirección>/`.
+
+En la línea del caso (`docs/flujo-solicitudes.md`), la firma registra la
+transición `enviar_consejo` (oficio del comité al Consejo) con el radicado en
+el detalle: el caso pasa a «en el Consejo» y sale del borrador. Desde ahí
+sigue igual que siempre: decisión del Consejo, expedición y notificación.
+`/cerrar_acta` sigue disponible para los oficios que se firman por fuera de
+MemorIA.
 
 ### Dónde quedan
 

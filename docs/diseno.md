@@ -18,7 +18,7 @@ El modelo extrae, clasifica y redacta. Las reglas verifican. El comité decide. 
 2. **Verificación de pantallazos.** La tabla "Resumen de créditos" del SIA tiene filas y columnas fijas. Se comprueba que los totales coincidan con la suma de las filas para detectar errores de lectura, y se avisa si un pantallazo está cortado o no se lee.
 3. **Borrador diario.** A una hora fija (o con `/acta`): un .docx y un PDF por programa con casos nuevos. Se arma con plantilla, sin tokens, y los pantallazos se insertan tal cual.
 4. **Comité asesor.** Para cada caso: aprueba, no aprueba o modifica. El concepto de un profesor queda en el acta interna y no pasa al oficio.
-5. **Firma.** `/firmar <programa>`: muestra un resumen, pide confirmación y el radicado, inserta la firma y registra quién firmó, cuándo y el hash del documento. Devuelve el .docx y el PDF finales.
+5. **Firma.** `/firmar <programa>` en el bot, o «Firmar…» en la pantalla «Oficio y acta» de la web: muestra un resumen, pide el radicado (propone el siguiente de la dirección) y los datos de la sesión, y pide una confirmación explícita. Entonces inserta la firma, devuelve el .docx y el PDF finales y registra quién firmó, cuándo, el radicado, los casos y el SHA-256 de cada documento. Los casos pasan a «en el Consejo». Implementado en `app/services/firma.py` (ver `docs/integrantes-y-firmas.md`).
 
 ## Firmantes por programa (confirmar)
 En los ejemplos, el oficio de Ing. Física lo firma el Director de Área Curricular de Ciencias Naturales, y el de Ciencias de la Computación lo firma el Coordinador del programa. Hace falta una tabla de programa → nombre, cargo, correo e imagen de firma.
