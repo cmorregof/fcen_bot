@@ -126,6 +126,9 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/actas/fcen.db")
     media_dir: Path = Path("data/actas/media")
     output_dir: Path = Path("data/actas/out")
+    # Imágenes de firma de quien firma por cada programa: <clave>.png o .jpg.
+    # Viven en el volumen, nunca en el repositorio (docs/integrantes-y-firmas.md).
+    firmas_dir: Path = Path("data/actas/firmas")
     # Postgres (opcional). Con DATABASE_URL, la base va a Postgres en el
     # esquema DB_SCHEMA (por defecto, el nombre del servicio; en práctica,
     # practica_<servicio>). Sin ella, SQLite en DB_PATH. media y out siguen en
@@ -145,8 +148,23 @@ class Settings(BaseSettings):
     drive_carpeta_id: str = ""
     drive_respaldos_conservar: int = 30
 
+    # Nombre de la representación estudiantil de cada comité que la tiene. Es
+    # un dato personal: no va en el repositorio. Formato
+    # «clave=Nombre Apellido», separados por punto y coma; por ejemplo
+    # REPRESENTANTES_ESTUDIANTILES="matematicas=Persona Ficticia".
+    representantes_estudiantiles: str = ""
+
     timezone: str = "America/Bogota"
     log_level: str = "INFO"
+
+    @property
+    def representantes_por_programa(self) -> dict[str, str]:
+        pares = (p.partition("=") for p in self.representantes_estudiantiles.split(";"))
+        return {
+            clave.strip(): " ".join(nombre.split())
+            for clave, _, nombre in pares
+            if clave.strip() and nombre.strip()
+        }
 
     @property
     def ids_decanatura(self) -> frozenset[int]:
@@ -198,6 +216,7 @@ class Settings(BaseSettings):
             ("db_path", "fcen.db"),
             ("media_dir", "media"),
             ("output_dir", "out"),
+            ("firmas_dir", "firmas"),
         ):
             if not datos.get(campo):  # ausente o vacío en el .env
                 datos[campo] = base / nombre

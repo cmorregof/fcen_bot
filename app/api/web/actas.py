@@ -18,7 +18,12 @@ from app.api.web import auth
 from app.api.web.auth import Db, Usuario
 from app.core import solicitudes
 from app.core.config import settings
-from app.core.programas import DIRECCIONES, PROGRAMAS, programas_de
+from app.core.programas import (
+    DIRECCIONES,
+    PROGRAMAS,
+    integrantes_con_nombre,
+    programas_de,
+)
 from app.db import repo
 from app.schemas.caso import TITULOS_TIPO, Caso, EstadoCaso, Sentido
 from app.schemas.consejo import (
@@ -145,7 +150,7 @@ def _detalle(caso: Caso) -> dict[str, object]:
         else None,
         "nota_comite": caso.nota_comite,
         "conceptos": [c.model_dump() for c in caso.conceptos],
-        "miembros": [m.nombre for m in programa.miembros] if programa else [],
+        "miembros": [m.nombre for m in integrantes_con_nombre(programa)],
         "programas": [
             {"clave": p.clave, "nombre": p.nombre} for p in programas_de(caso.direccion)
         ],

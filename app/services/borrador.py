@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.conexion import Conexion
 from app.core.config import settings
-from app.core.programas import DIRECCIONES, PROGRAMAS, Programa
+from app.core.programas import DIRECCIONES, PROGRAMAS, Programa, integrantes
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.caso import Caso
@@ -127,7 +127,7 @@ async def armar_borradores(
             fecha=ahora.date(),
             casos=items,
             elaboro=_iniciales(elaboro),
-            miembros=programa.miembros,
+            miembros=integrantes(programa),
         )
         try:
             oficio_docx = construir_oficio(datos, settings.periodo_actual)

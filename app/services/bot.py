@@ -17,7 +17,13 @@ from pathlib import Path
 
 from app.core.conexion import Conexion
 from app.core.config import settings
-from app.core.programas import DIRECCIONES, PROGRAMAS, normalizar, programas_de
+from app.core.programas import (
+    DIRECCIONES,
+    PROGRAMAS,
+    integrantes_con_nombre,
+    normalizar,
+    programas_de,
+)
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.caso import Caso, EstadoCaso, Sentido
@@ -903,10 +909,11 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
         )
     elif partes[0] == "c":
         await telegram.responder_callback(cq.id)
-        programa = PROGRAMAS.get(caso.programa or "")
         filas = [
             [{"text": m.nombre, "callback_data": f"k:{caso.id}:{i}"}]
-            for i, m in enumerate(programa.miembros if programa else ())
+            for i, m in enumerate(
+                integrantes_con_nombre(PROGRAMAS.get(caso.programa or ""))
+            )
         ]
         filas.append([{"text": "Otro miembro", "callback_data": f"k:{caso.id}:x"}])
         await telegram.send_message(
@@ -916,8 +923,7 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
         await telegram.responder_callback(cq.id)
         if cq.message:
             await telegram.editar_botones(chat_id, cq.message.message_id, None)
-        programa = PROGRAMAS.get(caso.programa or "")
-        miembros = programa.miembros if programa else ()
+        miembros = integrantes_con_nombre(PROGRAMAS.get(caso.programa or ""))
         if partes[2].isdigit() and int(partes[2]) < len(miembros):
             nombre = miembros[int(partes[2])].nombre
             await telegram.send_message(

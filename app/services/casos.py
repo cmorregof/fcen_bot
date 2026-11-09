@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from app.core.conexion import Conexion
 from app.core.config import settings
-from app.core.programas import PROGRAMAS
+from app.core.programas import PROGRAMAS, integrantes_con_nombre
 from app.db import repo
 from app.schemas.caso import Caso, EstadoCaso
 from app.services import extraccion, flujo, reglas
@@ -77,8 +77,7 @@ async def corregir(db: Conexion, caso: Caso, texto: str) -> Resultado:
 
 
 def tratamiento_de(caso: Caso, miembro: str) -> str | None:
-    programa = PROGRAMAS.get(caso.programa or "")
-    for m in programa.miembros if programa else ():
+    for m in integrantes_con_nombre(PROGRAMAS.get(caso.programa or "")):
         if m.nombre == miembro:
-            return m.tratamiento
+            return m.tratamiento or None
     return None
