@@ -115,6 +115,8 @@ Configura las variables en la pestaña **Variables** de cada servicio en Railway
 | `ADMIN_TELEGRAM_IDS` | Ids de Telegram de los administradores, separados por comas | No aplica | No aplica | Pueden usar `/indicadores`, igual que la decanatura |
 | `VICEDECANATURA_TELEGRAM_IDS` | Ids de Telegram de la Vicedecanatura Académica | No aplica | No aplica | Reciben el consolidado del reporte mensual de indicadores |
 | `REPORTE_MENSUAL_ACTIVO` | `false` (por defecto) o `true` | No aplica | No aplica | `true` enciende el reporte mensual del día 1; `/indicadores` y la web funcionan igual |
+| `REPRESENTANTES_ESTUDIANTILES` | `matematicas=Nombre Apellido` (varios, separados por `;`) | No aplica | No aplica | Nombre de la representación estudiantil en el acta; sin ella, queda en amarillo ([`docs/integrantes-y-firmas.md`](integrantes-y-firmas.md)) |
+| `FIRMAS_DIR` | No definir | No aplica | No aplica | Carpeta de las imágenes de firma; por defecto `/data/actas/firmas` ([`docs/integrantes-y-firmas.md`](integrantes-y-firmas.md)) |
 | `INDICADORES_PATH` | No definir | No aplica | No aplica | Otro archivo de columnas del Excel de indicadores (por defecto `config/indicadores.yaml`) |
 
 > [!CAUTION]

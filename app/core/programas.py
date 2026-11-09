@@ -14,6 +14,8 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Literal
 
+from app.core.config import settings
+
 
 @dataclass(frozen=True)
 class Direccion:
@@ -46,7 +48,13 @@ class Programa:
     alias: tuple[str, ...] = field(default=())
     # Integrantes del comité (de la última acta conocida). Si cambian, se
     # actualizan aquí; los que no están se pueden escribir a mano en el bot.
+    # El primero firma el oficio y el acta (su imagen de firma, fuera del
+    # repositorio: docs/integrantes-y-firmas.md).
     miembros: tuple[Miembro, ...] = field(default=())
+    # Cargo de la representación estudiantil, si el comité la tiene. El nombre
+    # es un dato personal y no va en el repositorio: sale de la variable
+    # REPRESENTANTES_ESTUDIANTILES (docs/integrantes-y-firmas.md).
+    representante_estudiantil: str | None = None
 
     @property
     def comite(self) -> str:
@@ -105,6 +113,20 @@ PROGRAMAS: dict[str, Programa] = {
             nombre="Matemáticas",
             direccion="matematicas",
             alias=("matematicas",),
+            # Correo de la administrativa del área, 3-nov-2026.
+            miembros=(
+                Miembro(
+                    "David Leonardo Ocampo Rodríguez",
+                    "Coordinador Área Curricular de Matemáticas",
+                ),
+                Miembro("Jairo Alonso Ayala Molina", "Representante Profesoral"),
+                Miembro(
+                    "Diana Milena Sánchez Monsalve",
+                    "Representante Profesoral",
+                    "La profesora",
+                ),
+            ),
+            representante_estudiantil="Representante Estudiantil (suplente)",
         ),
         Programa(
             clave="ciencias_computacion",
@@ -115,16 +137,13 @@ PROGRAMAS: dict[str, Programa] = {
             extension="55634",
             radicado_prefijo="Mz.FCEN.1.065",
             alias=("ciencias de la computacion",),
-            # Acta 35 de 2026.
+            # Correo de la administrativa del área, 3-nov-2026.
             miembros=(
                 Miembro(
-                    "Olmer Folleco Solarte",
-                    "Coordinador Área de Matemáticas y Estadística",
-                ),
-                Miembro(
-                    "Fabián Fernando Serrano Suárez",
+                    "Fabián Fernando Serrano Suarez",
                     "Coordinador Ciencias de la Computación",
                 ),
+                Miembro("David Leonardo Ocampo Rodríguez", "Representante Profesoral"),
                 Miembro("David Angulo García", "Representante Profesoral"),
             ),
         ),
@@ -162,9 +181,41 @@ PROGRAMAS: dict[str, Programa] = {
             nombre="Estadística",
             direccion="matematicas",
             alias=("estadistica",),
+            # Correo de la administrativa del área, 3-nov-2026.
+            miembros=(
+                Miembro(
+                    "Nubia Esteban Duarte",
+                    "Coordinadora programa curricular de Estadística",
+                    "La profesora",
+                ),
+                Miembro("David Leonardo Ocampo Rodríguez", "Representante Profesoral"),
+                Miembro("José Hernán Parra Sánchez", "Representante Profesoral"),
+            ),
         ),
     )
 }
+
+
+def integrantes(programa: Programa) -> tuple[Miembro, ...]:
+    """Integrantes del comité para el acta.
+
+    Si el comité tiene representación estudiantil, va al final con el nombre
+    de REPRESENTANTES_ESTUDIANTILES. Si no está configurado, el nombre queda
+    vacío y el acta lo marca en amarillo.
+    """
+    if not programa.representante_estudiantil:
+        return programa.miembros
+    nombre = settings.representantes_por_programa.get(programa.clave, "")
+    # Sin tratamiento: el concepto dice «<nombre> expresa…».
+    representante = Miembro(nombre, programa.representante_estudiantil, "")
+    return (*programa.miembros, representante)
+
+
+def integrantes_con_nombre(programa: Programa | None) -> tuple[Miembro, ...]:
+    """Los integrantes a los que se les puede atribuir un concepto."""
+    if programa is None:
+        return ()
+    return tuple(m for m in integrantes(programa) if m.nombre)
 
 
 def normalizar(texto: str) -> str:

@@ -26,7 +26,7 @@ from docx.document import Document as DocumentoDocx
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
 from docx.oxml import parse_xml
 from docx.oxml.ns import nsdecls
-from docx.shared import Cm, Pt, RGBColor
+from docx.shared import Cm, Emu, Pt, RGBColor
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
@@ -44,6 +44,7 @@ from app.schemas.caso import (
     Jurado,
     Sentido,
 )
+from app.services.firmas import ruta_firma
 from app.services.reglas import Analisis, lleva_zapc
 
 PLANTILLA = Path(__file__).resolve().parents[1] / "templates" / "oficio_base.docx"
@@ -797,15 +798,37 @@ def _cierre(doc: DocumentoDocx, datos: DatosOficio) -> None:
     _vacio(doc, "FCEN Firma")
     _p(doc, "FCEN Firma", "Atentamente,")
     _vacio(doc, "FCEN Firma")
+    _bloque_firma(doc, datos)
+
+
+def _bloque_firma(doc: DocumentoDocx, datos: DatosOficio) -> None:
+    """Firma, nombre y cargo del primer integrante del comité, y el correo.
+
+    La imagen de firma (fuera del repositorio, app/services/firmas.py) solo
+    entra en el documento final; en el borrador queda una nota gris.
+    """
+    firmante = (
+        datos.miembros[0] if datos.miembros and datos.miembros[0].nombre else None
+    )
+    imagen = None if datos.borrador else ruta_firma(datos.programa.clave)
     if datos.borrador:
-        p = _p(doc, "FCEN Firma")
-        r = _r(p, "[la firma se agrega al firmar]")
-        r.font.size = Pt(8)
-        r.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+        _nota_gris(_p(doc, "FCEN Firma"), "[la firma se agrega al firmar]")
+    elif imagen is not None:
+        figura = (
+            _p(doc, "FCEN Firma").add_run().add_picture(str(imagen), height=Cm(1.8))
+        )
+        if figura.width > Cm(6):  # firmas muy alargadas: se limita el ancho
+            figura.height = Emu(int(figura.height * Cm(6) / figura.width))
+            figura.width = Cm(6)
     else:
-        _vacio(doc, "FCEN Firma")
-    _p(doc, "FCEN Firma", "NOMBRE DEL FIRMANTE", negrita=True)
-    _p(doc, "FCEN Firma", "Cargo")
+        _marcador(_p(doc, "FCEN Firma"), "[falta la imagen de la firma]")
+    _p(
+        doc,
+        "FCEN Firma",
+        firmante.nombre.upper() if firmante else "NOMBRE DEL FIRMANTE",
+        negrita=True,
+    )
+    _p(doc, "FCEN Firma", firmante.cargo.split(",")[0] if firmante else "Cargo")
     if datos.programa.correo:
         p = _p(doc, "FCEN Firma")
         r = _r(p, datos.programa.correo, subrayado=True)
@@ -920,7 +943,12 @@ def _encabezado_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
     _p(doc, "FCEN Texto", "ASISTENTES:", negrita=True)
     if datos.miembros:
         for m in datos.miembros:
-            _p(doc, "FCEN Vineta", f"•\t{m.nombre}, {m.cargo}.")
+            p = _p(doc, "FCEN Vineta", "•\t")
+            if m.nombre:
+                _r(p, m.nombre)
+            else:  # representación estudiantil sin configurar
+                _marcador(p, "[nombre]")
+            _r(p, f", {m.cargo}.")
     else:
         _marcador(_p(doc, "FCEN Vineta"), "[Integrantes del comité, con su cargo]")
     p = _p(doc, "FCEN Destinatario")
@@ -954,22 +982,7 @@ def _cierre_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
     _p(doc, "FCEN Texto", "3. VARIOS", negrita=True)
     _marcador(_p(doc, "FCEN Texto"), "[Sin asuntos varios]")
     _vacio(doc, "FCEN Firma", n=2)
-    if datos.borrador:
-        _nota_gris(_p(doc, "FCEN Firma"), "[la firma se agrega al firmar]")
-    else:
-        _vacio(doc, "FCEN Firma")
-    presidente = datos.miembros[0] if datos.miembros else None
-    _p(
-        doc,
-        "FCEN Firma",
-        presidente.nombre.upper() if presidente else "NOMBRE DEL FIRMANTE",
-        negrita=True,
-    )
-    _p(doc, "FCEN Firma", presidente.cargo.split(",")[0] if presidente else "Cargo")
-    if datos.programa.correo:
-        p = _p(doc, "FCEN Firma")
-        r = _r(p, datos.programa.correo, subrayado=True)
-        r.font.color.rgb = RGBColor(0x00, 0x00, 0xFF)
+    _bloque_firma(doc, datos)
 
 
 def construir_acta(datos: DatosOficio, periodo: str) -> bytes:
