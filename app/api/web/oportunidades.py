@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, HttpUrl
 from app.api.web import auth
 from app.api.web.auth import Db, Usuario
 from app.core.programas import PROGRAMAS
+from app.services.flujo import hora_local
 from app.services.indicadores import hoy_local
 from app.servicios.oportunidades import (
     almacen,
@@ -53,6 +54,24 @@ _Base = Annotated[Any, Depends(_db)]
 
 def _hoy() -> date:
     return hoy_local()
+
+
+# Marcas de tiempo que la base guarda en UTC (CURRENT_TIMESTAMP).
+_MARCAS = ("creado", "actualizado", "verificado", "aprobado", "descartado", "generado")
+
+
+def _local(fila: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Para mostrar: las marcas de tiempo en la hora local, sin segundos."""
+    if fila is None:
+        return None
+    return {
+        k: hora_local(v) if k in _MARCAS and isinstance(v, str) else v
+        for k, v in fila.items()
+    }
+
+
+def _locales(filas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [f for f in map(_local, filas) if f is not None]
 
 
 def _error(exc: Exception) -> HTTPException:
@@ -128,7 +147,7 @@ async def tablero(_: _Lectura, db: _Base) -> dict[str, object]:
 @router.get("/cola")
 async def cola(_: _Lectura, db: _Base) -> dict[str, object]:
     """Lo que el verificador no pudo dar por bueno, con sus motivos."""
-    return {"ofertas": await almacen.listar(db, estado="encontrada")}
+    return {"ofertas": _locales(await almacen.listar(db, estado="encontrada"))}
 
 
 @router.get("/ofertas")
@@ -140,7 +159,9 @@ async def ofertas(
 ) -> dict[str, object]:
     if estado and estado not in ESTADOS:
         raise HTTPException(400, "Estado no válido.")
-    return {"ofertas": await almacen.listar(db, estado=estado, programa=programa)}
+    return {
+        "ofertas": _locales(await almacen.listar(db, estado=estado, programa=programa))
+    }
 
 
 @router.get("/ofertas/{oferta_id}")
@@ -148,7 +169,10 @@ async def oferta(oferta_id: int, _: _Lectura, db: _Base) -> dict[str, object]:
     datos = await almacen.obtener(db, oferta_id)
     if datos is None:
         raise HTTPException(404, "No existe esa oferta.")
-    return {"oferta": datos, "historial": await almacen.historial(db, oferta_id)}
+    return {
+        "oferta": _local(datos),
+        "historial": _locales(await almacen.historial(db, oferta_id)),
+    }
 
 
 class OfertaManual(BaseModel):
@@ -334,14 +358,14 @@ async def ver_boletin(
     clave = semana or boletin.semana(_hoy())
     return {
         "semana": clave,
-        "boletin": await boletin.obtener(db, de_semana=clave),
-        "anteriores": await boletin.listar(db),
+        "boletin": _local(await boletin.obtener(db, de_semana=clave)),
+        "anteriores": _locales(await boletin.listar(db)),
     }
 
 
 @router.post("/boletin/borrador")
 async def rehacer_borrador(usuario: _Responsable, db: _Base) -> dict[str, object]:
-    return await boletin.generar(db, _hoy(), usuario.correo)
+    return _local(await boletin.generar(db, _hoy(), usuario.correo)) or {}
 
 
 @router.post("/boletin/{boletin_id}/aprobar")
@@ -353,7 +377,7 @@ async def aprobar_y_publicar(
         hoja = await boletin.aprobar_y_publicar(db, boletin_id, usuario.correo)
     except (LookupError, boletin.ErrorBoletin, almacen.ErrorEstado) as exc:
         raise _error(exc) from None
-    return {"boletin": hoja}
+    return {"boletin": _local(hoja)}
 
 
 @router.get("/boletin/{boletin_id}/exportar", response_model=None)
