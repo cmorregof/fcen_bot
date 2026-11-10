@@ -30,6 +30,7 @@ from app.schemas.caso import Caso, EstadoCaso, Sentido
 from app.schemas.consejo import ETIQUETA_SENTIDO_CONSEJO, Cruce
 from app.schemas.telegram import CallbackQuery, Document, Message, Update
 from app.services import (
+    actas_comite,
     borrador,
     casos,
     consejo,
@@ -81,7 +82,7 @@ AYUDA = """<b>Cómo funciona</b>
 /caso N — vuelve a mostrar la ficha del caso N
 /acta — oficio y acta ahora
 /firmar programa — firma el oficio y el acta del programa
-/cerrar_acta — saca del borrador los casos ya tratados por el comité (sin firmar)
+/cerrar_acta — cierra el acta del comité sin firmar en MemorIA (número propuesto, fecha de hoy) y empieza la siguiente
 /acta_consejo — sube el acta del Consejo para registrar sus decisiones
 /costo — consumo del modelo este mes"""
 
@@ -488,15 +489,75 @@ async def _ofrecer_cierre(db: Conexion, chat_id: int, direccion: str) -> None:
         )
         return
     programas = sorted({c.programa for c in con_sentido if c.programa})
-    botones = [
-        [{"text": f"Cerrar {PROGRAMAS[p].nombre}", "callback_data": f"cerrar:{p}"}]
-        for p in programas
-    ]
+    anio = firma.hoy_local().year
+    botones = []
+    for p in programas:
+        numero = await actas_comite.proponer_numero(db, p, anio)
+        botones.append(
+            [
+                {
+                    "text": f"Cerrar {PROGRAMAS[p].nombre} · acta "
+                    f"{actas_comite.formato_numero(numero)}",
+                    "callback_data": f"cerrar:{p}:{numero}",
+                }
+            ]
+        )
     await telegram.send_message(
         chat_id,
-        "Cerrar saca del borrador los casos que ya tienen recomendación del comité "
-        "(recomendar aprobar o no aprobar). Los pendientes siguen en curso.",
+        "Cerrar guarda el acta del comité con el número propuesto (el siguiente "
+        "del programa) y la fecha de hoy, y saca del borrador los casos que ya "
+        "tienen recomendación del comité. Los pendientes y los nuevos pasan a la "
+        "siguiente acta. Para otro número u otra fecha, use /firmar o la web "
+        "(«Cerrar sin firmar»).",
         botones=botones,
+    )
+
+
+async def _cerrar_acta(
+    db: Conexion,
+    chat_id: int,
+    usuario: repo.Usuario,
+    cq: CallbackQuery,
+    partes: list[str],
+) -> None:
+    """Botón «Cerrar … · acta N»: el número es el que la persona vio."""
+    assert usuario.direccion is not None
+    clave = partes[1]
+    hoy = firma.hoy_local()
+    try:
+        acta = await actas_comite.abierta(
+            db, direccion=usuario.direccion, clave=clave, hoy=hoy
+        )
+        numero = int(partes[2]) if len(partes) == 3 else acta.numero_propuesto
+        cerrada = await actas_comite.cerrar_sin_firma(
+            db,
+            direccion=usuario.direccion,
+            clave=clave,
+            numero=numero,
+            fecha_sesion=hoy,
+            caso_ids=acta.caso_ids,
+            persona=_persona(usuario),
+            rol=flujo.ADMINISTRATIVA,
+            canal=_CANAL,
+            hoy=hoy,
+        )
+    except (
+        ValueError,
+        actas_comite.ActaNoPermitida,
+        flujo.TransicionNoPermitida,
+    ) as exc:
+        await telegram.responder_callback(cq.id, str(exc)[:190])
+        return
+    if cq.message:
+        await telegram.editar_botones(chat_id, cq.message.message_id, None)
+    siguiente = await actas_comite.proponer_numero(db, clave, hoy.year)
+    await telegram.responder_callback(cq.id, f"Acta {cerrada.numero_texto} cerrada")
+    await telegram.send_message(
+        chat_id,
+        f"Cerré el acta {cerrada.numero_texto} de {hoy.year} de "
+        f"{escape(acta.programa.nombre)} con {len(cerrada.caso_ids)} caso(s): "
+        + ", ".join(f"#{i}" for i in cerrada.caso_ids)
+        + f". La siguiente acta es la {actas_comite.formato_numero(siguiente)}.",
     )
 
 
@@ -592,10 +653,10 @@ async def _resumen_firma(
         chat_id,
         f"Datos para firmar · {escape(prep.programa.nombre)} ({clave})\n"
         "Responde a este mensaje con los datos. El radicado es una propuesta "
-        "(siguiente de la dirección): corrígelo si la dirección ya usó ese "
-        "número por fuera de MemorIA.\n\n"
+        "(siguiente de la dirección) y el acta también (siguiente del programa): "
+        "corrígelos si la dirección ya usó esos números por fuera de MemorIA.\n\n"
         f"<pre>Radicado: {escape(radicado)}\n"
-        "Acta: \n"
+        f"Acta: {escape(prep.numero_acta_propuesto)}\n"
         "Fecha: DD/MM/AAAA\n"
         "Hora: \n"
         "Lugar: </pre>\n"
@@ -695,6 +756,9 @@ async def _confirmar_firma(
         )
         return
     programa = PROGRAMAS[hecha.programa]
+    siguiente = actas_comite.formato_numero(
+        await actas_comite.proponer_numero(db, hecha.programa, firma.hoy_local().year)
+    )
     for archivo in hecha.archivos:
         rotulo = "Oficio al Consejo" if archivo.documento == "oficio" else "Acta"
         await telegram.send_document(
@@ -713,7 +777,9 @@ async def _confirmar_firma(
         f"Firmado. Radicado <b>{escape(hecha.radicado)}</b>, acta "
         f"{escape(hecha.numero_acta)}. Los casos "
         + ", ".join(f"#{i}" for i in hecha.caso_ids)
-        + " pasan al Consejo de Facultad.\n\nSHA-256 de cada documento:\n"
+        + " pasan al Consejo de Facultad.\n\nEl acta "
+        + f"{escape(hecha.numero_acta)} queda cerrada. La siguiente acta de "
+        + f"{escape(programa.nombre)} es la {siguiente}.\n\nSHA-256 de cada documento:\n"
         + hashes,
     )
 
@@ -1080,31 +1146,8 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
             await _procesar(db, chat_id, usuario, caso_id)
         return
 
-    if partes[0] == "cerrar" and len(partes) == 2:
-        clave = partes[1]
-        casos = await repo.casos_listos(db, direccion=usuario.direccion)
-        ids = [
-            c.id
-            for c in casos
-            if c.programa == clave and c.sentido != Sentido.PENDIENTE
-        ]
-        try:
-            await flujo.enviar_consejo(
-                db,
-                ids,
-                rol=flujo.ADMINISTRATIVA,
-                persona=_persona(usuario),
-                canal=_CANAL,
-            )
-        except flujo.TransicionNoPermitida as exc:
-            await telegram.responder_callback(cq.id, str(exc)[:190])
-            return
-        await telegram.responder_callback(cq.id, f"{len(ids)} casos cerrados")
-        await telegram.send_message(
-            chat_id,
-            f"Cerré {len(ids)} caso(s) de {PROGRAMAS[clave].nombre}: "
-            + ", ".join(f"#{i}" for i in ids),
-        )
+    if partes[0] == "cerrar" and len(partes) in (2, 3):
+        await _cerrar_acta(db, chat_id, usuario, cq, partes)
         return
 
     if partes[0] == "fir" and len(partes) == 2:

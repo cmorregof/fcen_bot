@@ -25,7 +25,11 @@ Nunca inventes ni deduzcas un número, un código ni una fecha: por ejemplo, las
 horas semanales de una oferta NO son créditos; si no ves los créditos, déjalos \
 vacíos.
 2. Del pantallazo "Resumen de créditos" registra TODAS las filas en orden, \
-incluidas TOTAL, NIVELACIÓN y TOTAL ESTUDIANTE, con sus cinco columnas.
+incluidas TOTAL, NIVELACIÓN y TOTAL ESTUDIANTE, con los nombres de tipología \
+tal como los escribe el SIA (en posgrado, las tipologías propias del plan, sin \
+cambiarlas por las de pregrado). Copia las columnas que traiga (exigidos, \
+aprobados, pendientes, inscritos, cursados); la que no aparezca o no se lea \
+queda vacía. Los números se copian, no se calculan.
 3. Del pantallazo "Cursos inscritos" registra cada asignatura con su código, \
 nombre, tipología y créditos.
 4. El código del plan de estudios aparece como "[4030] INGENIERIA FISICA": \
@@ -96,6 +100,11 @@ final es `proyecto_tesis`: registra en `proyecto` el título, el director, el \
 codirector y la línea tal como aparecen. Los cursos que pida inscribir o \
 cancelar van en `asignaturas`, y los jurados en `jurados`. No uses \
 `trabajo_grado` para posgrado.
+
+17. De la historia académica copia, tal como aparecen, el P.A.P.A. (`papa`), \
+el P.A. (`promedio_academico`) si aparece, el porcentaje de avance y el \
+estado de la historia académica (`estado_historia`: ACTIVA, BLOQUEADA, \
+CERRADA… con las palabras del SIA). Si no se ven o no se leen, déjalos vacíos.
 
 Tipos de solicitud (puede haber varios; el principal primero):
 {_TIPOS}

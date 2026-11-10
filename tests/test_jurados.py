@@ -17,7 +17,7 @@ from app.schemas.caso import Jurado, Sentido, TipoSolicitud
 from app.services.documento import construir_acta, construir_oficio
 from app.services.ficha import ficha
 from app.services.reglas import analizar
-from tests.conftest import extraccion_ejemplo
+from tests.conftest import extraccion_ejemplo, tablas_del_caso
 from tests.test_documento import _datos
 from tests.test_lenguaje_recomendacion import _textos_docx
 
@@ -118,7 +118,7 @@ def test_oficio_y_acta_recomiendan_los_jurados_en_un_cuadro() -> None:
         parrafos = [p.text for p in doc.paragraphs]
         assert "Se recomiendan los siguientes jurados:" in parrafos
         assert "SOLICITUD DE DESIGNACIÓN DE JURADOS" in parrafos
-        [tabla] = doc.tables
+        [tabla] = tablas_del_caso(doc)
         assert [c.text for c in tabla.rows[0].cells] == [
             "Nombre",
             "Vinculación o institución",

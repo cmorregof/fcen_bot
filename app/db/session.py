@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-from app.core.conexion import Conexion, ConexionPostgres, abrir_sqlite, columnas
+from app.core.conexion import Conexion, ConexionPostgres, abrir_sqlite, columnas, tablas
 from app.core.config import settings
 
 _ESQUEMA = (
@@ -234,6 +234,35 @@ _ESQUEMA = (
         creado        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
+    # Actas del comité de cada programa (app/services/actas_comite.py): número
+    # consecutivo por programa y año, fecha de la sesión y casos. `numero` es
+    # NULL solo en las históricas, anteriores al consecutivo.
+    """
+    CREATE TABLE IF NOT EXISTS actas_comite (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        direccion     TEXT NOT NULL,
+        programa      TEXT NOT NULL,
+        anio          INTEGER,
+        numero        INTEGER,
+        fecha_sesion  TEXT,
+        estado        TEXT NOT NULL,
+        firma_id      INTEGER REFERENCES firmas(id),
+        cerrada_por   TEXT,
+        canal         TEXT NOT NULL,
+        docx_ruta     TEXT,
+        docx_sha256   TEXT,
+        cerrada       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_actas_comite_numero "
+    "ON actas_comite(programa, anio, numero)",
+    """
+    CREATE TABLE IF NOT EXISTS acta_comite_casos (
+        acta_id  INTEGER NOT NULL REFERENCES actas_comite(id),
+        caso_id  INTEGER NOT NULL REFERENCES casos(id),
+        PRIMARY KEY (acta_id, caso_id)
+    )
+    """,
 )
 
 
@@ -249,6 +278,7 @@ _COLUMNAS_NUEVAS = (
 
 
 async def init_db(db: Conexion) -> None:
+    actas_nuevas = "actas_comite" not in await tablas(db)
     for sentencia in _ESQUEMA:
         await db.execute(sentencia)
     for tabla, columna, tipo in _COLUMNAS_NUEVAS:
@@ -259,6 +289,15 @@ async def init_db(db: Conexion) -> None:
     from app.services import flujo
 
     await flujo.migrar(db)
+    # Los posgrados de matemáticas pasan a su propia dirección (idempotente).
+    from app.db.reubicar import reubicar_posgrados
+
+    await reubicar_posgrados(db)
+    # Lleva las firmas y los casos cerrados antes del consecutivo a las actas
+    # del comité (idempotente; ver app/services/actas_comite.py).
+    from app.services import actas_comite
+
+    await actas_comite.migrar(db, tabla_nueva=actas_nuevas)
     await db.commit()
 
 

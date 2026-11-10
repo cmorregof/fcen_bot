@@ -262,3 +262,21 @@ async def test_tablero_para_la_decanatura(c: TestClient, falsos: Falsos) -> None
     assert datos["total"]["Verificada"] == 1
     estadistica = next(p for p in datos["por_programa"] if p["nombre"] == "Estadística")
     assert estadistica["conteo"]["Verificada"] == 1
+
+
+def test_las_marcas_de_tiempo_salen_en_hora_local() -> None:
+    from app.api.web.oportunidades import _local
+
+    fila = {
+        "verificado": "2026-11-10 15:07:44",  # UTC, como lo guarda la base
+        "aprobado": None,
+        "fecha_cierre": "2026-11-30",
+        "titulo": "2026-11-10 15:07:44",  # no es una marca: no se toca
+    }
+    assert _local(fila) == {
+        "verificado": "2026-11-10 10:07",  # Bogotá, UTC-5
+        "aprobado": None,
+        "fecha_cierre": "2026-11-30",
+        "titulo": "2026-11-10 15:07:44",
+    }
+    assert _local(None) is None

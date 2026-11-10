@@ -6,7 +6,164 @@ import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { guardarArchivo, llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
 
-type Datos = { programas: { clave: string; nombre: string; casos: number; con_recomendacion: number }[]; sin_programa: number[] };
+type Datos = {
+  programas: { clave: string; nombre: string; casos: number; con_recomendacion: number; acta_propuesta: string; anio: number }[];
+  sin_programa: number[];
+};
+type ArchivoActa = { documento: "oficio" | "acta"; formato: "docx" | "pdf"; nombre: string; ruta: string };
+type ActaComite = {
+  id: number;
+  programa: string;
+  programa_nombre: string;
+  anio: number | null;
+  numero: string | null;
+  fecha_sesion: string | null;
+  estado: "firmada" | "cerrada";
+  radicado?: string;
+  caso_ids: number[];
+  archivos: ArchivoActa[];
+  acta_siguiente?: string;
+};
+type ActaAbierta = {
+  programa_nombre: string;
+  anio: number;
+  numero_propuesto: string;
+  casos: { id: number; estudiante: string | null; sentido_texto: string }[];
+  caso_ids: number[];
+  pendientes: number[];
+};
+
+// Cierra el acta en curso de un programa cuando se firmó por fuera de
+// MemorIA: número (propuesto, corregible), fecha y confirmación explícita.
+function CerrarSinFirma({ token, clave, alCerrar, alTerminar }: { token: string | null; clave: string; alCerrar: () => void; alTerminar: (a: ActaComite) => void }) {
+  const [acta, setActa] = useState<ActaAbierta | null>(null);
+  const [numero, setNumero] = useState("");
+  const [fecha, setFecha] = useState("");
+  const [confirmo, setConfirmo] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    llamar<ActaAbierta>("actas", `/actas/actas-comite/${clave}/abierta`, { token })
+      .then((a) => {
+        setActa(a);
+        setNumero(a.numero_propuesto);
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [token, clave]);
+
+  const cerrar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!acta) return;
+    setOcupado(true);
+    setError(null);
+    try {
+      const a = await llamar<ActaComite>("actas", `/actas/actas-comite/${clave}/cerrar`, {
+        token,
+        json: { numero, fecha_sesion: fecha, caso_ids: acta.caso_ids, confirmo },
+      });
+      alTerminar(a);
+    } catch (err) {
+      setError((err as Error).message);
+      setConfirmo(false);
+    }
+    setOcupado(false);
+  };
+
+  if (!acta) return error ? <Mensaje tipo="error">{error}</Mensaje> : <p>Preparando el acta…</p>;
+
+  return (
+    <section className="tarjeta" style={{ marginBottom: "1rem" }}>
+      <h2>Cerrar el acta sin firmar · {acta.programa_nombre}</h2>
+      <p className="ayuda">Úselo si el acta se firmó por fuera de MemorIA. Queda guardada con su número y su fecha, los casos pasan al Consejo y los nuevos entran a la siguiente acta.</p>
+      {acta.casos.length === 0 ? <Mensaje tipo="error">No hay casos con recomendación del comité.</Mensaje> : null}
+      <ul>
+        {acta.casos.map((c) => (
+          <li key={c.id}>
+            #{c.id} · {c.estudiante ?? "sin nombre"} · {c.sentido_texto}
+          </li>
+        ))}
+      </ul>
+      {acta.pendientes.length > 0 ? (
+        <Mensaje tipo="info">Pasan a la siguiente acta, sin recomendación del comité: {acta.pendientes.map((i) => `#${i}`).join(", ")}.</Mensaje>
+      ) : null}
+      <form onSubmit={cerrar}>
+        <label htmlFor="numero-cierre">
+          Número del acta
+          <span className="ayuda">Propuesta: la siguiente del programa en {acta.anio}. Corríjala si la dirección numeró otras actas por fuera.</span>
+        </label>
+        <input id="numero-cierre" value={numero} onChange={(e) => setNumero(e.target.value)} required />
+        <label htmlFor="fecha-cierre">Fecha de la sesión</label>
+        <input id="fecha-cierre" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required />
+        <label className="opcion">
+          <input type="checkbox" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} />
+          Confirmo que el comité trató estos casos en el acta {numero}.
+        </label>
+        {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
+        <div className="botones">
+          <button type="submit" disabled={!confirmo || ocupado || acta.casos.length === 0}>
+            {ocupado ? "Cerrando…" : "Cerrar acta y empezar la siguiente"}
+          </button>
+          <button type="button" className="secundario" disabled={ocupado} onClick={alCerrar}>
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function ActasAnteriores({ token, actas }: { token: string | null; actas: ActaComite[] }) {
+  const [error, setError] = useState<string | null>(null);
+  const bajar = async (a: ArchivoActa) => {
+    setError(null);
+    try {
+      guardarArchivo(await llamar<Blob>("actas", a.ruta, { token }), a.nombre);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  return (
+    <>
+      <h2>Actas anteriores</h2>
+      {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
+      <div className="tabla">
+        <table>
+          <thead>
+            <tr>
+              <th>Programa</th>
+              <th>Acta</th>
+              <th>Sesión</th>
+              <th>Casos</th>
+              <th>Documentos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {actas.map((a) => (
+              <tr key={a.id}>
+                <td>{a.programa_nombre}</td>
+                <td>
+                  {a.numero ? `${a.numero} de ${a.anio}` : "Histórica, sin número"}
+                  {a.estado === "firmada" ? ` · firmada${a.radicado ? ` (${a.radicado})` : ""}` : " · cerrada sin firma"}
+                </td>
+                <td>{a.fecha_sesion ?? "—"}</td>
+                <td>{a.caso_ids.length}</td>
+                <td>
+                  {a.archivos.length === 0 ? "—" : null}
+                  {a.archivos.map((x) => (
+                    <button key={x.ruta} type="button" className="secundario" onClick={() => bajar(x)}>
+                      {x.documento === "oficio" ? "Oficio" : "Acta"} ({x.formato.toUpperCase()})
+                    </button>
+                  ))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
 type EstadoArchivo = { activo: boolean; programas: { clave: string; nombre: string }[] };
 
 // El acta ya firmada (PDF) va al archivo oficial en Drive. El Word es un
@@ -73,16 +230,18 @@ export default function Documentos() {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [archivo, setArchivo] = useState<EstadoArchivo | null>(null);
   const [firmando, setFirmando] = useState<string | null>(null);
-  const [firmas, setFirmas] = useState<Firma[]>([]);
+  const [actas, setActas] = useState<ActaComite[]>([]);
   const [recien, setRecien] = useState<Firma | null>(null);
+  const [cerrando, setCerrando] = useState<string | null>(null);
+  const [cerrada, setCerrada] = useState<ActaComite | null>(null);
   const t = token("actas");
 
   const cargar = () => {
     if (!t) return;
     llamar<Datos>("actas", "/actas/documentos", { token: t }).then(setDatos).catch((e: Error) => setError(e.message));
-    llamar<{ firmas: Firma[] }>("actas", "/actas/firmas", { token: t })
-      .then((r) => setFirmas(r.firmas))
-      .catch(() => setFirmas([]));
+    llamar<{ actas: ActaComite[] }>("actas", "/actas/actas-comite", { token: t })
+      .then((r) => setActas(r.actas))
+      .catch(() => setActas([]));
   };
 
   useEffect(() => {
@@ -112,10 +271,10 @@ export default function Documentos() {
       servicio="actas"
       roles={["administrativa", "admin"]}
       hace={[
-        "Arma, por programa, el borrador del oficio al Consejo y el acta del comité con los casos con ficha lista.",
-        "Los descarga en Word para revisarlos.",
-        "Firma el oficio y el acta de un programa cuando usted lo confirma: radicado, datos de la sesión, imagen de la firma, Word y PDF finales, y registro de quién firmó.",
-        "Si el archivo en Drive está activo, guarda el acta ya firmada (PDF) en el archivo oficial.",
+        "Arma por programa el borrador del oficio y del acta, en Word.",
+        "Firma el oficio y el acta cuando usted lo confirma.",
+        "Numera las actas por programa y año; al firmar o cerrar una, los casos nuevos van a la siguiente.",
+        "Guarda las actas anteriores y, si Drive está activo, el PDF firmado.",
       ]}
       noHace={[
         "No envía nada al Consejo: el oficio firmado lo envía usted.",
@@ -126,9 +285,28 @@ export default function Documentos() {
         <div className="tarjeta" style={{ marginBottom: "1rem" }}>
           <Mensaje tipo="exito">
             Firmado {recien.programa_nombre}: radicado {recien.radicado}, acta {recien.numero_acta}. Los casos {recien.caso_ids.map((i) => `#${i}`).join(", ")} pasan al Consejo.
+            {recien.acta_siguiente ? ` La siguiente acta del programa es la ${recien.acta_siguiente}.` : ""}
           </Mensaje>
           <ArchivosFirmados token={t} firma={recien} />
         </div>
+      ) : null}
+      {cerrada ? (
+        <Mensaje tipo="exito">
+          Acta {cerrada.numero} de {cerrada.programa_nombre} cerrada. Los casos {cerrada.caso_ids.map((i) => `#${i}`).join(", ")} pasan al Consejo.
+          {cerrada.acta_siguiente ? ` La siguiente acta del programa es la ${cerrada.acta_siguiente}.` : ""}
+        </Mensaje>
+      ) : null}
+      {cerrando ? (
+        <CerrarSinFirma
+          token={t}
+          clave={cerrando}
+          alCerrar={() => setCerrando(null)}
+          alTerminar={(a) => {
+            setCerrando(null);
+            setCerrada(a);
+            cargar();
+          }}
+        />
       ) : null}
       {firmando ? (
         <FirmarPrograma
@@ -152,7 +330,7 @@ export default function Documentos() {
       {datos?.programas.map((p) => (
         <div key={p.clave} className="tarjeta" style={{ marginBottom: "1rem" }}>
           <strong>{p.nombre}</strong>
-          {p.casos} caso(s)
+          Acta en curso: {p.acta_propuesta} de {p.anio} (número propuesto) · {p.casos} caso(s), {p.con_recomendacion} con recomendación
           <div className="botones">
             <button type="button" disabled={ocupado !== null} onClick={() => bajar(p.clave, p.nombre, "oficio")}>
               {ocupado === p.clave + "oficio" ? "Preparando…" : "Descargar oficio"}
@@ -162,35 +340,32 @@ export default function Documentos() {
             </button>
             <button
               type="button"
-              disabled={ocupado !== null || firmando !== null || p.con_recomendacion === 0}
+              disabled={ocupado !== null || firmando !== null || cerrando !== null || p.con_recomendacion === 0}
               onClick={() => {
                 setRecien(null);
+                setCerrada(null);
                 setFirmando(p.clave);
               }}
             >
-              Firmar…
+              Firmar y cerrar el acta…
+            </button>
+            <button
+              type="button"
+              className="secundario"
+              disabled={ocupado !== null || firmando !== null || cerrando !== null || p.con_recomendacion === 0}
+              onClick={() => {
+                setRecien(null);
+                setCerrada(null);
+                setCerrando(p.clave);
+              }}
+            >
+              Cerrar sin firmar…
             </button>
           </div>
           {p.con_recomendacion === 0 ? <span className="ayuda">Para firmar, registre primero la recomendación del comité.</span> : null}
         </div>
       ))}
-      {firmas.length > 0 ? (
-        <>
-          <h2>Documentos firmados</h2>
-          {firmas.map((f) => (
-            <details key={f.id} className="tarjeta" style={{ marginBottom: "0.75rem" }}>
-              <summary>
-                {f.radicado} · {f.programa_nombre} · acta {f.numero_acta} · firmó {f.firmado_por} ({f.firmado} UTC)
-              </summary>
-              <p>
-                Firma: {f.firmante}
-                {f.con_imagen ? "" : " (sin imagen de firma)"}. Sesión del {f.fecha_sesion}, {f.hora}, {f.lugar}. Casos: {f.caso_ids.map((i) => `#${i}`).join(", ")}.
-              </p>
-              <ArchivosFirmados token={t} firma={f} />
-            </details>
-          ))}
-        </>
-      ) : null}
+      {actas.length > 0 ? <ActasAnteriores token={t} actas={actas} /> : null}
       {archivo?.activo && archivo.programas.length > 0 ? <ArchivarActa token={t} estado={archivo} /> : null}
     </Pantalla>
   );

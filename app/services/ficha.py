@@ -97,6 +97,8 @@ def ficha(caso: Caso, analisis: Analisis) -> str:
         datos.append(f"P.A.P.A. {_num(analisis.papa)}")
     if analisis.porcentaje_avance is not None:
         datos.append(f"avance {_num(analisis.porcentaje_avance)} %")
+    if e.sia is not None and e.sia.estado_historia:
+        datos.append(f"historia {escape(e.sia.estado_historia)}")
     if datos:
         lineas.append("SIA: " + " · ".join(datos))
     if e.anexos:

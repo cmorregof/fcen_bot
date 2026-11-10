@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import practica
 from app.api.routes import router
-from app.api.web import crear_router
+from app.api.web import SinCache, crear_router
 from app.api.web.config import web_settings
 from app.core import solicitudes
 from app.core.config import settings
@@ -55,6 +55,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="fcen_bot", lifespan=lifespan)
 app.include_router(router)
 app.include_router(crear_router(settings.bot_servicio))
+app.add_middleware(SinCache)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=web_settings.lista_origins,

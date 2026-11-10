@@ -63,8 +63,12 @@ Navegador ──(páginas y JS)──► Vercel: web/ (Next.js, sin datos)
 ```
 
 - **Frontend `web/`**: Next.js con TypeScript. Solo sirve páginas; **no tiene rutas de servidor que
-  toquen datos**. El navegador llama directo al backend del servicio (`NEXT_PUBLIC_API_ACTAS`,
-  `…_CALIDAD`, `…_ADMISION`). Así los datos de estudiantes nunca pasan por Vercel.
+  toquen datos**. El navegador llama a `/srv/<servicio>/api/web/...` en el dominio de la web y
+  Vercel lo reenvía al backend del servicio (`NEXT_PUBLIC_API_ACTAS`, `…_CALIDAD`, `…_ADMISION`,
+  `…_OPORTUNIDADES`) con un *rewrite* externo: así se llega aunque una red bloquee las IP de
+  Railway. Los datos pasan por Vercel, pero no se guardan allí (sin funciones, sin base y sin
+  caché). Los archivos de más de 4 MB van directo a Railway. Detalle en `web/README.md`,
+  «Proxy de Vercel».
 - **Backends**: el mismo FastAPI de hoy. `app/api/web/` agrega el router web y **solo monta las
   rutas del servicio que indica `BOT_SERVICIO`**: el backend de calidad no tiene rutas de actas.
 - **Lógica compartida con Telegram.** Las funciones que hacen el trabajo viven en el servicio y

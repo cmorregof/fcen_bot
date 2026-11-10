@@ -9,8 +9,11 @@ del comité. Nunca se archiva un .docx ni un PDF con las marcas de borrador.
 Ver docs/respaldo-drive.md.
 
 Estructura: `<DRIVE_CARPETA_ID>/<Tipo>/<año>/<área>/<programa>/<archivo>.pdf`,
-por ejemplo `Actas/2026/Ciencias Naturales/Ingeniería Física/`. En cada
-carpeta de año hay un índice (xlsx) de lo archivado ese año.
+por ejemplo `Actas/2026/Ciencias Naturales/Ingeniería Física/`. Lo archivado
+queda en un índice electrónico con el formato oficial de la Vicedecanatura
+(app/core/indice_electronico.py): uno por área y año para las actas, porque
+cada dirección de área es su propia oficina productora, y uno por año para
+oficios y resoluciones, que produce la Secretaría de Facultad.
 """
 
 from __future__ import annotations
@@ -23,9 +26,9 @@ from datetime import date, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl import load_workbook
 
+from app.core import indice_electronico as indice
 from app.core.config import settings
 from app.core.programas import DIRECCIONES, PROGRAMAS
 from app.services.drive import cliente as drive
@@ -57,7 +60,9 @@ MARCAS_BORRADOR = (
     "BORRADOR · pendiente de revisión",
 )
 
-COLUMNAS_INDICE = (
+# Columnas del índice propio que se usó antes del formato oficial. Si en
+# Drive queda uno así, sus filas se pasan al formato oficial al archivar.
+COLUMNAS_ANTERIORES = (
     "No.",
     "Fecha del documento",
     "Tipo documental",
@@ -70,7 +75,7 @@ COLUMNAS_INDICE = (
     "Tamaño",
     "Archivado por",
 )
-_FILA_TITULOS = 10
+_FILA_TITULOS_ANTERIOR = 10
 # Una subida a la vez: el índice se lee, se completa y se reemplaza.
 _candado = asyncio.Lock()
 
@@ -94,7 +99,10 @@ class Documento:
 
 
 def nombre_area(direccion: str) -> str:
-    return DIRECCIONES[direccion].nombre.removeprefix("Área Curricular de ").strip()
+    nombre = DIRECCIONES[direccion].nombre
+    return (
+        nombre.removeprefix("Área Curricular de ").removeprefix("Dirección de ").strip()
+    )
 
 
 def _seguro(texto: str) -> str:
@@ -121,8 +129,33 @@ def ruta(doc: Documento) -> list[str]:
     ]
 
 
-def validar(doc: Documento) -> None:
-    """Solo PDF y sin las marcas de borrador de MemorIA."""
+def ruta_indice(doc: Documento) -> list[str]:
+    """Carpeta del índice: la del área para actas, la del año para el resto."""
+    return ruta(doc)[:3] if doc.tipo == "acta" else ruta(doc)[:2]
+
+
+def expediente(doc: Documento) -> indice.Expediente:
+    """Encabezado del índice. Serie y subserie de actas: por confirmar."""
+    if doc.tipo == "acta":
+        direccion = DIRECCIONES[PROGRAMAS[doc.programa].direccion].nombre
+        return indice.Expediente(
+            oficina_productora=f"Dirección del {direccion}",
+            serie=settings.drive_actas_serie,
+            subserie=settings.drive_actas_subserie,
+            subfondo="SUBFONDO SEDE MANIZALES",
+            dependencia="Facultad de Ciencias Exactas y Naturales",
+        )
+    return indice.Expediente(
+        oficina_productora=PRODUCTORA[doc.tipo],
+        serie=CARPETA_TIPO[doc.tipo].upper(),
+        subserie="",
+        subfondo="SUBFONDO SEDE MANIZALES",
+        dependencia="Facultad de Ciencias Exactas y Naturales",
+    )
+
+
+def validar(doc: Documento) -> int:
+    """Solo PDF y sin las marcas de borrador de MemorIA. Devuelve las páginas."""
     if doc.programa not in PROGRAMAS:
         raise DocumentoNoValido("Programa desconocido.")
     if not doc.numero.strip():
@@ -139,6 +172,7 @@ def validar(doc: Documento) -> None:
     try:
         lector = PdfReader(io.BytesIO(doc.contenido))
         texto = "\n".join((p.extract_text() or "") for p in lector.pages)
+        paginas = len(lector.pages)
     except (PdfReadError, ValueError, KeyError) as exc:
         raise DocumentoNoValido("No pude abrir el PDF.") from exc
     if any(m.casefold() in texto.casefold() for m in MARCAS_BORRADOR):
@@ -146,6 +180,7 @@ def validar(doc: Documento) -> None:
             "Ese PDF es un borrador de MemorIA (tiene las marcas de borrador). "
             "Suba la versión firmada."
         )
+    return paginas
 
 
 # ---------------------------------------------------------------------------
@@ -153,115 +188,107 @@ def validar(doc: Documento) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _filas(contenido: bytes) -> list[list[str]]:
+LEEME_INDICE = [
+    "Índice electrónico del expediente — archivo oficial de MemorIA",
+    "Formato oficial de la Vicedecanatura (00IndiceElectronicoPlanesMejoraFCEN). "
+    "Cada documento firmado que se archiva desde MemorIA agrega su fila; el "
+    "nombre es el del PDF en esta carpeta de Drive.",
+    "En amarillo lo que debe llenar la oficina productora: identificación del "
+    "expediente, subserie si falta, fecha de cierre y firma. Lo que se escriba "
+    "en el encabezado se conserva cuando MemorIA agrega una fila.",
+    "Serie y subserie documental: por confirmar con la Vicedecanatura.",
+]
+
+
+def _dmy(d: date) -> str:
+    return d.strftime("%d/%m/%Y")
+
+
+def _filas_anteriores(contenido: bytes) -> list[indice.Fila]:
+    """Filas del índice propio de antes (títulos en la fila 10)."""
     libro = load_workbook(io.BytesIO(contenido), read_only=True)
     ws = libro.worksheets[0]
-    filas: list[list[str]] = []
-    for valores in ws.iter_rows(min_row=_FILA_TITULOS + 1, values_only=True):
-        celdas = [
-            "" if v is None else str(v) for v in valores[1 : len(COLUMNAS_INDICE) + 1]
+    filas: list[indice.Fila] = []
+    for valores in ws.iter_rows(min_row=_FILA_TITULOS_ANTERIOR + 1, values_only=True):
+        v = [
+            "" if x is None else str(x)
+            for x in valores[1 : len(COLUMNAS_ANTERIORES) + 1]
         ]
-        if not any(celdas):
+        if not any(v):
             break
-        filas.append(celdas)
+        v += [""] * (len(COLUMNAS_ANTERIORES) - len(v))
+        _, fecha, tipo, numero, _area, programa, nombre, incorporada = v[:8]
+        filas.append(
+            indice.Fila(
+                nombre=nombre.removesuffix(".pdf"),
+                fecha_creacion=_iso_a_dmy(fecha),
+                fecha_incorporacion=_iso_a_dmy(incorporada),
+                formato="pdf",
+                tamano=v[9].replace("kB", "kb"),
+                observaciones=f"{tipo} {numero} · {programa} · archivó {v[10]}",
+            )
+        )
     libro.close()
     return filas
 
 
-def indice_xlsx(tipo: TipoDocumento, ano: int, filas: list[list[str]]) -> bytes:
-    """Mismo estilo que el índice electrónico de calidad: encabezado del fondo,
-    títulos en negrita con borde y una fila por documento."""
-    libro = Workbook()
-    ws = libro.active
-    assert ws is not None
-    ws.title = "Índice"
-    borde = Border(*(Side(style="thin"),) * 4)
-    negrita = Font(bold=True)
-    for col, ancho in zip(
-        "ABCDEFGHIJKL", [2, 6, 13, 14, 24, 24, 26, 44, 14, 9, 10, 30], strict=True
-    ):
-        ws.column_dimensions[col].width = ancho
-    for fila, texto in [
-        (2, "FONDO UNIVERSIDAD NACIONAL DE COLOMBIA"),
-        (3, "SUBFONDO SEDE MANIZALES"),
-        (4, "Facultad de Ciencias Exactas y Naturales"),
-    ]:
-        ws.merge_cells(f"B{fila}:L{fila}")
-        ws[f"B{fila}"] = texto
-        ws[f"B{fila}"].font = Font(bold=True, size=13)
-        ws[f"B{fila}"].alignment = Alignment(horizontal="center")
-    for i, (rotulo, valor) in enumerate(
-        [
-            ("Oficina productora", PRODUCTORA[tipo]),
-            ("Serie", CARPETA_TIPO[tipo].upper()),
-            ("Año", str(ano)),
-        ],
-        start=6,
-    ):
-        ws.merge_cells(f"C{i}:D{i}")
-        ws.merge_cells(f"E{i}:H{i}")
-        ws[f"C{i}"], ws[f"E{i}"] = rotulo, valor
-        ws[f"C{i}"].font = negrita
-        for c in ("C", "E"):
-            ws[f"{c}{i}"].border = borde
-    for j, titulo in enumerate(COLUMNAS_INDICE, start=2):
-        c = ws.cell(row=_FILA_TITULOS, column=j, value=titulo)
-        c.font = negrita
-        c.border = borde
-        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    ws.row_dimensions[_FILA_TITULOS].height = 32
-    for k, registro in enumerate(filas):
-        for j, valor in enumerate(registro, start=2):
-            c = ws.cell(row=_FILA_TITULOS + 1 + k, column=j, value=valor)
-            c.border = borde
-            c.alignment = Alignment(vertical="top", wrap_text=True)
-    ws.freeze_panes = f"B{_FILA_TITULOS + 1}"
-    salida = io.BytesIO()
-    libro.save(salida)
-    return salida.getvalue()
+def _iso_a_dmy(texto: str) -> str:
+    try:
+        return _dmy(date.fromisoformat(texto[:10]))
+    except ValueError:
+        return texto
 
 
-def _tamano(n: int) -> str:
-    return f"{max(1, round(n / 1024))} kB"
+def fila_indice(doc: Documento, archivo: str, paginas: int, hoy: date) -> indice.Fila:
+    programa = PROGRAMAS[doc.programa]
+    return indice.Fila(
+        nombre=archivo.removesuffix(".pdf"),
+        fecha_creacion=_dmy(doc.fecha),
+        fecha_incorporacion=_dmy(hoy),
+        paginas=paginas,
+        formato="pdf",
+        tamano=indice.tamano_kb(len(doc.contenido)),
+        observaciones=(
+            f"{ETIQUETA_TIPO[doc.tipo]} {doc.numero.strip()} · {programa.nombre} · "
+            f"archivó {doc.archivado_por}"
+        ),
+    )
+
+
+def indice_xlsx(encabezado: indice.Expediente, filas: list[indice.Fila]) -> bytes:
+    return indice.a_bytes(indice.libro(encabezado, filas, LEEME_INDICE))
+
+
+def _leer_indice(
+    contenido: bytes, base: indice.Expediente
+) -> tuple[indice.Expediente, list[indice.Fila]]:
+    if indice.es_formato_oficial(contenido):
+        return indice.leer(contenido, base)
+    return base, _filas_anteriores(contenido)
 
 
 async def _actualizar_indice(
     cliente: drive.ClienteDrive,
-    carpeta_ano: str,
+    carpeta: str,
     doc: Documento,
-    archivo: str,
-    hoy: date,
+    fila: indice.Fila,
 ) -> None:
     nombre = nombre_indice(doc.tipo, doc.fecha.year)
     existente = next(
-        (a for a in await cliente.listar(carpeta_ano) if a.nombre == nombre), None
+        (a for a in await cliente.listar(carpeta) if a.nombre == nombre), None
     )
-    filas = (
-        await asyncio.to_thread(_filas, await cliente.descargar(existente.id))
-        if existente
-        else []
-    )
-    programa = PROGRAMAS[doc.programa]
-    filas.append(
-        [
-            str(len(filas) + 1),
-            doc.fecha.isoformat(),
-            ETIQUETA_TIPO[doc.tipo],
-            doc.numero.strip(),
-            nombre_area(programa.direccion),
-            programa.nombre,
-            archivo,
-            hoy.isoformat(),
-            "PDF",
-            _tamano(len(doc.contenido)),
-            doc.archivado_por,
-        ]
-    )
-    contenido = indice_xlsx(doc.tipo, doc.fecha.year, filas)
+    encabezado = expediente(doc)
+    filas: list[indice.Fila] = []
+    if existente:
+        encabezado, filas = await asyncio.to_thread(
+            _leer_indice, await cliente.descargar(existente.id), encabezado
+        )
+    filas.append(fila)
+    contenido = indice_xlsx(encabezado, filas)
     if existente:
         await cliente.reemplazar(existente.id, contenido, MIME_XLSX)
     else:
-        await cliente.subir(nombre, carpeta_ano, contenido, MIME_XLSX)
+        await cliente.subir(nombre, carpeta, contenido, MIME_XLSX)
 
 
 async def archivar(
@@ -272,21 +299,24 @@ async def archivar(
 ) -> str:
     """Sube el PDF firmado y agrega su fila al índice del año. Devuelve la
     ruta legible en Drive."""
-    validar(doc)
+    paginas = validar(doc)
     hoy = hoy or datetime.now(ZoneInfo(settings.timezone)).date()
     async with _candado:
-        return await _archivar(cliente, raiz, doc, hoy)
+        return await _archivar(cliente, raiz, doc, paginas, hoy)
 
 
 async def _archivar(
-    cliente: drive.ClienteDrive, raiz: str, doc: Documento, hoy: date
+    cliente: drive.ClienteDrive, raiz: str, doc: Documento, paginas: int, hoy: date
 ) -> str:
     archivo = nombre_archivo(doc)
     partes = ruta(doc)
-    carpeta_ano = await drive.carpeta(cliente, raiz, partes[:2])
-    destino = await drive.carpeta(cliente, carpeta_ano, partes[2:])
+    nivel = len(ruta_indice(doc))
+    carpeta_indice = await drive.carpeta(cliente, raiz, partes[:nivel])
+    destino = await drive.carpeta(cliente, carpeta_indice, partes[nivel:])
     if any(a.nombre == archivo for a in await cliente.listar(destino)):
         raise YaArchivado(f"Ya está archivado: {'/'.join([*partes, archivo])}")
     await cliente.subir(archivo, destino, doc.contenido, MIME_PDF)
-    await _actualizar_indice(cliente, carpeta_ano, doc, archivo, hoy)
+    await _actualizar_indice(
+        cliente, carpeta_indice, doc, fila_indice(doc, archivo, paginas, hoy)
+    )
     return "/".join([*partes, archivo])

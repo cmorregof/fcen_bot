@@ -40,7 +40,7 @@ Sin valores aquí: los secretos solo van en Railway.
 | `ADMISION_LIMITE_PREGUNTAR_HORA` | | Opcional; por defecto 20 por IP y hora |
 | `ADMISION_LIMITE_REVISAR_HORA` | | Opcional; por defecto 10 por IP y hora |
 | `ADMISION_LIMITE_CONSENTIMIENTO_HORA` | | Opcional; por defecto 30 por IP y hora |
-| `ADMISION_PROXIES_CONFIABLES` | | Opcional; por defecto 1 (el proxy de Railway) |
+| `ADMISION_PROXIES_CONFIABLES` | | Opcional; por defecto 1 (el proxy de Railway). Con la web detrás del proxy de Vercel (`web/README.md`), 2 |
 
 No definir `DB_PATH`, `MEDIA_DIR`, `OUTPUT_DIR` (salen de `DATA_DIR=/data`, que fija
 el Dockerfile), `INVITE_CODE`, `INTERNAL_CRON_SECRET`, `PERIODO_INICIO` ni

@@ -33,7 +33,7 @@ from app.core.config import settings
 from app.core.programas import PROGRAMAS, Miembro, Programa, integrantes
 from app.db import repo
 from app.schemas.caso import Caso, Sentido
-from app.services import flujo
+from app.services import actas_comite, flujo
 from app.services.borrador import caso_documento
 from app.services.documento import (
     DatosOficio,
@@ -79,6 +79,8 @@ class Preparacion:
     tiene_imagen: bool
     bloqueos: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
+    # El número del acta que se propone: el último del programa en el año + 1.
+    numero_acta_propuesto: str = ""
 
     @property
     def caso_ids(self) -> list[int]:
@@ -256,8 +258,9 @@ def validar_sesion(
     fecha = fecha_sesion if isinstance(fecha_sesion, date) else leer_fecha(fecha_sesion)
     if fecha > (hoy or hoy_local()):
         raise ValueError("La fecha de la sesión no puede ser posterior a hoy.")
+    numero = actas_comite.leer_numero(numero_acta)
     return DatosSesion(
-        numero_acta=" ".join(numero_acta.split()),
+        numero_acta=actas_comite.formato_numero(numero),
         fecha_sesion=fecha,
         hora=" ".join(hora.split()),
         lugar=" ".join(lugar.split()),
@@ -342,7 +345,10 @@ async def preparar(
     if shutil.which(settings.soffice_bin) is None:
         avisos.append("LibreOffice no está disponible: solo saldrá el .docx.")
 
+    anio = (hoy or hoy_local()).year
+    numero = await actas_comite.proponer_numero(db, clave, anio)
     return Preparacion(
+        numero_acta_propuesto=actas_comite.formato_numero(numero),
         programa=programa,
         firmante=firmante,
         casos=casos,
@@ -393,6 +399,13 @@ async def firmar(
         raise FirmaNoPermitida(str(exc)) from None
     if await radicado_usado(db, radicado):
         raise FirmaNoPermitida(f"El radicado {radicado} ya se usó en otra firma.")
+    try:
+        numero_acta = actas_comite.leer_numero(sesion.numero_acta)
+        await actas_comite.verificar_numero(
+            db, prep.programa, numero_acta, sesion.fecha_sesion
+        )
+    except (ValueError, actas_comite.ActaNoPermitida) as exc:
+        raise FirmaNoPermitida(str(exc)) from None
     assert prep.firmante is not None
 
     programa = prep.programa
@@ -453,6 +466,19 @@ async def firmar(
             canal=canal,
             con_imagen=prep.tiene_imagen,
             archivos=archivos,
+        )
+        # El acta del comité queda cerrada con su número; la siguiente empieza
+        # con los casos que sigan en el borrador.
+        await actas_comite.registrar_cierre(
+            db,
+            direccion=direccion,
+            programa=clave,
+            numero=numero_acta,
+            fecha_sesion=sesion.fecha_sesion,
+            caso_ids=prep.caso_ids,
+            persona=persona,
+            canal=canal,
+            firma_id=firma_id,
         )
         # El oficio firmado es el «oficio del comité al Consejo» de la línea.
         await flujo.enviar_consejo(

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
-import { ErrorApi, guardarArchivo, llamar } from "@/lib/api";
+import { ErrorApi, MAXIMO_PROXY_BYTES, PROXY, guardarArchivo, llamar } from "@/lib/api";
 import { ResumenPlan } from "@/lib/calidad";
 import { useSesion } from "@/lib/sesion";
 
@@ -245,6 +245,9 @@ export default function RevisionSoportes() {
                   Descargue de Drive la carpeta «Soportes de acciones» del programa: una carpeta por acción («Acción 1.1»,
                   «Acción 1.2»…) con «Producto final» y «Soportes de producto final». Máximo {estado.max_mb}{" "}
                   MB. Subir un zip nuevo reemplaza el anterior.
+                  {PROXY
+                    ? ` Un zip de más de ${MAXIMO_PROXY_BYTES / (1024 * 1024)} MB va directo al servidor de calidad; si esta red lo bloquea, súbalo desde otra red.`
+                    : null}
                 </span>
               </label>
               <input id="zip" type="file" accept=".zip" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} />

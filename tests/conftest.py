@@ -74,6 +74,11 @@ def extraccion_ejemplo(**cambios: Any) -> ExtraccionCaso:
     return base.model_copy(update=cambios)
 
 
+def tablas_del_caso(doc: Any) -> list[Any]:
+    """Tablas del documento sin el resumen de créditos del SIA (va en el acta)."""
+    return [t for t in doc.tables if t.rows[0].cells[0].text != "Tipología"]
+
+
 def png_bytes() -> bytes:
     buf = io.BytesIO()
     Image.new("RGB", (40, 20), "white").save(buf, format="PNG")

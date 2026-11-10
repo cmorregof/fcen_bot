@@ -498,3 +498,122 @@ def test_indicador_principal_de_la_solicitud_a_la_decision() -> None:
     r = indicadores.calcular(filas, date(2026, 10, 1), solicitudes.Plazos())
     assert r.dias_total.casos == 2 and r.dias_total.mediana == 15
     assert r.valor("dias_total_p90") == 20
+
+
+# ---------------------------------------------------------------------------
+# Prueba de punta a punta en local (datos ficticios de la web)
+# ---------------------------------------------------------------------------
+
+
+def test_sin_drive_la_linea_no_pide_archivar() -> None:
+    con = flujo.siguiente(Etapa.NOTIFICADA, leido=True, tipos=[], archivo_drive=True)
+    assert con is not None and "Drive" in con.paso
+    assert (
+        flujo.siguiente(Etapa.NOTIFICADA, leido=True, tipos=[], archivo_drive=False)
+        is None
+    )
+    # Lo anterior a la notificación no depende de Drive.
+    expedida = flujo.siguiente(
+        Etapa.EXPEDIDA, leido=True, tipos=[], archivo_drive=False
+    )
+    assert expedida is not None and expedida.responsable == "Secretaría de Facultad"
+
+
+def test_la_linea_muestra_la_hora_local() -> None:
+    # CURRENT_TIMESTAMP de SQLite es UTC; Bogotá es UTC-5.
+    assert flujo.hora_local("2026-11-01 22:13:57") == "2026-11-01 17:13"
+    assert flujo.hora_local("2026-11-02 02:00:00") == "2026-11-01 21:00"
+    assert flujo.hora_local("2026-10-25") == "2026-10-25"  # fecha del acta
+    assert flujo.hora_local(None) is None
+    assert flujo.hora_local("sin fecha") == "sin fecha"
+
+
+async def test_la_ficha_web_sin_drive_termina_en_la_notificacion(
+    db: aiosqlite.Connection,
+    cliente: Cliente,  # noqa: F811
+) -> None:
+    caso = await _nuevo(db)
+    await flujo.recomendar(db, caso, Sentido.APROBAR, rol=ADM, persona="A", canal="web")
+    await flujo.enviar_consejo(db, [caso], rol=ADM, persona="A", canal="web")
+    await flujo.transicionar(
+        db, caso, Accion.DECIDIR, rol=ADM, persona="A", canal="web", fecha="2026-09-15"
+    )
+    await flujo.sincronizar_secretaria(
+        db,
+        caso,
+        numero="N-1",
+        fecha_expedicion="2026-09-20",
+        fecha_notificacion="2026-09-22",
+        rol=SEC,
+        persona="S",
+    )
+    await db.commit()
+    c = cliente("actas")
+    adm = await _token("adm@unal.edu.co", "administrativa", "ciencias_naturales")
+    ficha = c.get(f"/api/web/actas/casos/{caso}", headers=adm).json()
+    assert ficha["etapa"] == "notificada"
+    assert ficha["siguiente"] is None  # sin Drive no hay archivo que pedir
+    fechas = [e["fecha"] for e in ficha["linea"]]
+    assert "2026-09-15" in fechas and "2026-09-22" in fechas
+    # Las marcas de tiempo salen en hora local, sin segundos.
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", fechas[0])
+
+
+async def test_los_datos_ficticios_de_la_web_recorren_la_linea(
+    db: aiosqlite.Connection,
+) -> None:
+    from scripts import datos_web_ficticios
+
+    await datos_web_ficticios._actas(db)
+    cur = await db.execute("SELECT id, estado, etapa FROM casos ORDER BY id")
+    filas = [(r[0], r[1], r[2]) for r in await cur.fetchall()]
+    etapas = [f[2] for f in filas]
+    # La improcedente queda en el comité o fuera de él, según la configuración.
+    assert etapas.count("en_comite") + etapas.count("improcedente") == 3
+    assert etapas.count("en_consejo") == 1
+    assert etapas.count("decidida") == 3
+    # Los decididos lo están en la línea, no solo en `casos.estado`.
+    for _, estado, etapa in filas:
+        assert (estado == EstadoCaso.DECIDIDO_CONSEJO.value) == (etapa == "decidida")
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM casos WHERE prerrevision = ?", ("improcedente",)
+    )
+    assert (await cur.fetchone())[0] == 1
+    # El acta por confirmar cruza exacto con el caso que está en el Consejo.
+    en_consejo = next(f[0] for f in filas if f[2] == "en_consejo")
+    cur = await db.execute("SELECT cruce, caso_id, estado FROM acta_consejo_decisiones")
+    assert [tuple(r) for r in await cur.fetchall()] == [
+        ("exacto", en_consejo, "pendiente")
+    ]
+    # Los días de la solicitud a la decisión se pueden calcular.
+    decidido = next(f[0] for f in filas if f[2] == "decidida")
+    caso = await repo.get_caso(db, decidido)
+    assert caso is not None and caso.extraccion is not None
+    tramos = flujo.tramos(
+        await flujo.eventos(db, decidido), caso.extraccion.model_dump_json()
+    )
+    assert tramos[0].dias is not None and tramos[0].dias > 0
+
+
+async def test_al_comite_la_ficha_no_le_ofrece_transiciones(
+    db: aiosqlite.Connection,
+    cliente: Cliente,  # noqa: F811
+) -> None:
+    caso = await _nuevo(db)
+    await db.commit()
+    c = cliente("actas")
+    adm = await _token("adm@unal.edu.co", "administrativa", "ciencias_naturales")
+    com = await _token("com@unal.edu.co", "comite", "ciencias_naturales")
+    assert c.get(f"/api/web/actas/casos/{caso}", headers=adm).json()["acciones"]
+    ficha = c.get(f"/api/web/actas/casos/{caso}", headers=com).json()
+    assert ficha["acciones"] == []
+    # Y si lo intenta por la API, no puede.
+    for ruta, cuerpo in [
+        ("prerrevision", {"resultado": "procedente"}),
+        ("recomendacion", {"sentido": "aprobar"}),
+        ("enviar-consejo", {}),
+        ("volver-al-comite", {}),
+        ("completar", {}),
+    ]:
+        r = c.post(f"/api/web/actas/casos/{caso}/{ruta}", json=cuerpo, headers=com)
+        assert r.status_code == 403, ruta

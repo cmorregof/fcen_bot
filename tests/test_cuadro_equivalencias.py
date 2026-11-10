@@ -17,7 +17,7 @@ from app.schemas.caso import (
 from app.services.documento import construir_acta, construir_oficio
 from app.services.ficha import ficha
 from app.services.reglas import analizar
-from tests.conftest import extraccion_ejemplo
+from tests.conftest import extraccion_ejemplo, tablas_del_caso
 from tests.test_documento import _datos
 
 
@@ -77,8 +77,7 @@ def test_oficio_y_acta_traen_el_cuadro_de_equivalencias() -> None:
     ):
         doc = Document(io.BytesIO(contenido))
         assert "Cuadro de equivalencias:" in [p.text for p in doc.paragraphs]
-        assert len(doc.tables) == 1
-        tabla = doc.tables[0]
+        [tabla] = tablas_del_caso(doc)
         encabezado = [c.text for c in tabla.rows[0].cells]
         assert encabezado[0] == "Asignatura cursada en Programa Ficticio A"
         assert encabezado[5] == "Asignatura a equivaler en Ingeniería Física"

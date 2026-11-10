@@ -68,7 +68,7 @@ h3 { font-size: 1.05rem; line-height: 1.35; margin: var(--e5) 0 var(--e1); color
 p, li { max-width: var(--ancho-texto); }
 p { margin: 0 0 var(--e3); }
 ul, ol { padding-left: 1.25rem; }
-a { color: var(--accion); text-underline-offset: 0.18em; }
+a { color: var(--accion); text-underline-offset: 0.18em; overflow-wrap: anywhere; }
 a:hover { color: var(--accion-hover); }
 small { color: var(--suave); }
 code { font-size: 0.85em; }
@@ -185,6 +185,8 @@ th, td { text-align: left; padding: var(--e3) var(--e3); border-bottom: 1px soli
 th { color: var(--marino); font-weight: 700; border-bottom: 2px solid var(--marino); background: transparent; white-space: nowrap; }
 tbody tr:hover td { background: var(--panel); }
 .tabla { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* Varios botones en una celda: en fila y con aire. */
+td > button, td > .boton { margin: 0 var(--e2) var(--e2) 0; padding: 0.4rem 0.9rem; }
 /* Los campos de cada fila no se aprietan: la tabla se desplaza de lado. */
 .notificaciones td { min-width: 10rem; }
 
@@ -206,7 +208,7 @@ tbody tr:hover td { background: var(--panel); }
 .pasos .titulo-paso { display: flex; justify-content: space-between; gap: var(--e4); font-weight: 600; }
 .paso-numero { display: inline-block; min-width: 1.8rem; height: 1.8rem; line-height: 1.8rem; text-align: center; border-radius: 50%; background: var(--marino); color: #fff; font-weight: 700; margin-right: var(--e2); font-size: 0.9rem; }
 
-.aviso-datos { white-space: pre-wrap; background: var(--panel); padding: var(--e4); border-radius: var(--radio); }
+.aviso-datos { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); padding: var(--e4); border-radius: var(--radio); }
 
 /* ---------- Portada (sin sesión) ---------- */
 .portada { margin: calc(-1 * var(--e5)) calc(50% - 50vw) var(--e5); padding-bottom: var(--e4); }
