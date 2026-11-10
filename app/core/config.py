@@ -147,6 +147,10 @@ class Settings(BaseSettings):
     drive_refresh_token: str = ""
     drive_carpeta_id: str = ""
     drive_respaldos_conservar: int = 30
+    # Serie y subserie documental del índice de actas de comités (por
+    # confirmar con la Vicedecanatura; docs/respaldo-drive.md).
+    drive_actas_serie: str = "ACTAS"
+    drive_actas_subserie: str = "ACTAS DE COMITÉS ASESORES DE PROGRAMAS CURRICULARES"
 
     # Nombre de la representación estudiantil de cada comité que la tiene. Es
     # un dato personal: no va en el repositorio. Formato
