@@ -274,6 +274,9 @@ _COLUMNAS_NUEVAS = (
     # Línea única de estados (app/services/flujo.py).
     ("casos", "etapa", "TEXT"),
     ("casos", "prerrevision", "TEXT"),
+    # Adjuntos (app/services/adjuntos.py): tamaño y cuándo los leyó el modelo.
+    ("caso_archivos", "bytes", "INTEGER"),
+    ("caso_archivos", "leido", "TIMESTAMP"),
 )
 
 
@@ -284,6 +287,12 @@ async def init_db(db: Conexion) -> None:
     for tabla, columna, tipo in _COLUMNAS_NUEVAS:
         if columna not in await columnas(db, tabla):
             await db.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}")
+            if (tabla, columna) == ("caso_archivos", "leido"):
+                # Antes no se registraba: lo de un caso ya leído se dio por leído.
+                await db.execute(
+                    "UPDATE caso_archivos SET leido = creado WHERE caso_id IN "
+                    "(SELECT id FROM casos WHERE extraccion_json IS NOT NULL)"
+                )
     await db.execute("CREATE INDEX IF NOT EXISTS idx_casos_etapa ON casos(etapa)")
     # Da etapa e historia a los casos anteriores a la línea única (idempotente).
     from app.services import flujo

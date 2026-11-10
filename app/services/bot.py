@@ -13,7 +13,6 @@ import re
 from collections import defaultdict
 from datetime import UTC, datetime
 from html import escape
-from pathlib import Path
 
 from app.core.conexion import Conexion
 from app.core.config import settings
@@ -31,6 +30,7 @@ from app.schemas.consejo import ETIQUETA_SENTIDO_CONSEJO, Cruce
 from app.schemas.telegram import CallbackQuery, Document, Message, Update
 from app.services import (
     actas_comite,
+    adjuntos,
     borrador,
     casos,
     consejo,
@@ -66,7 +66,7 @@ _locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 _ESPERA_ACTA = "acta_consejo"
 
 AYUDA = """<b>Cómo funciona</b>
-1. Pega el correo del estudiante (texto) y envía los pantallazos del SIA y de la solicitud.
+1. Pega el correo del estudiante (texto) y envía los pantallazos del SIA y de la solicitud. También recibo PDF y Word (.docx): el formato de solicitud lo leo; los demás quedan como anexos.
 2. Toca <b>Procesar</b> (o escribe /listo). Te respondo con la ficha del caso y las alertas.
 3. Si un dato está mal, <b>responde a la ficha</b> con la corrección.
 4. Con <b>Concepto</b> registras lo que opinó cada profesor del comité; va al acta, no al oficio.
@@ -80,6 +80,7 @@ AYUDA = """<b>Cómo funciona</b>
 /cancelar — descarta el caso abierto
 /casos — últimos casos
 /caso N — vuelve a mostrar la ficha del caso N
+/adjuntos N — lista los adjuntos del caso N y permite quitar uno equivocado
 /acta — oficio y acta ahora
 /firmar programa — firma el oficio y el acta del programa
 /cerrar_acta — cierra el acta del comité sin firmar en MemorIA (número propuesto, fecha de hoy) y empieza la siguiente
@@ -334,6 +335,14 @@ async def _comando(
             await telegram.send_message(chat_id, "No encontré ese caso.")
         else:
             await _enviar_ficha(chat_id, caso)
+    elif nombre == "/adjuntos":
+        valor = arg.strip().lstrip("#")
+        caso_n = int(valor) if valor.isdigit() else estado.caso_abierto_id
+        caso = await _caso_propio(db, caso_n, usuario) if caso_n else None
+        if caso is None:
+            await telegram.send_message(chat_id, "Uso: /adjuntos 12")
+        else:
+            await _listar_adjuntos(db, chat_id, caso)
     elif nombre == "/acta":
         await telegram.send_message(chat_id, "Armando los borradores…")
         borradores, sin_programa = await borrador.armar_borradores(
@@ -819,13 +828,7 @@ async def _agregar_al_caso(db: Conexion, msg: Message, usuario: repo.Usuario) ->
         foto = max(msg.photo, key=lambda p: p.width * p.height)
         await _guardar_imagen(db, caso_id, foto.file_id, foto.file_unique_id, ".jpg")
     elif msg.document:
-        doc = msg.document
-        mime = doc.mime_type or ""
-        if mime.startswith("image/"):
-            ext = "." + mime.split("/")[-1].replace("jpeg", "jpg")
-            await _guardar_imagen(db, caso_id, doc.file_id, doc.file_unique_id, ext)
-        else:
-            await _documento(db, chat_id, caso_id, doc)
+        await _documento(db, chat_id, caso_id, msg.document)
 
     if nuevo:
         await telegram.send_message(
@@ -844,65 +847,73 @@ async def _agregar_al_caso(db: Conexion, msg: Message, usuario: repo.Usuario) ->
 
 
 async def _documento(db: Conexion, chat_id: int, caso_id: int, doc: Document) -> None:
-    """Un formato de solicitud se lee; los demás soportes solo se registran por
-    nombre: no se guardan ni se envían al modelo."""
+    """PDF, Word o imagen enviados como archivo (app/services/adjuntos.py). El
+    formato de solicitud se lee; los demás quedan guardados como anexos."""
     nombre = doc.file_name or "archivo"
-    extension = Path(nombre).suffix.lower()
-    unico = doc.file_unique_id
-    if extension in formatos.EXTENSIONES and (doc.file_size or 0) <= formatos.MAX_BYTES:
-        datos = await telegram.descargar_archivo(doc.file_id)
-        texto = await formatos.texto_de_archivo(datos, extension)
-        if formatos.es_formato(texto):
-            if await repo.agregar_archivo(
-                db,
-                caso_id,
-                tipo="formato",
-                ruta=None,
-                nombre=nombre,
-                file_unique_id=unico,
-            ):
-                await repo.agregar_texto(
-                    db, caso_id, f"--- Formato adjunto: {nombre} ---\n{texto}"
-                )
-                await telegram.send_message(
-                    chat_id, f"Leí «{escape(nombre)}» como formato de solicitud."
-                )
-            return
-        if extension == ".pdf" and not texto.strip():
-            # Escaneado: no se puede saber si es el formato o un soporte.
-            carpeta = settings.media_dir / str(caso_id)
-            carpeta.mkdir(parents=True, exist_ok=True)
-            ruta = carpeta / f"_pendiente_{unico}.pdf"
-            ruta.write_bytes(datos)
-            if await repo.agregar_archivo(
-                db,
-                caso_id,
-                tipo="pendiente",
-                ruta=str(ruta),
-                nombre=nombre,
-                file_unique_id=unico,
-            ):
-                await telegram.send_message(
-                    chat_id,
-                    f"«{escape(nombre)}» es un PDF escaneado. ¿Es el formato de "
-                    "solicitud del estudiante?",
-                    botones=[
-                        [
-                            {
-                                "text": "Sí, léelo",
-                                "callback_data": f"f:{caso_id}:{unico}:si",
-                            },
-                            {
-                                "text": "No, es un soporte",
-                                "callback_data": f"f:{caso_id}:{unico}:no",
-                            },
-                        ]
-                    ],
-                )
-            return
-    await repo.agregar_archivo(
-        db, caso_id, tipo="anexo", ruta=None, nombre=nombre, file_unique_id=unico
-    )
+    es_imagen = (doc.mime_type or "").startswith("image/")
+    if doc.file_name and not es_imagen and not adjuntos.permitido_por_nombre(nombre):
+        await telegram.send_message(
+            chat_id,
+            f"No adjunté «{escape(nombre)}»: solo recibo {adjuntos.TEXTO_PERMITIDOS}.",
+        )
+        return
+    if (doc.file_size or 0) > adjuntos.MAX_DOCUMENTO:
+        await telegram.send_message(
+            chat_id, f"No adjunté «{escape(nombre)}»: pesa más de 20 MB."
+        )
+        return
+    datos = await telegram.descargar_archivo(doc.file_id)
+    try:
+        agregado = await adjuntos.agregar(
+            db, caso_id, datos, nombre, unico=doc.file_unique_id
+        )
+    except adjuntos.AdjuntoInvalido as exc:
+        await telegram.send_message(chat_id, f"No lo adjunté. {escape(str(exc))}")
+        return
+    if not agregado.nuevo:
+        return
+    unico = agregado.unico
+    if agregado.tipo == "formato":
+        await telegram.send_message(
+            chat_id, f"Leí «{escape(nombre)}» como formato de solicitud."
+        )
+    elif agregado.tipo == "pendiente":
+        await telegram.send_message(
+            chat_id,
+            f"«{escape(nombre)}» es un PDF escaneado. ¿Es el formato de "
+            "solicitud del estudiante?",
+            botones=[
+                [
+                    {"text": "Sí, léelo", "callback_data": f"f:{caso_id}:{unico}:si"},
+                    {
+                        "text": "No, es un anexo",
+                        "callback_data": f"f:{caso_id}:{unico}:no",
+                    },
+                ]
+            ],
+        )
+    elif agregado.tipo == "anexo":
+        await telegram.send_message(
+            chat_id,
+            f"Guardé «{escape(nombre)}» como anexo del caso #{caso_id}. Si no "
+            f"era, quítalo con /adjuntos {caso_id}.",
+        )
+
+
+async def _listar_adjuntos(db: Conexion, chat_id: int, caso: Caso) -> None:
+    lista = await adjuntos.listar(db, caso.id)
+    if not lista:
+        await telegram.send_message(chat_id, f"El caso #{caso.id} no tiene adjuntos.")
+        return
+    lineas = [f"<b>Adjuntos del caso #{caso.id}</b>"]
+    botones: list[list[dict[str, str]]] = []
+    for i, a in enumerate(lista, 1):
+        leido = " · ya leído" if a["leido"] else ""
+        lineas.append(f"{i}. {escape(str(a['nombre']))} ({a['tipo_texto']}{leido})")
+        botones.append(
+            [{"text": f"🗑 Quitar {i}", "callback_data": f"aq:{caso.id}:{a['id']}"}]
+        )
+    await telegram.send_message(chat_id, "\n".join(lineas), botones=botones)
 
 
 async def _acta_consejo(db: Conexion, msg: Message, usuario: repo.Usuario) -> None:
@@ -1074,6 +1085,59 @@ _CANAL = "telegram"
 
 def _persona(usuario: repo.Usuario) -> str:
     return usuario.nombre or str(usuario.telegram_id)
+
+
+async def _quitar_adjunto(
+    db: Conexion,
+    cq: CallbackQuery,
+    chat_id: int,
+    usuario: repo.Usuario,
+    caso: Caso,
+    archivo_id: int,
+    paso: str,
+) -> None:
+    """«aq»: pide confirmación. «aqs»: borra de verdad."""
+    if cq.message:
+        await telegram.editar_botones(chat_id, cq.message.message_id, None)
+    archivo = await repo.get_archivo_por_id(db, caso.id, archivo_id)
+    if archivo is None:
+        await telegram.responder_callback(cq.id, "Ese adjunto ya no está.")
+        return
+    await telegram.responder_callback(cq.id)
+    if paso == "aq":
+        nombre = archivo.nombre or "el pantallazo"
+        aviso = (
+            "\nYa se usó al leer el caso: después revisa los datos o vuelve a leerlo."
+            if archivo.leido and caso.extraccion is not None
+            else ""
+        )
+        await telegram.send_message(
+            chat_id,
+            f"¿Quitar «{escape(nombre)}» del caso #{caso.id}? Se borra del todo y "
+            f"no se puede recuperar.{aviso}",
+            botones=[
+                [
+                    {
+                        "text": "Sí, borrar",
+                        "callback_data": f"aqs:{caso.id}:{archivo_id}",
+                    },
+                    {"text": "No", "callback_data": f"aqn:{caso.id}"},
+                ]
+            ],
+        )
+        return
+    borrado = await adjuntos.borrar(
+        db,
+        caso,
+        archivo_id,
+        rol=flujo.ADMINISTRATIVA,
+        persona=_persona(usuario),
+        canal=_CANAL,
+    )
+    texto = f"Quité el adjunto del caso #{caso.id}."
+    if borrado.aviso:
+        texto += " " + escape(borrado.aviso)
+    await telegram.send_message(chat_id, texto)
 
 
 async def _caso_propio(
@@ -1248,33 +1312,17 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
         await telegram.responder_callback(cq.id)
         if cq.message:
             await telegram.editar_botones(chat_id, cq.message.message_id, None)
-        unico = partes[2]
-        archivo = await repo.get_archivo(db, caso.id, unico)
-        if archivo is None or archivo[0] != "pendiente" or not archivo[1]:
-            return
-        pdf = Path(archivo[1])
-        if partes[3] == "si" and pdf.exists():
-            paginas = await formatos.paginas_pdf(pdf, pdf.parent, f"formato_{unico}_")
-            for i, pagina in enumerate(paginas, 1):
-                await repo.agregar_archivo(
-                    db,
-                    caso.id,
-                    tipo="imagen",
-                    ruta=str(pagina),
-                    nombre=None,
-                    file_unique_id=f"{unico}_p{i}",
-                )
-            await repo.set_tipo_archivo(db, caso.id, unico, tipo="formato", ruta=None)
-            mensaje = (
-                f"Agregué {len(paginas)} página(s) del formato al caso #{caso.id}."
-                if paginas
-                else "No pude convertir el PDF; envía fotos o pantallazos del formato."
-            )
-        else:
-            await repo.set_tipo_archivo(db, caso.id, unico, tipo="anexo", ruta=None)
-            mensaje = f"Queda como soporte del caso #{caso.id}; no se envía al modelo."
-        pdf.unlink(missing_ok=True)
-        await telegram.send_message(chat_id, mensaje)
+        mensaje = await adjuntos.resolver_pendiente(
+            db, caso.id, partes[2], es_formato=partes[3] == "si"
+        )
+        if mensaje:
+            await telegram.send_message(chat_id, mensaje)
+    elif partes[0] in ("aq", "aqs") and len(partes) == 3 and partes[2].isdigit():
+        await _quitar_adjunto(db, cq, chat_id, usuario, caso, int(partes[2]), partes[0])
+    elif partes[0] == "aqn":
+        await telegram.responder_callback(cq.id, "No se borró nada")
+        if cq.message:
+            await telegram.editar_botones(chat_id, cq.message.message_id, None)
     elif (
         partes[0] == "pr"
         and len(partes) == 3

@@ -187,14 +187,107 @@ async def agregar_archivo(
     ruta: str | None,
     nombre: str | None,
     file_unique_id: str,
+    bytes_: int | None = None,
 ) -> bool:
     cur = await db.execute(
         "INSERT INTO caso_archivos (caso_id, tipo, ruta, nombre, "
-        "file_unique_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
-        (caso_id, tipo, ruta, nombre, file_unique_id),
+        "file_unique_id, bytes) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+        (caso_id, tipo, ruta, nombre, file_unique_id, bytes_),
     )
     await db.commit()
     return cur.rowcount == 1
+
+
+@dataclass(frozen=True)
+class Archivo:
+    """Un adjunto del caso (app/services/adjuntos.py)."""
+
+    id: int
+    tipo: str
+    ruta: str | None
+    nombre: str | None
+    file_unique_id: str | None
+    bytes_: int | None
+    creado: str | None
+    leido: str | None  # cuándo entró a una lectura del modelo
+
+
+def _archivo(r: Fila) -> Archivo:
+    return Archivo(
+        id=int(r["id"]),
+        tipo=str(r["tipo"]),
+        ruta=r["ruta"],
+        nombre=r["nombre"],
+        file_unique_id=r["file_unique_id"],
+        bytes_=int(r["bytes"]) if r["bytes"] is not None else None,
+        creado=str(r["creado"]) if r["creado"] else None,
+        leido=str(r["leido"]) if r["leido"] else None,
+    )
+
+
+_COLS_ARCHIVO = "id, tipo, ruta, nombre, file_unique_id, bytes, creado, leido"
+
+
+async def archivos_de(
+    db: Conexion, caso_id: int, *, derivados: bool = True
+) -> list[Archivo]:
+    """Los adjuntos del caso en orden de llegada. Sin `derivados`, se omiten
+    las páginas convertidas de un PDF escaneado (van con su PDF)."""
+    cur = await db.execute(
+        f"SELECT {_COLS_ARCHIVO} FROM caso_archivos WHERE caso_id = ? ORDER BY id",
+        (caso_id,),
+    )
+    todos = [_archivo(r) for r in await cur.fetchall()]
+    if derivados:
+        return todos
+    unicos = {a.file_unique_id for a in todos if a.file_unique_id}
+    return [a for a in todos if not _es_pagina(a.file_unique_id, unicos)]
+
+
+def _es_pagina(unico: str | None, unicos: set[str]) -> bool:
+    if not unico or "_p" not in unico:
+        return False
+    base, _, n = unico.rpartition("_p")
+    return n.isdigit() and base in unicos
+
+
+async def get_archivo_por_id(
+    db: Conexion, caso_id: int, archivo_id: int
+) -> Archivo | None:
+    cur = await db.execute(
+        f"SELECT {_COLS_ARCHIVO} FROM caso_archivos WHERE caso_id = ? AND id = ?",
+        (caso_id, archivo_id),
+    )
+    r = await cur.fetchone()
+    return _archivo(r) if r else None
+
+
+async def borrar_archivo(db: Conexion, caso_id: int, archivo_id: int) -> None:
+    """Sin commit: lo hace quien borra, junto con el evento."""
+    await db.execute(
+        "DELETE FROM caso_archivos WHERE caso_id = ? AND id = ?", (caso_id, archivo_id)
+    )
+    await db.execute(
+        "UPDATE casos SET actualizado = CURRENT_TIMESTAMP WHERE id = ?", (caso_id,)
+    )
+
+
+async def set_texto(db: Conexion, caso_id: int, texto: str) -> None:
+    """Sin commit (se usa al quitar el texto de un formato borrado)."""
+    await db.execute(
+        "UPDATE casos SET texto = ?, actualizado = CURRENT_TIMESTAMP WHERE id = ?",
+        (texto, caso_id),
+    )
+
+
+async def marcar_leidos(db: Conexion, caso_id: int) -> None:
+    """Los adjuntos que había en el caso cuando el modelo lo leyó."""
+    await db.execute(
+        "UPDATE caso_archivos SET leido = CURRENT_TIMESTAMP "
+        "WHERE caso_id = ? AND leido IS NULL",
+        (caso_id,),
+    )
+    await db.commit()
 
 
 async def get_archivo(

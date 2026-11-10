@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
+import { ACEPTA } from "./caso/Adjuntos";
 
 type Resumen = {
   id: number;
@@ -32,7 +33,7 @@ function NuevoCaso() {
   const { token } = useSesion();
   const router = useRouter();
   const [texto, setTexto] = useState("");
-  const [imagenes, setImagenes] = useState<FileList | null>(null);
+  const [archivos, setArchivos] = useState<FileList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [paso, setPaso] = useState<"" | "guardando" | "leyendo">("");
 
@@ -41,7 +42,7 @@ function NuevoCaso() {
     setError(null);
     const form = new FormData();
     form.append("texto", texto);
-    for (const f of Array.from(imagenes ?? [])) form.append("imagenes", f);
+    for (const f of Array.from(archivos ?? [])) form.append("archivos", f);
     try {
       setPaso("guardando");
       const { id } = await llamar<{ id: number }>("actas", "/actas/casos", { token: token("actas"), form });
@@ -67,12 +68,15 @@ function NuevoCaso() {
       </label>
       <textarea id="correo" value={texto} onChange={(e) => setTexto(e.target.value)} />
       <label htmlFor="pantallazos">
-        2. Adjunte los pantallazos del SIA y de la solicitud
-        <span className="ayuda">Imágenes JPG o PNG. Puede elegir varias a la vez.</span>
+        2. Adjunte los pantallazos del SIA y los archivos que mandó el estudiante
+        <span className="ayuda">
+          PDF, Word (.docx) o imágenes JPG, PNG o WEBP; hasta 20 archivos a la vez. El formato de solicitud se lee; los demás quedan
+          como anexos del caso.
+        </span>
       </label>
-      <input id="pantallazos" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e) => setImagenes(e.target.files)} />
+      <input id="pantallazos" type="file" accept={ACEPTA} multiple onChange={(e) => setArchivos(e.target.files)} />
       <div className="botones">
-        <button type="submit" disabled={paso !== "" || (!texto.trim() && !imagenes?.length)}>
+        <button type="submit" disabled={paso !== "" || (!texto.trim() && !archivos?.length)}>
           {paso === "guardando" ? "Guardando…" : paso === "leyendo" ? "Leyendo el caso… (puede tardar un minuto)" : "3. Crear y leer el caso"}
         </button>
       </div>
@@ -103,7 +107,7 @@ export default function Casos() {
       hace={
         administrativa
           ? [
-              "Crea un caso con el correo y los pantallazos, y lo lee para armar la ficha con alertas.",
+              "Crea un caso con el correo, los pantallazos y los archivos del estudiante, y lo lee para armar la ficha con alertas.",
               "Lista los casos de su área para abrir su ficha.",
             ]
           : ["Lista los casos de su área para leer la ficha y dejar su concepto."]

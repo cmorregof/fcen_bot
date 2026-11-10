@@ -101,6 +101,8 @@ class Accion(StrEnum):
     ARCHIVAR_DOCUMENTO = "archivar_documento"
     ARCHIVAR = "archivar"
     DESCARTAR = "descartar"
+    # No cambia la etapa: solo deja registro (app/services/adjuntos.py).
+    QUITAR_ADJUNTO = "quitar_adjunto"
 
 
 NOMBRE_ACCION: dict[Accion, str] = {
@@ -123,6 +125,7 @@ NOMBRE_ACCION: dict[Accion, str] = {
     Accion.ARCHIVAR_DOCUMENTO: "Documento firmado archivado en Drive",
     Accion.ARCHIVAR: "Archivada",
     Accion.DESCARTAR: "Descartada",
+    Accion.QUITAR_ADJUNTO: "Se quitó un adjunto",
 }
 
 # Roles de la web (app/api/web/auth.py) más «sistema». En Telegram, quien usa
@@ -791,6 +794,27 @@ async def sincronizar_secretaria(
             commit=False,
         )
     return etapa
+
+
+async def registrar_quitar_adjunto(
+    db: Conexion,
+    caso_id: int,
+    *,
+    rol: str,
+    persona: str | None,
+    canal: str,
+    detalle: str,
+) -> None:
+    """Deja en la línea que se borró un adjunto, sin cambiar la etapa. El
+    detalle no lleva el nombre ni el contenido del archivo. Sin commit."""
+    etapa = await etapa_de(db, caso_id)
+    await _insertar(
+        db,
+        caso_id,
+        Evento(
+            Accion.QUITAR_ADJUNTO, etapa, etapa, ahora(), rol, persona, canal, detalle
+        ),
+    )
 
 
 async def archivar(

@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { guardarArchivo, llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
+import { type Adjunto, Adjuntos } from "./Adjuntos";
 
 type Detalle = {
   id: number;
@@ -35,6 +36,9 @@ type Detalle = {
   programas: { clave: string; nombre: string }[];
   imagenes: number;
   anexos: string[];
+  // Pantallazos, formatos y anexos, con su id para descargar o quitar.
+  adjuntos: Adjunto[];
+  tipos_adjuntos: string;
   consejo: DecisionConsejo | null;
   // Hay decisión final del Consejo de Facultad: se puede bajar el borrador del oficio.
   oficio_consejo: boolean;
@@ -331,6 +335,17 @@ function Ficha() {
             </button>
           ) : null}
         </div>
+      ) : null}
+      {caso ? (
+        <Adjuntos<Detalle & { aviso?: string | null }>
+          casoId={caso.id}
+          adjuntos={caso.adjuntos}
+          tipos={caso.tipos_adjuntos}
+          leido={caso.extraccion !== null}
+          editable={administrativa}
+          token={t}
+          onFicha={setCaso}
+        />
       ) : null}
       {caso && !caso.extraccion ? (
         <>
