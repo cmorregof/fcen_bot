@@ -24,6 +24,8 @@ export type Firma = {
   firmado: string;
   con_imagen: boolean;
   archivos: ArchivoFirmado[];
+  // El número que se propone para la siguiente acta del programa.
+  acta_siguiente?: string;
 };
 
 type Preparacion = {
@@ -33,6 +35,7 @@ type Preparacion = {
   firma_en_nombre: string;
   tiene_imagen: boolean;
   radicado_propuesto: string | null;
+  numero_acta_propuesto: string;
   casos: { id: number; estudiante: string | null; sentido_texto: string }[];
   caso_ids: number[];
   pendientes: number[];
@@ -103,6 +106,7 @@ export function FirmarPrograma({
       .then((p) => {
         setPrep(p);
         setRadicado(p.radicado_propuesto ?? "");
+        setActa(p.numero_acta_propuesto);
       })
       .catch((e: Error) => setError(e.message));
   }, [token, clave]);
@@ -173,7 +177,10 @@ export function FirmarPrograma({
             <span className="ayuda">Es una propuesta: el siguiente de la dirección. Corríjalo si ya usó ese número por fuera de MemorIA.</span>
           </label>
           <input id="radicado" value={radicado} onChange={(e) => setRadicado(e.target.value)} placeholder="Mz.FCEN.1.0xx-NNN-26" required />
-          <label htmlFor="acta">Número del acta del comité</label>
+          <label htmlFor="acta">
+            Número del acta del comité
+            <span className="ayuda">Es una propuesta: la siguiente del programa en el año. Corríjala si la dirección numeró otras actas por fuera de MemorIA.</span>
+          </label>
           <input id="acta" value={acta} onChange={(e) => setActa(e.target.value)} placeholder="019" required />
           <label htmlFor="fecha">Fecha de la sesión</label>
           <input id="fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required />
@@ -200,7 +207,7 @@ export function FirmarPrograma({
           </p>
           <p>
             Al firmar se generan el oficio y el acta finales{prep.tiene_imagen ? " con la imagen de la firma" : ""}, en Word y PDF; se registra quién firmó, cuándo y la huella SHA-256 de cada
-            documento; y los casos pasan al Consejo de Facultad.
+            documento; los casos pasan al Consejo de Facultad y el acta {acta} queda cerrada. Los casos nuevos entran a la siguiente acta.
           </p>
           <label className="opcion">
             <input type="checkbox" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} />
