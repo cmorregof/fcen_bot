@@ -127,7 +127,7 @@ function ActasAnteriores({ token, actas }: { token: string | null; actas: ActaCo
     <>
       <h2>Actas anteriores</h2>
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
-      <div style={{ overflowX: "auto" }}>
+      <div className="tabla">
         <table>
           <thead>
             <tr>
@@ -271,12 +271,10 @@ export default function Documentos() {
       servicio="actas"
       roles={["administrativa", "admin"]}
       hace={[
-        "Arma, por programa, el borrador del oficio al Consejo y el acta del comité con los casos con ficha lista.",
-        "Los descarga en Word para revisarlos.",
-        "Firma el oficio y el acta de un programa cuando usted lo confirma: radicado, datos de la sesión, imagen de la firma, Word y PDF finales, y registro de quién firmó.",
-        "Cada acta del comité lleva un consecutivo por programa y año. Al firmarla o cerrarla, sus casos salen del borrador y los nuevos entran a la siguiente acta.",
-        "Guarda las actas anteriores con su número, fecha, casos y documentos.",
-        "Si el archivo en Drive está activo, guarda el acta ya firmada (PDF) en el archivo oficial.",
+        "Arma por programa el borrador del oficio y del acta, en Word.",
+        "Firma el oficio y el acta cuando usted lo confirma.",
+        "Numera las actas por programa y año; al firmar o cerrar una, los casos nuevos van a la siguiente.",
+        "Guarda las actas anteriores y, si Drive está activo, el PDF firmado.",
       ]}
       noHace={[
         "No envía nada al Consejo: el oficio firmado lo envía usted.",

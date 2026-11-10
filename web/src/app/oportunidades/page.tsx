@@ -174,12 +174,12 @@ export default function ColaRevision() {
 
   return (
     <Pantalla
-      titulo="Oportunidades: cola de revisión"
+      titulo="Ofertas por revisar"
       servicio="oportunidades"
       roles={["oportunidades", "admin"]}
       hace={[
-        "Muestra las ofertas que el verificador no pudo dar por buenas, con cada motivo (enlace, fecha, programa, duplicado o dudas del modelo).",
-        "Permite corregir programas y fecha, marcar una oferta como verificada (dejando qué revisó) o descartarla con motivo.",
+        "Muestra las ofertas que el verificador no dio por buenas, con el motivo.",
+        "Permite corregirlas, verificarlas o descartarlas.",
         "Permite aprobar para el boletín las ofertas verificadas.",
       ]}
       noHace={[

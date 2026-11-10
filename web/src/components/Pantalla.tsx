@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Servicio } from "@/lib/api";
 import { Rol, useSesion } from "@/lib/sesion";
+import { Icono } from "./Icono";
 
 type Props = {
   titulo: string;
@@ -32,25 +33,34 @@ export function Pantalla({ titulo, hace, noHace, children, servicio, roles }: Pr
   }
   return (
     <section>
-      <h1>{titulo}</h1>
-      <div className="alcance">
-        <div>
-          <h2>Qué hace esta pantalla</h2>
-          <ul>
-            {hace.map((t) => (
-              <li key={t}>{t}</li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <h2>Qué no hace</h2>
-          <ul>
-            {noHace.map((t) => (
-              <li key={t}>{t}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
+      <header className="encabezado">
+        <h1>{titulo}</h1>
+        {/* La ayuda queda a un clic: el trabajo de la pantalla va primero. */}
+        <details className="ayuda-pantalla">
+          <summary>
+            <Icono nombre="info" tamano={20} />
+            ¿Qué hace esta pantalla?
+          </summary>
+          <div className="detalle">
+            <div>
+              <h2>Hace</h2>
+              <ul>
+                {hace.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h2>No hace</h2>
+              <ul>
+                {noHace.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </details>
+      </header>
       {children}
     </section>
   );

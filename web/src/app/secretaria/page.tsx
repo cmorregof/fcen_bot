@@ -240,14 +240,14 @@ export default function PaginaSecretaria() {
       servicio="actas"
       roles={["secretaria", "admin"]}
       hace={[
-        "Lista los casos que el Consejo de Facultad decidió en el semestre, según las actas confirmadas en MemorIA.",
-        "Le permite descargar el borrador del oficio o la resolución, y registrar su número y las fechas de ingreso, expedición y notificación.",
-        "Calcula los tiempos de respuesta para el indicador de divulgación de la información oficial, con Excel.",
-        "Descarga las estadísticas del semestre para Calidad y los datos SUIT del año, solo con cifras.",
-        "Si el archivo en Drive está activo, guarda el oficio o la resolución ya firmados (PDF) en el archivo oficial, con el número y la fecha de expedición registrados.",
+        "Lista los casos que el Consejo decidió en el semestre.",
+        "Descarga el borrador del oficio o la resolución y registra su número y sus fechas.",
+        "Calcula los tiempos de respuesta, con Excel.",
+        "Descarga las cifras para Calidad y el SUIT.",
+        "Si Drive está activo, guarda el PDF firmado en el archivo oficial.",
       ]}
       noHace={[
-        "No notifica ni envía nada: solo guarda las fechas que usted registra.",
+        "No notifica ni envía nada.",
         "El Excel no lleva nombres ni documentos.",
       ]}
     >

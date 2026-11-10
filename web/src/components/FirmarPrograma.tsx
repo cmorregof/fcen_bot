@@ -132,7 +132,7 @@ export function FirmarPrograma({
   if (!prep) return error ? <Mensaje tipo="error">{error}</Mensaje> : <p>Preparando el resumen…</p>;
 
   return (
-    <section className="tarjeta" style={{ marginBottom: "1rem", borderTop: "4px solid var(--magenta)" }}>
+    <section className="tarjeta" style={{ marginBottom: "1rem" }}>
       <h2>Firmar · {prep.programa_nombre}</h2>
       {prep.firmante ? (
         <p>
