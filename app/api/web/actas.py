@@ -21,8 +21,10 @@ from app.core import solicitudes
 from app.core.programas import (
     DIRECCIONES,
     PROGRAMAS,
+    comite_de,
     integrantes_con_nombre,
     programas_de,
+    programas_del_comite,
 )
 from app.db import repo
 from app.schemas.caso import TITULOS_TIPO, Caso, EstadoCaso, Sentido
@@ -136,7 +138,6 @@ def _ruta(caso: Caso) -> dict[str, object]:
 
 def _detalle(caso: Caso) -> dict[str, object]:
     analisis = casos.analizar(caso)
-    programa = PROGRAMAS.get(caso.programa or "")
     return {
         **_resumen(caso),
         "programa_clave": caso.programa,
@@ -156,7 +157,9 @@ def _detalle(caso: Caso) -> dict[str, object]:
         else None,
         "nota_comite": caso.nota_comite,
         "conceptos": [c.model_dump() for c in caso.conceptos],
-        "miembros": [m.nombre for m in integrantes_con_nombre(programa)],
+        "miembros": [
+            m.nombre for m in integrantes_con_nombre(comite_de(caso.programa))
+        ],
         "programas": [
             {"clave": p.clave, "nombre": p.nombre} for p in programas_de(caso.direccion)
         ],
@@ -656,29 +659,41 @@ async def concepto(
 
 @router.get("/documentos")
 async def documentos(usuario: _Firma, db: Db) -> dict[str, object]:
-    """Programas con casos listos para el borrador de oficio y acta."""
+    """Comités con casos listos para el borrador de oficio y acta: uno por
+    programa en pregrado; uno para toda la dirección si tiene comité único."""
     listos = await repo.casos_listos(db, direccion=_direccion(usuario))
-    programas = sorted({c.programa for c in listos if c.programa in PROGRAMAS})
+    comites = {
+        comite.clave: comite
+        for c in listos
+        if c.programa in PROGRAMAS and (comite := comite_de(c.programa)) is not None
+    }
     anio = firma.hoy_local().year
-    return {
-        "programas": [
+    salida = []
+    for clave in sorted(comites):
+        comite = comites[clave]
+        del_comite = [c for c in listos if c.programa in programas_del_comite(comite)]
+        salida.append(
             {
-                "clave": p,
-                "nombre": PROGRAMAS[p].nombre,
+                "clave": clave,
+                "nombre": comite.nombre,
+                "comite": comite.comite,
+                # En un comité único, los programas cuyos casos entran.
+                "programas": [
+                    PROGRAMAS[p].nombre for p in comite.programas if p in PROGRAMAS
+                ],
                 # El acta en curso: el número es una propuesta (último + 1).
                 "acta_propuesta": actas_comite.formato_numero(
-                    await actas_comite.proponer_numero(db, p, anio)
+                    await actas_comite.proponer_numero(db, clave, anio)
                 ),
                 "anio": anio,
-                "casos": sum(1 for c in listos if c.programa == p),
+                "casos": len(del_comite),
                 "con_recomendacion": sum(
-                    1
-                    for c in listos
-                    if c.programa == p and c.sentido != Sentido.PENDIENTE
+                    1 for c in del_comite if c.sentido != Sentido.PENDIENTE
                 ),
             }
-            for p in programas
-        ],
+        )
+    return {
+        "programas": salida,
         "sin_programa": [c.id for c in listos if c.programa not in PROGRAMAS],
     }
 
@@ -693,7 +708,9 @@ async def descargar(programa: str, tipo: str, usuario: _Firma, db: Db) -> Respon
         elaboro=usuario.nombre,
         solo_con_cambios=False,
     )
-    elegido = next((b for b in borradores if b.programa.clave == programa), None)
+    comite = comite_de(programa)
+    clave = comite.clave if comite else programa
+    elegido = next((b for b in borradores if b.programa.clave == clave), None)
     if elegido is None:
         raise HTTPException(404, "No hay casos listos para ese programa.")
     archivo = elegido.oficio if tipo == "oficio" else elegido.acta
@@ -701,7 +718,9 @@ async def descargar(programa: str, tipo: str, usuario: _Firma, db: Db) -> Respon
         archivo.docx,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
-            "Content-Disposition": f'attachment; filename="{archivo.ruta_docx.name}"'
+            # Nombres con tildes (Área…, Matemáticas): RFC 5987.
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + quote(archivo.ruta_docx.name)
         },
     )
 
@@ -728,7 +747,7 @@ class PedidoFirma(BaseModel):
 
 
 def _firma_json(f: firma.Firma) -> dict[str, object]:
-    programa = PROGRAMAS.get(f.programa)
+    programa = comite_de(f.programa)
     return {
         "id": f.id,
         "programa": f.programa,
@@ -768,11 +787,13 @@ async def preparar_firma(programa: str, usuario: _Firma, db: Db) -> dict[str, ob
         raise HTTPException(404, str(exc)) from None
     return {
         "programa": prep.programa.clave,
-        "programa_nombre": prep.programa.nombre,
+        "programa_nombre": prep.programa.comite
+        if prep.programa.es_comite_unico
+        else prep.programa.nombre,
         "firmante": (
             {
                 "nombre": prep.firmante.nombre,
-                "cargo": prep.firmante.cargo.split(",")[0],
+                "cargo": prep.firmante.cargo_bajo_firma,
             }
             if prep.firmante
             else None
@@ -789,6 +810,10 @@ async def preparar_firma(programa: str, usuario: _Firma, db: Db) -> dict[str, ob
                 ),
                 "sentido": c.sentido.value,
                 "sentido_texto": ETIQUETA_SENTIDO[c.sentido],
+                # En un comité único, el programa de cada caso.
+                "programa": PROGRAMAS[c.programa].nombre
+                if prep.programa.es_comite_unico and c.programa in PROGRAMAS
+                else None,
             }
             for c in prep.casos
         ],
@@ -831,7 +856,7 @@ async def firmar(
     except (firma.FirmaNoPermitida, flujo.TransicionNoPermitida) as exc:
         raise HTTPException(409, str(exc)) from None
     anio = firma.hoy_local().year
-    siguiente = await actas_comite.proponer_numero(db, programa, anio)
+    siguiente = await actas_comite.proponer_numero(db, hecha.programa, anio)
     return {
         **_firma_json(hecha),
         "acta_siguiente": actas_comite.formato_numero(siguiente),
@@ -877,7 +902,7 @@ async def descargar_firmado(
 
 
 def _acta_comite_json(a: actas_comite.ActaComite) -> dict[str, object]:
-    programa = PROGRAMAS.get(a.programa)
+    programa = comite_de(a.programa)
     archivos: list[dict[str, str]] = []
     if a.docx_ruta is not None:
         archivos.append(
@@ -996,7 +1021,7 @@ async def cerrar_acta(
         )
     except (actas_comite.ActaNoPermitida, flujo.TransicionNoPermitida) as exc:
         raise HTTPException(409, str(exc)) from None
-    siguiente = await actas_comite.proponer_numero(db, programa, hoy.year)
+    siguiente = await actas_comite.proponer_numero(db, cerrada.programa, hoy.year)
     return {
         **_acta_comite_json(cerrada),
         "acta_siguiente": actas_comite.formato_numero(siguiente),

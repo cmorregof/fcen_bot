@@ -13,6 +13,15 @@ oficio y el acta. Si cambia un integrante, se edita esa lista y se abre un PR.
 Los de Matemáticas, Ciencias de la Computación y Estadística salen del correo
 de la administrativa del área del 3-nov-2026.
 
+En una dirección con comité único (el Área Curricular de Posgrados de Ciencias
+Exactas, `docs/direcciones.md`), los integrantes están en la dirección, no en
+cada programa. Los del comité de posgrados salen del acta 029, que envió la
+administrativa de posgrados el 10-nov-2026. Firma el director, «Director Área
+Curricular Posgrados Ciencias Exactas Naturales» (`cargo_firma`, el cargo bajo
+la firma cuando no es el de ASISTENTES). El director también coordina la
+Especialización en Actuaría y Finanzas: aparece dos veces en ASISTENTES, como
+en el acta, y una sola vez en el botón **Concepto**.
+
 En el bot y en la web, el botón **Concepto** ofrece los integrantes que tienen
 nombre. Los demás se escriben a mano con «Otro miembro».
 
@@ -44,10 +53,11 @@ Cuando cambie la representante, basta con cambiar la variable.
 
 ## Firmas
 
-Cada programa tiene una imagen de firma, la de quien firma (el primer
+Cada comité tiene una imagen de firma, la de quien firma (el primer
 integrante). Las imágenes viven en el volumen del servicio de actas, en la
-carpeta `firmas/`, con el nombre de la clave del programa: `matematicas.jpg`,
-`ciencias_computacion.png`, `estadistica.jpg`. Se aceptan PNG o JPG de hasta
+carpeta `firmas/`, con el nombre de la clave del comité: la del programa en
+pregrado (`matematicas.jpg`, `ciencias_computacion.png`, `estadistica.jpg`) y
+la de la dirección en un comité único (`posgrados_matematicas.jpg`). Se aceptan PNG o JPG de hasta
 2 MB. En el documento se ajustan a 1,8 cm de alto y máximo 6 cm de ancho.
 
 - El borrador nunca lleva la firma: dice «[la firma se agrega al firmar]».
@@ -92,6 +102,18 @@ Requiere la CLI de Railway con sesión iniciada. Para cada firma:
 Firmas del 3-nov-2026: «Firma David» → `matematicas`, «Firma prof Fabian» →
 `ciencias_computacion`, «Firma Nubia» → `estadistica`.
 
+**Comité de posgrados.** Su acta la firma David Ocampo, como director del área
+de posgrados, y se busca con la clave de la dirección. La imagen cargada como
+`matematicas.jpg` no se usa para esta acta: hay que cargar la misma imagen con
+la otra clave. En el paso 3:
+
+```bash
+uv run --no-dev python -m app.services.firmas cargar posgrados_matematicas
+```
+
+Mientras no esté, el resumen de la firma avisa «Falta la imagen de firma de
+David Leonardo Ocampo Rodríguez (posgrados_matematicas)».
+
 En local se usa el mismo comando con la ruta del archivo:
 `uv run python -m app.services.firmas cargar estadistica "Firma Nubia.jpg"`.
 La carpeta local es `data/actas/firmas/`, que está fuera de git.
@@ -103,7 +125,8 @@ de la dirección, facultada para firmar en nombre de quien preside el comité, o
 admin, siempre de su propia dirección. El modelo no interviene. Código:
 `app/services/firma.py`. Pruebas: `tests/test_firma.py`.
 
-**En el bot.** `/firmar` muestra un botón por programa con casos recomendados.
+**En el bot.** `/firmar` muestra un botón por programa con casos recomendados
+(en posgrados, uno solo: «Firmar Comité de posgrados»).
 `/firmar <programa>` acepta la clave o el nombre, por ejemplo `/firmar
 estadistica` o `/firmar ciencias de la computación`.
 

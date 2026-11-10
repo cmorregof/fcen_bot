@@ -1,6 +1,9 @@
-"""Actas del comité asesor de cada programa, con su consecutivo.
+"""Actas del comité asesor, con su consecutivo.
 
-Cada semana el comité de un programa se reúne y su acta se cierra. El acta
+Cada semana el comité se reúne y su acta se cierra. En pregrado hay un comité
+por programa; una dirección con comité único (los posgrados de Ciencias
+Exactas) tiene una sola acta para todos sus programas, con la clave de la
+dirección en `actas_comite.programa` (app/core/programas.py, `comite_de`). El acta
 abierta no se guarda como fila: son los casos del programa que siguen en el
 borrador (repo.casos_listos). Al cerrarla, por firma (firma.firmar) o sin firma
 en MemorIA (`cerrar_sin_firma`, cuando el acta se firmó por fuera), queda una
@@ -8,7 +11,8 @@ fila en `actas_comite` con su número, el año, la fecha de la sesión y los cas
 (`acta_comite_casos`); esos casos salen del borrador y los nuevos entran a la
 siguiente.
 
-El número siguiente es una propuesta (el último del programa en el año + 1).
+El número siguiente es una propuesta (el último del comité en el año + 1, o
+el siguiente a `ultima_acta` si el comité numeró actas por fuera de MemorIA).
 La persona lo confirma o lo corrige al cerrar: la dirección puede haber
 numerado otras actas por fuera de MemorIA. Un número ya cerrado no se repite.
 """
@@ -25,7 +29,7 @@ from pathlib import Path
 
 from app.core.conexion import Conexion, Fila
 from app.core.config import settings
-from app.core.programas import PROGRAMAS, Programa, integrantes
+from app.core.programas import Programa, comite_de, integrantes, programas_del_comite
 from app.db import repo
 from app.schemas.caso import Caso, EstadoCaso, Sentido
 from app.services import flujo
@@ -86,9 +90,18 @@ async def ultimo_numero(db: Conexion, programa: str, anio: int) -> int:
     return int(r["n"]) if r and r["n"] is not None else 0
 
 
+def numero_externo(programa: str, anio: int) -> int:
+    """La última acta del año numerada por fuera de MemorIA (programas.py,
+    `ultima_acta`); 0 si no hay."""
+    comite = comite_de(programa)
+    ultima = comite.ultima_acta if comite is not None else None
+    return ultima.numero if ultima is not None and ultima.anio == anio else 0
+
+
 async def proponer_numero(db: Conexion, programa: str, anio: int) -> int:
-    """El siguiente del programa en el año. Solo una propuesta."""
-    return await ultimo_numero(db, programa, anio) + 1
+    """El siguiente del comité en el año. Solo una propuesta."""
+    ultimo = await ultimo_numero(db, programa, anio)
+    return max(ultimo, numero_externo(programa, anio)) + 1
 
 
 async def numero_usado(db: Conexion, programa: str, anio: int, numero: int) -> bool:
@@ -102,6 +115,13 @@ async def numero_usado(db: Conexion, programa: str, anio: int, numero: int) -> b
 async def verificar_numero(
     db: Conexion, programa: Programa, numero: int, fecha_sesion: date
 ) -> None:
+    externo = numero_externo(programa.clave, fecha_sesion.year)
+    if numero <= externo:
+        raise ActaNoPermitida(
+            f"La última acta de {fecha_sesion.year} del {programa.comite} es la "
+            f"{formato_numero(externo)}, numerada por fuera de MemorIA. Use un "
+            "número mayor."
+        )
     if await numero_usado(db, programa.clave, fecha_sesion.year, numero):
         raise ActaNoPermitida(
             f"El acta {formato_numero(numero)} de {fecha_sesion.year} de "
@@ -181,14 +201,17 @@ class ActaAbierta:
 async def abierta(
     db: Conexion, *, direccion: str, clave: str, hoy: date
 ) -> ActaAbierta:
-    """El acta en curso del programa. No escribe nada."""
-    programa = PROGRAMAS.get(clave)
+    """El acta en curso del comité (`clave`: la de un programa o la del comité
+    único; en una dirección con comité único, cualquiera de sus programas
+    lleva al acta de todo el comité). No escribe nada."""
+    programa = comite_de(clave)
     if programa is None or programa.direccion != direccion:
         raise ActaNoPermitida("No conozco ese programa en su dirección.")
+    claves = programas_del_comite(programa)
     del_programa = [
         c
         for c in await repo.casos_listos(db, direccion=direccion)
-        if c.programa == clave
+        if c.programa in claves
     ]
     casos = [
         c
@@ -199,7 +222,7 @@ async def abierta(
     return ActaAbierta(
         programa=programa,
         anio=hoy.year,
-        numero_propuesto=await proponer_numero(db, clave, hoy.year),
+        numero_propuesto=await proponer_numero(db, programa.clave, hoy.year),
         casos=casos,
         pendientes=[c for c in del_programa if c.id not in entran],
     )
@@ -234,6 +257,7 @@ async def cerrar_sin_firma(
     if fecha_sesion > hoy:
         raise ActaNoPermitida("La fecha de la sesión no puede ser posterior a hoy.")
     programa = acta.programa
+    clave = programa.clave
     await verificar_numero(db, programa, numero, fecha_sesion)
 
     items = [i for c in acta.casos if (i := caso_documento(c, programa)) is not None]

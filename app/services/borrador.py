@@ -10,7 +10,14 @@ from zoneinfo import ZoneInfo
 
 from app.core.conexion import Conexion
 from app.core.config import settings
-from app.core.programas import DIRECCIONES, PROGRAMAS, Programa, integrantes
+from app.core.programas import (
+    DIRECCIONES,
+    PROGRAMAS,
+    Programa,
+    comite_de,
+    integrantes,
+    programas_del_comite,
+)
 from app.db import repo
 from app.integrations import telegram
 from app.schemas.caso import Caso
@@ -66,12 +73,14 @@ def _iniciales(nombre: str | None) -> str:
     return "".join(p[0].upper() for p in partes)[:5] or "FCEN"
 
 
-def caso_documento(caso: Caso, programa: Programa) -> CasoDocumento | None:
+def caso_documento(caso: Caso, comite: Programa) -> CasoDocumento | None:
+    """El caso para el oficio y el acta del comité. Las reglas se aplican con
+    el programa del caso (en un comité único, el comité cubre varios)."""
     if caso.extraccion is None:
         return None
     analisis = analizar(
         caso.extraccion,
-        programa,
+        PROGRAMAS.get(caso.programa or "", comite),
         periodo_inicio=settings.periodo_inicio,
         hay_imagenes=bool(caso.imagenes),
         texto_original=caso.texto,
@@ -95,22 +104,27 @@ async def armar_borradores(
     elaboro: str | None,
     solo_con_cambios: bool,
 ) -> tuple[list[Borrador], list[int]]:
-    """Un borrador por programa con casos abiertos. Devuelve también los casos
+    """Un borrador por comité con casos abiertos (por programa en pregrado; uno
+    para toda la dirección si tiene comité único). Devuelve también los casos
     que no se pudieron ubicar en un programa."""
     ahora = datetime.now(ZoneInfo(settings.timezone))
     casos = await repo.casos_listos(db, direccion=direccion)
-    por_programa: dict[str, list[Caso]] = {}
+    por_comite: dict[str, list[Caso]] = {}
     sin_programa: list[int] = []
     for caso in casos:
-        if caso.programa and caso.programa in PROGRAMAS:
-            por_programa.setdefault(caso.programa, []).append(caso)
+        comite = comite_de(caso.programa) if caso.programa in PROGRAMAS else None
+        if comite is not None:
+            por_comite.setdefault(comite.clave, []).append(caso)
         else:
             sin_programa.append(caso.id)
 
     borradores: list[Borrador] = []
-    for clave, lista in por_programa.items():
-        programa = PROGRAMAS[clave]
-        actual = await repo.firma_actual(db, direccion=direccion, programa=clave)
+    for clave, lista in por_comite.items():
+        programa = comite_de(clave)
+        assert programa is not None
+        actual = await repo.firma_actual(
+            db, direccion=direccion, programas=programas_del_comite(programa)
+        )
         if solo_con_cambios:
             previo = await repo.ultimo_borrador(db, clave)
             if (

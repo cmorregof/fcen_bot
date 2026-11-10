@@ -19,6 +19,8 @@ from app.core.config import settings
 from app.core.programas import (
     DIRECCIONES,
     PROGRAMAS,
+    Programa,
+    comite_de,
     integrantes_con_nombre,
     normalizar,
     programas_de,
@@ -489,6 +491,24 @@ async def _costo(db: Conexion, chat_id: int) -> None:
     )
 
 
+def _comites_con_recomendacion(casos: list[Caso]) -> dict[str, Programa]:
+    """Los comités con casos recomendados: uno por programa en pregrado, o el
+    comité único de la dirección (un solo botón para todos sus programas)."""
+    comites: dict[str, Programa] = {}
+    for c in casos:
+        if c.programa not in PROGRAMAS or c.sentido == Sentido.PENDIENTE:
+            continue
+        comite = comite_de(c.programa)
+        if comite is not None:
+            comites[comite.clave] = comite
+    return dict(sorted(comites.items()))
+
+
+def _rotulo(comite: Programa) -> str:
+    """Botones: el programa, o «Comité de posgrados» para el comité único."""
+    return "Comité de posgrados" if comite.es_comite_unico else comite.nombre
+
+
 async def _ofrecer_cierre(db: Conexion, chat_id: int, direccion: str) -> None:
     casos = await repo.casos_listos(db, direccion=direccion)
     con_sentido = [c for c in casos if c.sentido != Sentido.PENDIENTE and c.programa]
@@ -497,15 +517,15 @@ async def _ofrecer_cierre(db: Conexion, chat_id: int, direccion: str) -> None:
             chat_id, "No hay casos con recomendación del comité para cerrar."
         )
         return
-    programas = sorted({c.programa for c in con_sentido if c.programa})
+    comites = _comites_con_recomendacion(con_sentido)
     anio = firma.hoy_local().year
     botones = []
-    for p in programas:
+    for p, comite in comites.items():
         numero = await actas_comite.proponer_numero(db, p, anio)
         botones.append(
             [
                 {
-                    "text": f"Cerrar {PROGRAMAS[p].nombre} · acta "
+                    "text": f"Cerrar {_rotulo(comite)} · acta "
                     f"{actas_comite.formato_numero(numero)}",
                     "callback_data": f"cerrar:{p}:{numero}",
                 }
@@ -590,21 +610,15 @@ _CAMPOS_FIRMA = {
 
 async def _ofrecer_firma(db: Conexion, chat_id: int, direccion: str) -> None:
     casos_listos = await repo.casos_listos(db, direccion=direccion)
-    programas = sorted(
-        {
-            c.programa
-            for c in casos_listos
-            if c.programa in PROGRAMAS and c.sentido != Sentido.PENDIENTE
-        }
-    )
-    if not programas:
+    comites = _comites_con_recomendacion(casos_listos)
+    if not comites:
         await telegram.send_message(
             chat_id, "No hay casos con recomendación del comité para firmar."
         )
         return
     botones = [
-        [{"text": f"Firmar {PROGRAMAS[p].nombre}", "callback_data": f"fir:{p}"}]
-        for p in programas
+        [{"text": f"Firmar {_rotulo(comite)}", "callback_data": f"fir:{p}"}]
+        for p, comite in comites.items()
     ]
     await telegram.send_message(
         chat_id,
@@ -621,16 +635,26 @@ def _linea_caso_firma(caso: Caso) -> str:
         if caso.sentido == Sentido.APROBAR
         else "recomienda NO APROBAR"
     )
+    comite = comite_de(caso.programa)
+    if comite is not None and comite.es_comite_unico and caso.programa in PROGRAMAS:
+        # Varios programas en la misma acta: se dice de cuál es el caso.
+        nombre += f" ({escape(PROGRAMAS[caso.programa].nombre)})"
     return f"• #{caso.id} · {nombre} · {sentido}"
 
 
 def _texto_resumen(prep: firma.Preparacion, persona: str) -> str:
     p = prep.programa
-    lineas = [f"<b>Firma · {escape(p.nombre)}</b>"]
+    lineas = [f"<b>Firma · {escape(p.comite if p.es_comite_unico else p.nombre)}</b>"]
+    if p.es_comite_unico:
+        lineas.append(
+            "Una sola acta para "
+            + ", ".join(escape(PROGRAMAS[c].nombre) for c in p.programas)
+            + "."
+        )
     if prep.firmante:
         lineas.append(
             f"Firma: {escape(prep.firmante.nombre)}, "
-            f"{escape(prep.firmante.cargo.split(',')[0])}. "
+            f"{escape(prep.firmante.cargo_bajo_firma)}. "
             f"Firmas en su nombre: {escape(persona)}."
         )
     lineas.append(f"\nEntran {len(prep.casos)} caso(s) al oficio y al acta:")
@@ -660,7 +684,7 @@ async def _resumen_firma(
     radicado = prep.radicado_propuesto or f"Mz.FCEN.1.0__-___-{firma.hoy_local():%y}"
     await telegram.send_message(
         chat_id,
-        f"Datos para firmar · {escape(prep.programa.nombre)} ({clave})\n"
+        f"Datos para firmar · {escape(prep.programa.nombre)} ({prep.programa.clave})\n"
         "Responde a este mensaje con los datos. El radicado es una propuesta "
         "(siguiente de la dirección) y el acta también (siguiente del programa): "
         "corrígelos si la dirección ya usó esos números por fuera de MemorIA.\n\n"
@@ -764,7 +788,8 @@ async def _confirmar_firma(
             chat_id, f"No firmé: {escape(str(exc))}\nVuelve a empezar con /firmar."
         )
         return
-    programa = PROGRAMAS[hecha.programa]
+    programa = comite_de(hecha.programa)
+    assert programa is not None
     siguiente = actas_comite.formato_numero(
         await actas_comite.proponer_numero(db, hecha.programa, firma.hoy_local().year)
     )
@@ -1279,9 +1304,7 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
         await telegram.responder_callback(cq.id)
         filas = [
             [{"text": m.nombre, "callback_data": f"k:{caso.id}:{i}"}]
-            for i, m in enumerate(
-                integrantes_con_nombre(PROGRAMAS.get(caso.programa or ""))
-            )
+            for i, m in enumerate(integrantes_con_nombre(comite_de(caso.programa)))
         ]
         filas.append([{"text": "Otro miembro", "callback_data": f"k:{caso.id}:x"}])
         await telegram.send_message(
@@ -1291,7 +1314,7 @@ async def _callback(db: Conexion, cq: CallbackQuery) -> None:
         await telegram.responder_callback(cq.id)
         if cq.message:
             await telegram.editar_botones(chat_id, cq.message.message_id, None)
-        miembros = integrantes_con_nombre(PROGRAMAS.get(caso.programa or ""))
+        miembros = integrantes_con_nombre(comite_de(caso.programa))
         if partes[2].isdigit() and int(partes[2]) < len(miembros):
             nombre = miembros[int(partes[2])].nombre
             await telegram.send_message(

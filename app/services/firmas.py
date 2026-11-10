@@ -1,9 +1,11 @@
-"""Imágenes de firma de quien firma por cada programa.
+"""Imágenes de firma de quien firma por cada comité.
 
 Las firmas no van en el repositorio (es público). Viven en FIRMAS_DIR, por
 defecto <DATA_DIR>/actas/firmas en el volumen, con el nombre de la clave del
-programa: matematicas.png, ciencias_computacion.jpg… Firma el primer integrante
-del comité (app/core/programas.py). El procedimiento para cargarlas está en
+comité: la del programa en pregrado (matematicas.png,
+ciencias_computacion.jpg…) o la de la dirección si tiene comité único
+(posgrados_matematicas.jpg). Firma el primer integrante del comité
+(app/core/programas.py). El procedimiento para cargarlas está en
 docs/integrantes-y-firmas.md.
 
 Uso, dentro del servicio de actas:
@@ -21,7 +23,7 @@ import sys
 from pathlib import Path
 
 from app.core.config import settings
-from app.core.programas import PROGRAMAS
+from app.core.programas import COMITES, PROGRAMAS
 
 _FIRMAS: dict[bytes, str] = {
     b"\x89PNG\r\n\x1a\n": ".png",
@@ -53,8 +55,8 @@ def extension_de(datos: bytes) -> str:
 
 def guardar_firma(clave: str, datos: bytes, directorio: Path | None = None) -> Path:
     """Guarda la firma del programa y borra la anterior, si tenía otra extensión."""
-    if clave not in PROGRAMAS:
-        raise ValueError(f"No conozco el programa «{clave}».")
+    if clave not in PROGRAMAS and clave not in COMITES:
+        raise ValueError(f"No conozco el programa ni el comité «{clave}».")
     extension = extension_de(datos)
     carpeta = directorio or settings.firmas_dir
     carpeta.mkdir(parents=True, exist_ok=True)
@@ -66,9 +68,9 @@ def guardar_firma(clave: str, datos: bytes, directorio: Path | None = None) -> P
 
 
 def estado(directorio: Path | None = None) -> list[str]:
-    """Una línea por programa con comité: quién firma y si su firma está."""
+    """Una línea por comité: quién firma y si su firma está."""
     lineas = []
-    for programa in PROGRAMAS.values():
+    for programa in (*PROGRAMAS.values(), *COMITES.values()):
         if not programa.miembros:
             continue
         firmante = programa.miembros[0].nombre

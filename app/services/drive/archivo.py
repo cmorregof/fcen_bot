@@ -30,7 +30,7 @@ from openpyxl import load_workbook
 
 from app.core import indice_electronico as indice
 from app.core.config import settings
-from app.core.programas import DIRECCIONES, PROGRAMAS
+from app.core.programas import DIRECCIONES, PROGRAMAS, Programa, comite_de
 from app.services.drive import cliente as drive
 
 TipoDocumento = Literal["acta", "oficio", "resolucion"]
@@ -93,7 +93,8 @@ class Documento:
     tipo: TipoDocumento
     numero: str
     fecha: date
-    programa: str  # clave de PROGRAMAS
+    # Clave de PROGRAMAS, o la de un comité único (COMITES) para sus actas.
+    programa: str
     contenido: bytes
     archivado_por: str
 
@@ -119,13 +120,32 @@ def nombre_indice(tipo: TipoDocumento, ano: int) -> str:
     return f"Índice {CARPETA_TIPO[tipo]} {ano}.xlsx"
 
 
+def _programa(doc: Documento) -> Programa:
+    """El acta va con su comité (en un comité único, el de toda la dirección);
+    el oficio o la resolución de un caso, con el programa del caso."""
+    programa = (
+        comite_de(doc.programa)
+        if doc.tipo == "acta"
+        else PROGRAMAS.get(doc.programa) or comite_de(doc.programa)
+    )
+    if programa is None:
+        raise DocumentoNoValido("Programa desconocido.")
+    return programa
+
+
+def _carpeta(programa: Programa) -> str:
+    """La carpeta del programa; en un comité único, la del comité (sus actas
+    son de toda la dirección)."""
+    return programa.comite if programa.es_comite_unico else programa.nombre
+
+
 def ruta(doc: Documento) -> list[str]:
-    programa = PROGRAMAS[doc.programa]
+    programa = _programa(doc)
     return [
         CARPETA_TIPO[doc.tipo],
         str(doc.fecha.year),
         nombre_area(programa.direccion),
-        programa.nombre,
+        _carpeta(programa),
     ]
 
 
@@ -137,7 +157,7 @@ def ruta_indice(doc: Documento) -> list[str]:
 def expediente(doc: Documento) -> indice.Expediente:
     """Encabezado del índice. Serie y subserie de actas: por confirmar."""
     if doc.tipo == "acta":
-        direccion = DIRECCIONES[PROGRAMAS[doc.programa].direccion].nombre
+        direccion = DIRECCIONES[_programa(doc).direccion].nombre
         return indice.Expediente(
             oficina_productora=f"Dirección del {direccion}",
             serie=settings.drive_actas_serie,
@@ -156,7 +176,7 @@ def expediente(doc: Documento) -> indice.Expediente:
 
 def validar(doc: Documento) -> int:
     """Solo PDF y sin las marcas de borrador de MemorIA. Devuelve las páginas."""
-    if doc.programa not in PROGRAMAS:
+    if comite_de(doc.programa) is None:
         raise DocumentoNoValido("Programa desconocido.")
     if not doc.numero.strip():
         raise DocumentoNoValido("Falta el número o radicado del documento.")
@@ -240,7 +260,7 @@ def _iso_a_dmy(texto: str) -> str:
 
 
 def fila_indice(doc: Documento, archivo: str, paginas: int, hoy: date) -> indice.Fila:
-    programa = PROGRAMAS[doc.programa]
+    programa = _programa(doc)
     return indice.Fila(
         nombre=archivo.removesuffix(".pdf"),
         fecha_creacion=_dmy(doc.fecha),
@@ -249,7 +269,7 @@ def fila_indice(doc: Documento, archivo: str, paginas: int, hoy: date) -> indice
         formato="pdf",
         tamano=indice.tamano_kb(len(doc.contenido)),
         observaciones=(
-            f"{ETIQUETA_TIPO[doc.tipo]} {doc.numero.strip()} · {programa.nombre} · "
+            f"{ETIQUETA_TIPO[doc.tipo]} {doc.numero.strip()} · {_carpeta(programa)} · "
             f"archivó {doc.archivado_por}"
         ),
     )

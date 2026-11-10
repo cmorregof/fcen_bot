@@ -32,7 +32,7 @@ from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
 from app.core import solicitudes
-from app.core.programas import Miembro, Programa, normalizar
+from app.core.programas import PROGRAMAS, Miembro, Programa, normalizar
 from app.normativa.base import NormaCitada, normas_para
 from app.schemas.caso import (
     TITULOS_TIPO,
@@ -695,10 +695,24 @@ def _conceptos(doc: DocumentoDocx, conceptos: list[Concepto], borrador: bool) ->
     _vacio(doc, "FCEN Cuerpo")
 
 
+def programa_del_caso(datos: DatosOficio, item: CasoDocumento) -> str | None:
+    """En un comité único, el nombre del programa del estudiante: el oficio y
+    el acta tratan casos de varios programas. En pregrado, None."""
+    if not datos.programa.es_comite_unico:
+        return None
+    programa = PROGRAMAS.get(item.caso.programa or "")
+    return programa.nombre if programa else None
+
+
 def _solicitud(
-    doc: DocumentoDocx, item: CasoDocumento, numero: str | None, estilo: str
+    doc: DocumentoDocx,
+    item: CasoDocumento,
+    numero: str | None,
+    estilo: str,
+    programa: str | None = None,
 ) -> None:
-    """«NOMBRE identificado con DNI No. … solicita …, justificando que “…”»."""
+    """«NOMBRE identificado con DNI No. … solicita …, justificando que “…”».
+    Con `programa` (comité único): «…, estudiante de <programa>, …»."""
     e = item.extraccion
     identificado = (
         "identificado" if e.tratamiento == "El estudiante" else "identificada"
@@ -712,6 +726,9 @@ def _solicitud(
     _r(p, f"{prefijo}{(e.nombre_estudiante or '____').upper()}", negrita=True)
     _r(p, f" {identificado} con ")
     _r(p, f"DNI No. {e.documento or '____'}", negrita=True)
+    if programa:
+        articulo = "del" if programa.startswith("Doctorado") else "de la"
+        _r(p, f", estudiante {articulo} {programa},")
     _r(
         p,
         f" mediante {'formato de solicitud' if item.medio == 'formato' else 'correo'}"
@@ -872,7 +889,7 @@ def _caso(
     if acta:
         # El acta narra la sesión: solicitud, análisis, conceptos y, como
         # resultado de la deliberación, la recomendación.
-        _solicitud(doc, item, numero, "FCEN Caso")
+        _solicitud(doc, item, numero, "FCEN Caso", programa_del_caso(datos, item))
         _analisis(doc, item, periodo, acta=True)
         _vacio(doc, "FCEN Cuerpo")
         _conceptos(doc, item.caso.conceptos, datos.borrador)
@@ -882,7 +899,7 @@ def _caso(
         # Facultad, 28-oct-2026); después, la solicitud y el análisis.
         _recomendacion(doc, datos, item, numero, "FCEN Caso")
         _nota_destinatario(doc, item)
-        _solicitud(doc, item, None, "FCEN Cuerpo")
+        _solicitud(doc, item, None, "FCEN Cuerpo", programa_del_caso(datos, item))
         _analisis(doc, item, periodo)
 
     _normas(
@@ -929,7 +946,7 @@ def _bloque_firma(doc: DocumentoDocx, datos: DatosOficio) -> None:
         firmante.nombre.upper() if firmante else "NOMBRE DEL FIRMANTE",
         negrita=True,
     )
-    _p(doc, "FCEN Firma", firmante.cargo.split(",")[0] if firmante else "Cargo")
+    _p(doc, "FCEN Firma", firmante.cargo_bajo_firma if firmante else "Cargo")
     if datos.programa.correo:
         p = _p(doc, "FCEN Firma")
         r = _r(p, datos.programa.correo, subrayado=True)
@@ -1010,25 +1027,36 @@ def _encabezado_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
         r.font.color.rgb = RGBColor(0xB0, 0x00, 0x20)
         _vacio(doc)
 
-    for linea in (
-        "UNIVERSIDAD NACIONAL DE COLOMBIA",
-        "SEDE MANIZALES",
-        "FACULTAD DE CIENCIAS EXACTAS Y NATURALES",
-        f"COMITÉ ASESOR PROGRAMA CURRICULAR {datos.programa.nombre.upper()}",
-        "PREGRADO",
-    ):
+    unico = datos.programa.es_comite_unico
+    if unico:
+        # Como el encabezado del acta 029 del comité de posgrados.
+        lineas: tuple[str, ...] = (
+            "UNIVERSIDAD NACIONAL DE COLOMBIA",
+            "SEDE MANIZALES",
+            datos.programa.comite.upper(),
+        )
+    else:
+        lineas = (
+            "UNIVERSIDAD NACIONAL DE COLOMBIA",
+            "SEDE MANIZALES",
+            "FACULTAD DE CIENCIAS EXACTAS Y NATURALES",
+            f"COMITÉ ASESOR PROGRAMA CURRICULAR {datos.programa.nombre.upper()}",
+            "PREGRADO",
+        )
+    for linea in lineas:
         _p(
             doc, "FCEN Destinatario", linea, negrita=True
         ).alignment = WD_ALIGN_PARAGRAPH.CENTER
     _vacio(doc)
     p = _p(doc, "FCEN Destinatario")
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _r(p, "ACTA ", negrita=True)
+    _r(p, "ACTA-" if unico else "ACTA ", negrita=True)
     if datos.numero_acta:
         _r(p, datos.numero_acta, negrita=True)
     else:
         _marcador(p, "[No.]")
-    _r(p, f" DE {datos.fecha.year}", negrita=True)
+    if not unico:
+        _r(p, f" DE {datos.fecha.year}", negrita=True)
     _vacio(doc, "FCEN Texto")
 
     _linea_dato(
@@ -1042,7 +1070,20 @@ def _encabezado_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
     _vacio(doc, "FCEN Texto")
 
     _p(doc, "FCEN Texto", "ASISTENTES:", negrita=True)
-    if datos.miembros:
+    if datos.miembros and unico:
+        # «Profesor NOMBRE, en calidad de cargo;», como en el acta 029.
+        for i, m in enumerate(datos.miembros, start=1):
+            p = _p(doc, "FCEN Vineta", "•\t")
+            titulo = m.tratamiento.removeprefix("El ").removeprefix("La ")
+            if titulo:
+                _r(p, f"{titulo.capitalize()} ")
+            if m.nombre:
+                _r(p, m.nombre.upper())
+            else:
+                _marcador(p, "[nombre]")
+            fin = "." if i == len(datos.miembros) else ";"
+            _r(p, f", en calidad de {m.cargo}{fin}")
+    elif datos.miembros:
         for m in datos.miembros:
             p = _p(doc, "FCEN Vineta", "•\t")
             if m.nombre:
@@ -1067,7 +1108,9 @@ def _encabezado_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
         for item in items:
             numero += 1
             nombre = (item.extraccion.nombre_estudiante or "____").title()
-            _p(doc, "FCEN Caso", f"2.{numero} {nombre}")
+            del_programa = programa_del_caso(datos, item)
+            sufijo = f" ({del_programa})" if del_programa else ""
+            _p(doc, "FCEN Caso", f"2.{numero} {nombre}{sufijo}")
     _p(doc, "FCEN Vineta", "3.\tVarios")
     _vacio(doc, "FCEN Texto")
 

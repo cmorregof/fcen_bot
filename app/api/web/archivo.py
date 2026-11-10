@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from app.api.web import auth
 from app.api.web.auth import Db, Usuario
 from app.core.config import settings
-from app.core.programas import DIRECCIONES, PROGRAMAS
+from app.core.programas import DIRECCIONES, PROGRAMAS, comite_de, comites_de
 from app.db import repo
 from app.services import flujo
 from app.services.drive import archivo
@@ -33,13 +33,16 @@ _Cualquiera = Annotated[
 @router.get("/archivo")
 async def estado(usuario: _Cualquiera) -> dict[str, object]:
     """La web muestra los botones de archivar solo si Drive está configurado.
-    Al área le dice además a qué programas puede archivar actas."""
+    Al área le dice además de qué comités puede archivar actas: uno por
+    programa, o el comité único de su dirección."""
     return {
         "activo": drive.configurado(),
         "programas": [
-            {"clave": p.clave, "nombre": p.nombre}
-            for p in PROGRAMAS.values()
-            if p.direccion == usuario.direccion
+            {
+                "clave": p.clave,
+                "nombre": p.comite if p.es_comite_unico else p.nombre,
+            }
+            for p in comites_de(usuario.direccion or "")
         ],
     }
 
@@ -74,17 +77,19 @@ async def acta_firmada(
     fecha: Annotated[date, Form()],
     pdf: Annotated[UploadFile, File()],
 ) -> dict[str, object]:
-    """El acta del comité, ya firmada, de un programa del área de la persona."""
+    """El acta del comité, ya firmada, de un comité del área de la persona (en
+    una dirección con comité único, la del comité de toda la dirección)."""
     if usuario.direccion not in DIRECCIONES:
         raise HTTPException(403, "Su usuario no tiene área curricular asignada.")
-    if programa not in PROGRAMAS or PROGRAMAS[programa].direccion != usuario.direccion:
+    comite = comite_de(programa)
+    if comite is None or comite.direccion != usuario.direccion:
         raise HTTPException(404, "Ese programa no es de su área.")
     return await _archivar(
         archivo.Documento(
             tipo="acta",
             numero=numero,
             fecha=fecha,
-            programa=programa,
+            programa=comite.clave,
             contenido=await _leer(pdf),
             archivado_por=usuario.correo,
         )

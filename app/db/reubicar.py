@@ -1,4 +1,5 @@
-"""Pasa a la Dirección de Posgrados de Matemáticas lo que quedó en la del área.
+"""Pasa al Área Curricular de Posgrados de Ciencias Exactas (clave
+`posgrados_matematicas`) lo que quedó en la del área.
 
 Hasta noviembre de 2026 los posgrados de matemáticas colgaban del Área
 Curricular de Matemáticas y Estadística, así que la administrativa de pregrado
