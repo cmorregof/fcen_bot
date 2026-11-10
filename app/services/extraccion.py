@@ -13,7 +13,12 @@ from PIL import Image as PILImage
 
 from app.core.conexion import Conexion
 from app.core.config import settings
-from app.core.programas import DIRECCIONES, Programa, identificar_programa
+from app.core.programas import (
+    DIRECCIONES,
+    Programa,
+    identificar_programa,
+    programa_unico,
+)
 from app.db import repo
 from app.integrations.claude import (
     ClaudeEstructurador,
@@ -187,11 +192,13 @@ async def corregir_caso(db: Conexion, caso: Caso, correccion: str) -> SalidaExtr
 
 
 def _programa_de(extraccion: ExtraccionCaso, direccion: str) -> Programa | None:
-    """Solo se acepta un programa de la dirección de quien pega el caso."""
+    """Solo se acepta un programa de la dirección de quien pega el caso.
+
+    Si la dirección tiene un solo programa, es ese: no se pregunta."""
     sia = extraccion.sia
     programa = identificar_programa(
         sia.plan_codigo if sia else None, sia.plan_nombre if sia else None
     )
     if programa and programa.direccion == direccion:
         return programa
-    return None
+    return programa_unico(direccion)

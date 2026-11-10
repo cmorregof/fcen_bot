@@ -72,6 +72,12 @@ DIRECCIONES: dict[str, Direccion] = {
     "matematicas": Direccion(
         "matematicas", "Área Curricular de Matemáticas y Estadística"
     ),
+    # Los posgrados de matemáticas tienen su propia dirección y su propia
+    # administrativa (posmate_man): no ven los pregrados del área ni al revés.
+    # El nombre oficial está pendiente de confirmar.
+    "posgrados_matematicas": Direccion(
+        "posgrados_matematicas", "Dirección de Posgrados de Matemáticas"
+    ),
 }
 
 PROGRAMAS: dict[str, Programa] = {
@@ -147,8 +153,9 @@ PROGRAMAS: dict[str, Programa] = {
                 Miembro("David Angulo García", "Representante Profesoral"),
             ),
         ),
-        # Posgrados. Los integrantes del comité, el correo y el prefijo del
-        # radicado se agregan cuando los confirme cada programa.
+        # Posgrados. Los integrantes del comité, el correo, la extensión, el
+        # código del plan y el prefijo del radicado se agregan cuando los
+        # confirme cada programa. No se inventan.
         Programa(
             clave="mcf",
             nombre="Maestría en Ciencias - Física",
@@ -159,7 +166,7 @@ PROGRAMAS: dict[str, Programa] = {
         Programa(
             clave="mcma",
             nombre="Maestría en Ciencias - Matemática Aplicada",
-            direccion="matematicas",
+            direccion="posgrados_matematicas",
             nivel="posgrado",
             alias=(
                 "maestria en ciencias - matematica aplicada",
@@ -169,11 +176,35 @@ PROGRAMAS: dict[str, Programa] = {
         Programa(
             clave="mecen",
             nombre="Maestría en Enseñanza de las Ciencias Exactas y Naturales",
-            direccion="matematicas",
+            direccion="posgrados_matematicas",
             nivel="posgrado",
             alias=(
                 "maestria en ensenanza de las ciencias exactas y naturales",
                 "mecen",
+            ),
+        ),
+        Programa(
+            clave="esp_actuaria",
+            nombre="Especialización en Actuaría",
+            direccion="posgrados_matematicas",
+            nivel="posgrado",
+            alias=("especializacion en actuaria",),
+        ),
+        Programa(
+            clave="esp_estadistica",
+            nombre="Especialización en Estadística",
+            direccion="posgrados_matematicas",
+            nivel="posgrado",
+            alias=("especializacion en estadistica",),
+        ),
+        Programa(
+            clave="dcm",
+            nombre="Doctorado en Ciencias - Matemáticas",
+            direccion="posgrados_matematicas",
+            nivel="posgrado",
+            alias=(
+                "doctorado en ciencias - matematicas",
+                "doctorado en ciencias matematicas",
             ),
         ),
         Programa(
@@ -231,7 +262,11 @@ def programas_de(direccion: str) -> list[Programa]:
 def identificar_programa(
     plan_codigo: str | None, plan_nombre: str | None
 ) -> Programa | None:
-    """Código del plan primero; si no se conoce, el nombre del plan."""
+    """Código del plan primero; si no se conoce, el nombre del plan.
+
+    Gana el alias más largo que aparezca en el nombre: «Doctorado en Ciencias -
+    Matemáticas» contiene «matematicas», pero es el doctorado, no el pregrado.
+    """
     if plan_codigo:
         codigo = plan_codigo.strip()
         for programa in PROGRAMAS.values():
@@ -239,7 +274,17 @@ def identificar_programa(
                 return programa
     if plan_nombre:
         nombre = normalizar(plan_nombre)
+        mejor: Programa | None = None
+        largo = 0
         for programa in PROGRAMAS.values():
-            if any(alias == nombre or alias in nombre for alias in programa.alias):
-                return programa
+            for alias in programa.alias:
+                if (alias == nombre or alias in nombre) and len(alias) > largo:
+                    mejor, largo = programa, len(alias)
+        return mejor
     return None
+
+
+def programa_unico(direccion: str) -> Programa | None:
+    """Si la dirección tiene un solo programa, no hay que preguntar cuál."""
+    lista = programas_de(direccion)
+    return lista[0] if len(lista) == 1 else None

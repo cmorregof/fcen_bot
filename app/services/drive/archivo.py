@@ -94,7 +94,10 @@ class Documento:
 
 
 def nombre_area(direccion: str) -> str:
-    return DIRECCIONES[direccion].nombre.removeprefix("Área Curricular de ").strip()
+    nombre = DIRECCIONES[direccion].nombre
+    return (
+        nombre.removeprefix("Área Curricular de ").removeprefix("Dirección de ").strip()
+    )
 
 
 def _seguro(texto: str) -> str:

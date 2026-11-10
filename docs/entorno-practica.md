@@ -74,7 +74,7 @@ El ingreso es el mismo (Google @unal.edu.co) y los roles son los mismos, pero en
 2. En cada servicio que vayan a usar, «Autorizar un correo»: correo, rol (la administrativa de área, el comité, etc.) y el área curricular. Quien practique la sesión de actas necesita el rol `administrativa` y un área; quien practique calidad, `calidad`; admisión, `admision`.
 3. Al terminar la capacitación, «Retirar acceso» a cada correo (o déjalos para la siguiente).
 
-Los correos autorizados **se conservan** al reiniciar la práctica. Para una lista larga hay un CSV (`correo,nombre,rol,direccion`; el área es `ciencias_naturales` o `matematicas` para administrativa y comité). Guárdalo fuera del repositorio: son personas reales.
+Los correos autorizados **se conservan** al reiniciar la práctica. Para una lista larga hay un CSV (`correo,nombre,rol,direccion`; el área es `ciencias_naturales`, `matematicas` o `posgrados_matematicas` para administrativa y comité). Guárdalo fuera del repositorio: son personas reales.
 
 ```bash
 MEMORIA_PRACTICA=true BOT_SERVICIO=actas DATA_DIR=data/ensayo \

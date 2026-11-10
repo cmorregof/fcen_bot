@@ -74,8 +74,8 @@ def _oficio(e, clave="mcf") -> Document:
 def test_posgrados_por_area() -> None:
     assert PROGRAMAS["mcf"].nivel == "posgrado"
     assert PROGRAMAS["mcf"] in programas_de("ciencias_naturales")
-    assert PROGRAMAS["mcma"] in programas_de("matematicas")
-    assert PROGRAMAS["mecen"] in programas_de("matematicas")
+    assert PROGRAMAS["mcma"] in programas_de("posgrados_matematicas")
+    assert PROGRAMAS["mecen"] in programas_de("posgrados_matematicas")
     assert PROGRAMAS["matematicas"].nivel == "pregrado"
 
 

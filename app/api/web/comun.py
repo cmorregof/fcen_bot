@@ -137,6 +137,12 @@ async def guardar_usuario(cuerpo: NuevoUsuario, _: _Admin, db: Db) -> dict[str, 
         " direccion=excluded.direccion, activo=1",
         (correo, cuerpo.nombre, cuerpo.rol, cuerpo.direccion),
     )
+    if settings.bot_servicio == "actas":
+        # Si la persona pasó a los posgrados de matemáticas, sus casos van con
+        # ella (app/db/reubicar.py).
+        from app.db.reubicar import reubicar_posgrados
+
+        await reubicar_posgrados(db)
     await db.commit()
     return {"ok": True}
 
