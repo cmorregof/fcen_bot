@@ -1,0 +1,8 @@
+{
+  "name": "memoria-railway-iac",
+  "private": true,
+  "description": "SDK de Railway para evaluar .railway/railway.ts con `railway config plan`. No lo usa la aplicación.",
+  "devDependencies": {
+    "railway": "3.16.0"
+  }
+}

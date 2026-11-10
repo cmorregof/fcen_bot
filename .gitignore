@@ -15,3 +15,6 @@ fonts/*.otf
 
 # Torre de control: honorarios y datos internos; el repo es público
 docs/torre-de-control.md
+
+# SDK de Railway para .railway/railway.ts
+.railway/node_modules/
