@@ -34,6 +34,7 @@ from app.schemas.consejo import (
     Instancia,
 )
 from app.services import (
+    actas_comite,
     borrador,
     casos,
     consejo,
@@ -506,11 +507,17 @@ async def documentos(usuario: _Firma, db: Db) -> dict[str, object]:
     """Programas con casos listos para el borrador de oficio y acta."""
     listos = await repo.casos_listos(db, direccion=_direccion(usuario))
     programas = sorted({c.programa for c in listos if c.programa in PROGRAMAS})
+    anio = firma.hoy_local().year
     return {
         "programas": [
             {
                 "clave": p,
                 "nombre": PROGRAMAS[p].nombre,
+                # El acta en curso: el número es una propuesta (último + 1).
+                "acta_propuesta": actas_comite.formato_numero(
+                    await actas_comite.proponer_numero(db, p, anio)
+                ),
+                "anio": anio,
                 "casos": sum(1 for c in listos if c.programa == p),
                 "con_recomendacion": sum(
                     1
@@ -621,6 +628,7 @@ async def preparar_firma(programa: str, usuario: _Firma, db: Db) -> dict[str, ob
         "firma_en_nombre": _persona(usuario),
         "tiene_imagen": prep.tiene_imagen,
         "radicado_propuesto": prep.radicado_propuesto,
+        "numero_acta_propuesto": prep.numero_acta_propuesto,
         "casos": [
             {
                 "id": c.id,
@@ -670,7 +678,12 @@ async def firmar(
         )
     except (firma.FirmaNoPermitida, flujo.TransicionNoPermitida) as exc:
         raise HTTPException(409, str(exc)) from None
-    return _firma_json(hecha)
+    anio = firma.hoy_local().year
+    siguiente = await actas_comite.proponer_numero(db, programa, anio)
+    return {
+        **_firma_json(hecha),
+        "acta_siguiente": actas_comite.formato_numero(siguiente),
+    }
 
 
 @router.get("/firmas")
@@ -703,6 +716,159 @@ async def descargar_firmado(
         contenido,
         media_type=_MIME[formato],
         headers={"Content-Disposition": f'attachment; filename="{archivo.ruta.name}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Actas del comité por programa (app/services/actas_comite.py)
+# ---------------------------------------------------------------------------
+
+
+def _acta_comite_json(a: actas_comite.ActaComite) -> dict[str, object]:
+    programa = PROGRAMAS.get(a.programa)
+    archivos: list[dict[str, str]] = []
+    if a.docx_ruta is not None:
+        archivos.append(
+            {
+                "documento": "acta",
+                "formato": "docx",
+                "nombre": a.docx_ruta.name,
+                "ruta": f"/actas/actas-comite/{a.id}/docx",
+            }
+        )
+    return {
+        "id": a.id,
+        "programa": a.programa,
+        "programa_nombre": programa.nombre if programa else a.programa,
+        "anio": a.anio,
+        "numero": a.numero_texto,
+        "fecha_sesion": a.fecha_sesion,
+        "estado": a.estado,
+        "firma_id": a.firma_id,
+        "cerrada_por": a.cerrada_por,
+        "cerrada": a.cerrada,
+        "caso_ids": a.caso_ids,
+        "archivos": archivos,
+    }
+
+
+@router.get("/actas-comite")
+async def actas_del_comite(usuario: _Firma, db: Db) -> dict[str, object]:
+    """Actas cerradas de la dirección, por programa. Las firmadas se descargan
+    con /firmas/{firma_id}/..., las cerradas sin firma, con su Word."""
+    direccion = _direccion(usuario)
+    firmas_por_id = {f.id: f for f in await firma.de_la_direccion(db, direccion, 500)}
+    salida = []
+    for a in await actas_comite.de_la_direccion(db, direccion):
+        fila = _acta_comite_json(a)
+        hecha = firmas_por_id.get(a.firma_id) if a.firma_id else None
+        if hecha is not None:
+            fila["radicado"] = hecha.radicado
+            fila["archivos"] = [
+                {
+                    "documento": x.documento,
+                    "formato": x.formato,
+                    "nombre": x.ruta.name,
+                    "ruta": f"/actas/firmas/{hecha.id}/{x.documento}/{x.formato}",
+                }
+                for x in hecha.archivos
+            ]
+        salida.append(fila)
+    return {"actas": salida}
+
+
+@router.get("/actas-comite/{programa}/abierta")
+async def acta_abierta(programa: str, usuario: _Firma, db: Db) -> dict[str, object]:
+    """El acta en curso del programa, para cerrarla sin firma. No escribe."""
+    try:
+        acta = await actas_comite.abierta(
+            db,
+            direccion=_direccion(usuario),
+            clave=programa,
+            hoy=firma.hoy_local(),
+        )
+    except actas_comite.ActaNoPermitida as exc:
+        raise HTTPException(404, str(exc)) from None
+    return {
+        "programa": acta.programa.clave,
+        "programa_nombre": acta.programa.nombre,
+        "anio": acta.anio,
+        "numero_propuesto": actas_comite.formato_numero(acta.numero_propuesto),
+        "casos": [
+            {
+                "id": c.id,
+                "estudiante": c.extraccion.nombre_estudiante if c.extraccion else None,
+                "sentido_texto": ETIQUETA_SENTIDO[c.sentido],
+            }
+            for c in acta.casos
+        ],
+        "caso_ids": acta.caso_ids,
+        "pendientes": [c.id for c in acta.pendientes],
+    }
+
+
+class PedidoCierre(BaseModel):
+    numero: str
+    fecha_sesion: str
+    # Los casos que la persona vio: si cambiaron, no se cierra.
+    caso_ids: list[int]
+    confirmo: bool = False
+
+
+@router.post("/actas-comite/{programa}/cerrar")
+async def cerrar_acta(
+    programa: str, cuerpo: PedidoCierre, usuario: _Firma, db: Db
+) -> dict[str, object]:
+    """Cierra el acta en curso sin firma en MemorIA (se firmó por fuera): los
+    casos pasan al Consejo y los nuevos entran a la siguiente."""
+    if not cuerpo.confirmo:
+        raise HTTPException(400, "Falta confirmar el cierre.")
+    try:
+        numero = actas_comite.leer_numero(cuerpo.numero)
+        fecha = firma.leer_fecha(cuerpo.fecha_sesion)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    hoy = firma.hoy_local()
+    try:
+        cerrada = await actas_comite.cerrar_sin_firma(
+            db,
+            direccion=_direccion(usuario),
+            clave=programa,
+            numero=numero,
+            fecha_sesion=fecha,
+            caso_ids=cuerpo.caso_ids,
+            persona=_persona(usuario),
+            rol=usuario.rol,
+            canal="web",
+            hoy=hoy,
+        )
+    except (actas_comite.ActaNoPermitida, flujo.TransicionNoPermitida) as exc:
+        raise HTTPException(409, str(exc)) from None
+    siguiente = await actas_comite.proponer_numero(db, programa, hoy.year)
+    return {
+        **_acta_comite_json(cerrada),
+        "acta_siguiente": actas_comite.formato_numero(siguiente),
+    }
+
+
+@router.get("/actas-comite/{acta_id}/docx")
+async def descargar_acta_comite(acta_id: int, usuario: _Firma, db: Db) -> Response:
+    acta = await actas_comite.obtener(db, acta_id)
+    if acta is None or acta.direccion != _direccion(usuario):
+        raise HTTPException(404, "No encontré esa acta en su dirección.")
+    try:
+        contenido = actas_comite.leer_docx(acta)
+    except FileNotFoundError:
+        raise HTTPException(404, "El Word de esa acta no está guardado.") from None
+    except actas_comite.ActaNoPermitida as exc:
+        raise HTTPException(409, str(exc)) from None
+    assert acta.docx_ruta is not None
+    return Response(
+        contenido,
+        media_type=_MIME["docx"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{acta.docx_ruta.name}"'
+        },
     )
 
 
