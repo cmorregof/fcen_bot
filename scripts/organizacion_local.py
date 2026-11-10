@@ -12,6 +12,9 @@ Uso:
     uv run python scripts/organizacion_local.py --salida "$FUERA_DEL_REPO" \\
         Ing_Fisica.zip "Soportes de acciones-20261110T1-1-001.zip" …
 
+Si el zip trae el nombre genérico de la carpeta de Drive, `--programa "Ingeniería
+Física"` pone ese nombre a la carpeta de resultados.
+
 La salida debe quedar FUERA del repositorio: trae nombres de documentos reales.
 """
 
@@ -45,10 +48,13 @@ MAX_BYTES = 4_000_000_000
 MAX_ARCHIVOS = 20_000
 
 
-def agrupar(zips: list[Path]) -> dict[str, list[Path]]:
+def agrupar(zips: list[Path], programa: str | None = None) -> dict[str, list[Path]]:
+    """Agrupa las partes de una misma descarga. Con `programa`, todos los zips
+    son de ese programa (la descarga de Drive de una carpeta genérica llama al
+    zip «Soportes de acciones-…», sin el nombre del programa)."""
     grupos: dict[str, list[Path]] = {}
     for z in sorted(zips):
-        grupos.setdefault(grupo_de_parte(z.name), []).append(z)
+        grupos.setdefault(programa or grupo_de_parte(z.name), []).append(z)
     return grupos
 
 
@@ -56,12 +62,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("zips", nargs="+", type=Path)
     parser.add_argument("--salida", type=Path, required=True)
+    parser.add_argument(
+        "--programa",
+        help="nombre del programa para la carpeta de resultados (junta todos los zips)",
+    )
     args = parser.parse_args()
+    if args.programa and Path(args.programa).name != args.programa:
+        print("--programa debe ser un nombre, no una ruta.", file=sys.stderr)
+        return 2
     salida = args.salida.resolve()
     if salida.is_relative_to(RAIZ):
         print("La salida debe quedar fuera del repositorio.", file=sys.stderr)
         return 2
-    for programa, partes in agrupar(args.zips).items():
+    for programa, partes in agrupar(args.zips, args.programa).items():
         with tempfile.TemporaryDirectory() as tmp:
             destino = Path(tmp) / "soportes"
             try:

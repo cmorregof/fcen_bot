@@ -216,3 +216,20 @@ def test_exportados_de_google_y_formatos_en_el_indice(tmp_path: Path) -> None:
     # Sin fecha en los metadatos: la celda queda en amarillo.
     fila = next(n for n in range(13, 18) if ws[f"B{n}"].value.startswith("01 Hoja"))
     assert ws[f"C{fila}"].fill.fgColor.rgb.endswith("FFFF00")
+
+
+def test_programa_explicito_en_el_script_local(tmp_path: Path) -> None:
+    import importlib.util
+
+    ruta = Path(__file__).resolve().parents[2] / "scripts" / "organizacion_local.py"
+    spec = importlib.util.spec_from_file_location("organizacion_local", ruta)
+    assert spec and spec.loader
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    zips = [
+        tmp_path / "Soportes de acciones-20260101T000000Z-1-001.zip",
+        tmp_path / "Soportes de acciones-20260101T000000Z-2-001.zip",
+    ]
+    assert list(modulo.agrupar(zips)) == ["Soportes de acciones-20260101T000000Z"]
+    assert list(modulo.agrupar(zips, "Programa Ficticio")) == ["Programa Ficticio"]
+    assert len(modulo.agrupar(zips, "Programa Ficticio")["Programa Ficticio"]) == 2
