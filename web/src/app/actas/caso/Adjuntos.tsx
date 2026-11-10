@@ -32,7 +32,6 @@ function tamano(bytes: number | null) {
 export function Adjuntos<T extends Respuesta>({
   casoId,
   adjuntos,
-  tipos,
   leido,
   editable,
   token,
@@ -40,7 +39,6 @@ export function Adjuntos<T extends Respuesta>({
 }: {
   casoId: number;
   adjuntos: Adjunto[];
-  tipos: string;
   // El caso ya se leyó con el modelo.
   leido: boolean;
   // Administrativa del área: agrega, clasifica y quita.
@@ -80,7 +78,7 @@ export function Adjuntos<T extends Respuesta>({
       setArchivos(null);
       setEntrada((n) => n + 1);
       return d;
-    }, "Adjuntos agregados.", true);
+    }, "Agregados.", true);
   };
 
   const borrar = (a: Adjunto) =>
@@ -88,7 +86,7 @@ export function Adjuntos<T extends Respuesta>({
       const d = await llamar<T & { borrado_leido?: boolean }>("actas", `${base}/archivos/${a.id}`, { token, metodo: "DELETE" });
       setConfirmar(null);
       return d;
-    }, `Se quitó «${a.nombre}» y se borró del almacenamiento.`, true);
+    }, `Se borró «${a.nombre}».`, true);
 
   const clasificar = (a: Adjunto, es_formato: boolean) =>
     ejecutar(() => llamar<T>("actas", `${base}/archivos/${a.id}/clasificar`, { token, json: { es_formato } }), "Listo.", es_formato);
@@ -105,12 +103,9 @@ export function Adjuntos<T extends Respuesta>({
 
   return (
     <>
-      <h2>Adjuntos del caso</h2>
+      <h2>Adjuntos</h2>
       <p>
-        <small>
-          Los pantallazos y el formato de solicitud se leen para armar la ficha. Los demás anexos se guardan con el caso; a la lectura solo
-          llega su nombre.
-        </small>
+        <small>Se leen los pantallazos y el formato. Los anexos solo se guardan.</small>
       </p>
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
       {aviso ? <Mensaje tipo="info">{aviso}</Mensaje> : null}
@@ -119,11 +114,11 @@ export function Adjuntos<T extends Respuesta>({
           <button
             type="button"
             disabled={ocupado}
-            onClick={() => ejecutar(() => llamar<T>("actas", `${base}/releer`, { token, metodo: "POST" }), "Caso leído de nuevo. Revise los datos.")}
+            onClick={() => ejecutar(() => llamar<T>("actas", `${base}/releer`, { token, metodo: "POST" }), "Caso leído de nuevo.")}
           >
-            {ocupado ? "Leyendo… (puede tardar un minuto)" : "Volver a leer el caso"}
+            {ocupado ? "Leyendo…" : "Volver a leer"}
           </button>
-          <small>Cambia los datos leídos; no cambia la recomendación.</small>
+          <small>No cambia la recomendación.</small>
         </div>
       ) : null}
       {adjuntos.length === 0 ? <p>Sin adjuntos.</p> : null}
@@ -145,7 +140,7 @@ export function Adjuntos<T extends Respuesta>({
                     <div>
                       <small>
                         {[a.formato, tamano(a.bytes)].filter(Boolean).join(" · ")}
-                        {a.leido ? " · ya se usó en la lectura" : ""}
+                        {a.leido ? " · leído" : ""}
                       </small>
                     </div>
                   </td>
@@ -154,8 +149,8 @@ export function Adjuntos<T extends Respuesta>({
                     {confirmar === a.id ? (
                       <div>
                         <p>
-                          ¿Quitar «{a.nombre}» del caso? Se borra del todo y no se puede recuperar.
-                          {a.leido && leido ? " Ya se usó al leer el caso: después revise los datos o vuelva a leerlo." : ""}
+                          ¿Borrar «{a.nombre}»? No se puede recuperar.
+                          {a.leido && leido ? " Ya se usó en la lectura." : ""}
                         </p>
                         <div className="botones">
                           <button type="button" className="peligro" disabled={ocupado} onClick={() => borrar(a)}>
@@ -176,7 +171,7 @@ export function Adjuntos<T extends Respuesta>({
                         {editable && a.tipo === "pendiente" ? (
                           <>
                             <button type="button" disabled={ocupado} onClick={() => clasificar(a, true)}>
-                              Es el formato de solicitud
+                              Es el formato
                             </button>
                             <button type="button" className="secundario" disabled={ocupado} onClick={() => clasificar(a, false)}>
                               Es un anexo
@@ -200,13 +195,13 @@ export function Adjuntos<T extends Respuesta>({
       {editable ? (
         <>
           <label htmlFor="mas-adjuntos">
-            Agregar adjuntos
-            <span className="ayuda">{tipos}. Hasta 10 MB por imagen y 20 MB por documento.</span>
+            Agregar archivos
+            <span className="ayuda">PDF, Word o imágenes. Hasta 20 MB.</span>
           </label>
           <input key={entrada} id="mas-adjuntos" type="file" accept={ACEPTA} multiple onChange={(e) => setArchivos(e.target.files)} />
           <div className="botones">
             <button type="button" className="secundario" disabled={ocupado || !archivos?.length} onClick={agregar}>
-              Agregar al caso
+              Agregar
             </button>
           </div>
         </>

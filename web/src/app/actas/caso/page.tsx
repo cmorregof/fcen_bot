@@ -340,7 +340,6 @@ function Ficha() {
         <Adjuntos<Detalle & { aviso?: string | null }>
           casoId={caso.id}
           adjuntos={caso.adjuntos}
-          tipos={caso.tipos_adjuntos}
           leido={caso.extraccion !== null}
           editable={administrativa}
           token={t}
@@ -367,7 +366,6 @@ function Ficha() {
             <li>Documento: {caso.extraccion.documento ?? "no aparece"}</li>
             <li>Fecha de la solicitud: {caso.extraccion.fecha_solicitud ?? "no aparece"}</li>
             <li>Justificación: {caso.extraccion.justificacion_breve}</li>
-            <li>Pantallazos: {caso.imagenes}. Anexos: {caso.anexos.length ? caso.anexos.join(", ") : "ninguno"}</li>
           </ul>
           <h3>Quién decide</h3>
           <p>

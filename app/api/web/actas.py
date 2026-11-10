@@ -338,17 +338,11 @@ async def adjuntar(
     caso = await _caso_del_area(db, caso_id, usuario)
     avisos: list[str] = []
     if any(a.tipo == "pendiente" for a in agregados):
-        avisos.append(
-            "Hay un PDF escaneado: indique en la lista de adjuntos si es el "
-            "formato de solicitud."
-        )
+        avisos.append("Hay un PDF escaneado: indique si es el formato.")
     if caso.extraccion is not None and any(
         a.nuevo and a.tipo in ("imagen", "formato") for a in agregados
     ):
-        avisos.append(
-            "El caso ya estaba leído: vuelva a leerlo para que tenga en cuenta "
-            "lo nuevo."
-        )
+        avisos.append("Vuelva a leer el caso para incluir lo nuevo.")
     return {**await _ficha(db, caso, usuario), "aviso": " ".join(avisos) or None}
 
 

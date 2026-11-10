@@ -310,12 +310,8 @@ async def borrar(
     avisos: list[str] = []
     if leido and caso.extraccion is not None:
         avisos.append(
-            "Ese archivo ya se había usado al leer el caso: revise los datos "
-            "leídos o vuelva a leer el caso."
+            "Ya se había usado en la lectura: revise los datos o vuelva a leer el caso."
         )
     if texto_restante:
-        avisos.append(
-            "El texto de ese formato sigue en el texto del caso: no pude "
-            "ubicarlo para quitarlo."
-        )
+        avisos.append("No pude quitar el texto de ese formato del caso.")
     return Borrado(archivo.tipo, leido, " ".join(avisos) or None)

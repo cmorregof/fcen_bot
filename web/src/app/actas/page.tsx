@@ -68,11 +68,8 @@ function NuevoCaso() {
       </label>
       <textarea id="correo" value={texto} onChange={(e) => setTexto(e.target.value)} />
       <label htmlFor="pantallazos">
-        2. Adjunte los pantallazos del SIA y los archivos que mandó el estudiante
-        <span className="ayuda">
-          PDF, Word (.docx) o imágenes JPG, PNG o WEBP; hasta 20 archivos a la vez. El formato de solicitud se lee; los demás quedan
-          como anexos del caso.
-        </span>
+        2. Adjunte los pantallazos y los archivos del estudiante
+        <span className="ayuda">PDF, Word o imágenes. Hasta 20 archivos.</span>
       </label>
       <input id="pantallazos" type="file" accept={ACEPTA} multiple onChange={(e) => setArchivos(e.target.files)} />
       <div className="botones">
@@ -107,7 +104,7 @@ export default function Casos() {
       hace={
         administrativa
           ? [
-              "Crea un caso con el correo, los pantallazos y los archivos del estudiante, y lo lee para armar la ficha con alertas.",
+              "Crea un caso con el correo, los pantallazos y los archivos, y lo lee para armar la ficha con alertas.",
               "Lista los casos de su área para abrir su ficha.",
             ]
           : ["Lista los casos de su área para leer la ficha y dejar su concepto."]
