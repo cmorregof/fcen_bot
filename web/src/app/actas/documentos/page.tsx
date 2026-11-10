@@ -7,7 +7,8 @@ import { guardarArchivo, llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
 
 type Datos = {
-  programas: { clave: string; nombre: string; casos: number; con_recomendacion: number; acta_propuesta: string; anio: number }[];
+  // En un comité único (posgrados), una sola tarjeta con todos sus programas.
+  programas: { clave: string; nombre: string; comite: string; programas: string[]; casos: number; con_recomendacion: number; acta_propuesta: string; anio: number }[];
   sin_programa: number[];
 };
 type ArchivoActa = { documento: "oficio" | "acta"; formato: "docx" | "pdf"; nombre: string; ruta: string };
@@ -329,7 +330,8 @@ export default function Documentos() {
       ) : null}
       {datos?.programas.map((p) => (
         <div key={p.clave} className="tarjeta" style={{ marginBottom: "1rem" }}>
-          <strong>{p.nombre}</strong>
+          <strong>{p.programas.length > 0 ? p.comite : p.nombre}</strong>
+          {p.programas.length > 0 ? <span className="ayuda">Una sola acta para {p.programas.join(", ")}.</span> : null}
           Acta en curso: {p.acta_propuesta} de {p.anio} (número propuesto) · {p.casos} caso(s), {p.con_recomendacion} con recomendación
           <div className="botones">
             <button type="button" disabled={ocupado !== null} onClick={() => bajar(p.clave, p.nombre, "oficio")}>

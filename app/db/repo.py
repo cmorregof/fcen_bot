@@ -602,12 +602,18 @@ class FirmaBorrador:
     ultima_modificacion: str
 
 
-async def firma_actual(db: Conexion, *, direccion: str, programa: str) -> FirmaBorrador:
-    """Qué casos y hasta cuándo modificados componen hoy el borrador del programa."""
+async def firma_actual(
+    db: Conexion, *, direccion: str, programas: tuple[str, ...]
+) -> FirmaBorrador:
+    """Qué casos y hasta cuándo modificados componen hoy el borrador del comité
+    (los de sus programas: uno en pregrado, varios en un comité único)."""
+    marcas = ",".join("?" for _ in programas)
     cur = await db.execute(
-        "SELECT id, actualizado FROM casos WHERE direccion = ? AND programa = ? "
-        "AND estado = ? " + _FUERA_DEL_COMITE + " ORDER BY id",
-        (direccion, programa, EstadoCaso.LISTO.value),
+        f"SELECT id, actualizado FROM casos WHERE direccion = ? "
+        f"AND programa IN ({marcas}) AND estado = ? "
+        + _FUERA_DEL_COMITE
+        + " ORDER BY id",
+        (direccion, *programas, EstadoCaso.LISTO.value),
     )
     filas = await cur.fetchall()
     ids = tuple(int(r["id"]) for r in filas)

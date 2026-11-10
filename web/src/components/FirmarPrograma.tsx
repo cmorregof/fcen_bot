@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Mensaje } from "@/components/Pantalla";
 import { guardarArchivo, llamar } from "@/lib/api";
 
-// Firma del oficio al Consejo y del acta del comité de un programa. Tres
+// Firma del oficio al Consejo y del acta del comité de un programa (o del
+// comité único de la dirección, en posgrados). Tres
 // pasos: resumen, datos (radicado y sesión) y confirmación explícita. Nada se
 // firma hasta que la persona marca la casilla y toca «Firmar».
 
@@ -36,7 +37,7 @@ type Preparacion = {
   tiene_imagen: boolean;
   radicado_propuesto: string | null;
   numero_acta_propuesto: string;
-  casos: { id: number; estudiante: string | null; sentido_texto: string }[];
+  casos: { id: number; estudiante: string | null; sentido_texto: string; programa?: string | null }[];
   caso_ids: number[];
   pendientes: number[];
   bloqueos: string[];
@@ -143,7 +144,8 @@ export function FirmarPrograma({
       <ul>
         {prep.casos.map((c) => (
           <li key={c.id}>
-            #{c.id} · {c.estudiante ?? "sin nombre"} · {c.sentido_texto}
+            #{c.id} · {c.estudiante ?? "sin nombre"}
+            {c.programa ? ` (${c.programa})` : ""} · {c.sentido_texto}
           </li>
         ))}
       </ul>

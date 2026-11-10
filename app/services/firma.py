@@ -1,4 +1,9 @@
-"""Firma del oficio al Consejo y del acta del comité de un programa (fase 3).
+"""Firma del oficio al Consejo y del acta del comité (fase 3).
+
+En pregrado se firma por programa. En una dirección con comité único (los
+posgrados de Ciencias Exactas) se firma una sola vez para todos sus programas,
+con la clave de la dirección: la de su acta, su consecutivo y su imagen de
+firma (app/core/programas.py, `comite_de`).
 
 Firmar es una acción explícita de una persona autorizada: la administrativa de
 la dirección (facultada para firmar en nombre de quien preside el comité) o
@@ -30,7 +35,15 @@ from zoneinfo import ZoneInfo
 
 from app.core.conexion import Conexion, Fila
 from app.core.config import settings
-from app.core.programas import PROGRAMAS, Miembro, Programa, integrantes
+from app.core.programas import (
+    PROGRAMAS,
+    Miembro,
+    Programa,
+    comite_de,
+    comites_de,
+    integrantes,
+    programas_del_comite,
+)
 from app.db import repo
 from app.schemas.caso import Caso, Sentido
 from app.services import actas_comite, flujo
@@ -141,18 +154,24 @@ def firmante_de(programa: Programa) -> Miembro | None:
 
 
 def programa_de_la_direccion(texto: str, direccion: str) -> Programa | None:
-    """El programa por su clave, su nombre o un alias, solo de la dirección."""
+    """El comité por la clave, el nombre o un alias de uno de sus programas (o
+    del comité único), solo de la dirección."""
     from app.core.programas import normalizar
 
     buscado = normalizar(texto)
     if not buscado:
         return None
-    for programa in PROGRAMAS.values():
-        if programa.direccion != direccion:
-            continue
-        nombres = {programa.clave, normalizar(programa.nombre), *programa.alias}
+    candidatos = [*comites_de(direccion)]
+    candidatos += [p for p in PROGRAMAS.values() if p.direccion == direccion]
+    for programa in candidatos:
+        nombres = {
+            programa.clave,
+            normalizar(programa.nombre),
+            normalizar(programa.comite),
+            *programa.alias,
+        }
         if buscado in nombres:
-            return programa
+            return comite_de(programa.clave)
     return None
 
 
@@ -285,13 +304,15 @@ async def preparar(
     hoy: date | None = None,
 ) -> Preparacion:
     """Resumen de lo que se va a firmar. No escribe nada."""
-    programa = PROGRAMAS.get(clave)
+    programa = comite_de(clave)
     if programa is None or programa.direccion != direccion:
         raise FirmaNoPermitida("No conozco ese programa en su dirección.")
+    clave = programa.clave
+    claves = programas_del_comite(programa)
     del_programa = [
         c
         for c in await repo.casos_listos(db, direccion=direccion)
-        if c.programa == clave
+        if c.programa in claves
     ]
     casos = [
         c
@@ -386,6 +407,7 @@ async def firmar(
     que la persona vio en el resumen: si cambiaron, no se firma."""
     hoy = hoy or hoy_local()
     prep = await preparar(db, direccion=direccion, clave=clave, rol=rol, hoy=hoy)
+    clave = prep.programa.clave
     if prep.bloqueos:
         raise FirmaNoPermitida(prep.bloqueos[0])
     if sorted(caso_ids) != sorted(prep.caso_ids):

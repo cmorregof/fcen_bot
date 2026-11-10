@@ -16,6 +16,7 @@ from app.api.web.config import web_settings
 from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import (
+    COMITES,
     DIRECCIONES,
     PROGRAMAS,
     identificar_programa,
@@ -71,6 +72,7 @@ def test_programas_nuevos_sin_datos_inventados() -> None:
         ("Doctorado en Ciencias Matemáticas", "dcm"),
         ("ESPECIALIZACIÓN EN ESTADÍSTICA", "esp_estadistica"),
         ("Especialización en Actuaría", "esp_actuaria"),
+        ("ESPECIALIZACIÓN EN ACTUARÍA Y FINANZAS", "esp_actuaria"),
         ("MAESTRÍA EN CIENCIAS - MATEMÁTICA APLICADA", "mcma"),
         ("MATEMÁTICAS", "matematicas"),
         ("ESTADÍSTICA", "estadistica"),
@@ -103,7 +105,8 @@ def test_un_solo_programa_no_se_pregunta(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_firmar_solo_programas_de_la_direccion() -> None:
-    assert firma.programa_de_la_direccion("dcm", POSGRADOS) == PROGRAMAS["dcm"]
+    # En posgrados se firma el comité único, sea cual sea el programa escrito.
+    assert firma.programa_de_la_direccion("dcm", POSGRADOS) == COMITES[POSGRADOS]
     assert firma.programa_de_la_direccion("matematicas", POSGRADOS) is None
     assert firma.programa_de_la_direccion("mcma", PREGRADO) is None
 
@@ -227,9 +230,8 @@ async def test_cada_administrativa_ve_solo_su_direccion(cliente: Cliente) -> Non
     assert c.post(ruta, json={"programa": "dcm"}, headers=pos).status_code == 200
 
     archivo = c.get("/api/web/actas/archivo", headers=pos).json()
-    assert {p["clave"] for p in archivo["programas"]} == {
-        p.clave for p in programas_de(POSGRADOS)
-    }
+    # Las actas de posgrados son del comité único: se archivan con su clave.
+    assert [p["clave"] for p in archivo["programas"]] == [POSGRADOS]
     assert c.get("/api/web/actas/firmar/dcm", headers=pre).status_code == 404
 
 
@@ -245,7 +247,9 @@ async def test_usuarios_ofrece_la_direccion_y_mueve_sus_casos(
 
     admin = await _token("admin@unal.edu.co", "admin")
     lista = c.get("/api/web/usuarios", headers=admin).json()
-    assert lista["direcciones"][POSGRADOS] == "Dirección de Posgrados de Matemáticas"
+    assert lista["direcciones"][POSGRADOS] == (
+        "Área Curricular de Posgrados de Ciencias Exactas"
+    )
     cuerpo = {"correo": correo, "rol": "administrativa", "direccion": POSGRADOS}
     assert c.post("/api/web/usuarios", json=cuerpo, headers=admin).status_code == 200
 
