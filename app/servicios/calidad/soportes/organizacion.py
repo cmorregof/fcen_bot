@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import PurePosixPath
@@ -27,8 +28,10 @@ from app.servicios.calidad.soportes.inventario import PATRON_ACCION
 from app.servicios.calidad.soportes.modelos import Archivo
 
 MAX_CARACTERES = 50
-PRODUCTO_FINAL = "producto final"
-SOPORTES = "soportes de producto final"
+ETIQUETAS = {
+    "producto final": "Producto final",
+    "soportes": "Soportes de producto final",
+}
 
 # Nombre completo: «01 Descripcion breve 20251015.pdf».
 _CONSECUTIVO = re.compile(r"^(\d{2,3}) ")
@@ -89,24 +92,48 @@ def _partes(archivo: Archivo) -> tuple[str, ...]:
     return PurePosixPath(ruta).parent.parts
 
 
+def tipo_subcarpeta(nombre: str) -> str:
+    """«Producto final», «Soportes de producto final» o ninguna ("").
+
+    Tolera mayúsculas, tildes, espacios y plurales («Productos finales»,
+    «Soportes»), como aparecen en las carpetas de Drive de los programas.
+    """
+    plegado = _plegar(nombre)
+    if plegado.startswith("soporte"):
+        return "soportes"
+    if plegado.startswith(("producto final", "productos final")):
+        return "producto final"
+    return ""
+
+
+def _en_accion(partes: Iterable[str]) -> tuple[str, list[str]] | None:
+    """Código de la acción y las carpetas que siguen a la de la acción."""
+    lista = list(partes)
+    for i, parte in enumerate(lista):
+        m = PATRON_ACCION.search(parte)  # también «ACCION 1.3.zip»
+        if m:
+            return m.group(1), lista[i + 1 :]
+    return None
+
+
 def carpeta_de(archivo: Archivo) -> str:
     """Dónde está dentro de su acción: producto final, soportes o suelto."""
     if not archivo.accion:
         return ""
-    partes = _partes(archivo)
-    for i, parte in enumerate(partes):
-        if PATRON_ACCION.search(parte):  # también «ACCION 1.3.zip»
-            resto = [_plegar(p) for p in partes[i + 1 :]]
-            break
-    else:
-        resto = []
-    if not resto:
-        return "suelto"
-    if resto[0].startswith(SOPORTES):
-        return "soportes"
-    if resto[0].startswith(PRODUCTO_FINAL):
-        return "producto final"
-    return "suelto"
+    ubicacion = _en_accion(_partes(archivo))
+    resto = ubicacion[1] if ubicacion else []
+    return (tipo_subcarpeta(resto[0]) if resto else "") or "suelto"
+
+
+def _subniveles(archivo: Archivo) -> int:
+    """Carpetas de más entre «Producto final» o «Soportes…» y el archivo.
+
+    Solo cuentan carpetas de verdad: el contenido de un zip no (para un
+    archivo dentro de un zip se mira dónde está el zip).
+    """
+    real = PurePosixPath(archivo.ruta.split("!/", 1)[0])
+    ubicacion = _en_accion(real.parent.parts)
+    return max(0, len(ubicacion[1]) - 1) if ubicacion else 0
 
 
 def revisar_nombre(nombre: str) -> list[str]:
@@ -207,30 +234,61 @@ def _revisar_soportes(revisiones: list[Revision]) -> None:
             r.sugerido = sugerido
 
 
-def revisar(archivos: list[Archivo]) -> Organizacion:
-    """Revisa carpetas y nombres de todas las acciones del inventario."""
+def revisar(archivos: list[Archivo], carpetas: Iterable[str] = ()) -> Organizacion:
+    """Revisa carpetas y nombres de todas las acciones del inventario.
+
+    `carpetas` son las carpetas de la carga, también las vacías: una acción
+    sin archivos aparece con su observación en lugar de desaparecer.
+    """
     revisiones = [Revision(a, carpeta_de(a)) for a in archivos if a.tipo != "zip"]
     por_accion: dict[str, list[Revision]] = {}
     for r in revisiones:
         if r.archivo.accion:
             por_accion.setdefault(r.archivo.accion, []).append(r)
+    existentes: dict[str, set[str]] = {}
+    for c in carpetas:
+        ubicacion = _en_accion(PurePosixPath(c).parts)
+        if ubicacion:
+            codigo, resto = ubicacion
+            tipos = existentes.setdefault(codigo, set())
+            if resto and tipo_subcarpeta(resto[0]):
+                tipos.add(tipo_subcarpeta(resto[0]))
 
     acciones: dict[str, list[str]] = {}
-    for codigo, grupo in por_accion.items():
+    for codigo in sorted(set(por_accion) | set(existentes), key=_orden_accion):
+        grupo = por_accion.get(codigo, [])
+        hay = existentes.get(codigo, set()) | {r.carpeta for r in grupo}
+        if not grupo:
+            acciones[codigo] = ["la carpeta de la acción está vacía: no tiene archivos"]
+            continue
         obs: list[str] = []
         finales = [r for r in grupo if r.carpeta == "producto final"]
         soportes = [r for r in grupo if r.carpeta == "soportes"]
-        if not finales:
-            obs.append("no tiene carpeta «Producto final» o está vacía")
-        elif len(finales) > 1:
+        for tipo, lista in (("producto final", finales), ("soportes", soportes)):
+            if not lista:
+                obs.append(
+                    f"la carpeta «{ETIQUETAS[tipo]}» está vacía"
+                    if tipo in hay
+                    else f"no tiene carpeta «{ETIQUETAS[tipo]}»"
+                )
+        if len(finales) > 1:
             obs.append(
                 f"«Producto final» tiene {len(finales)} archivos; debe tener uno solo"
             )
         for r in finales:
             if r.archivo.extension.lower() != ".pdf":
                 r.observaciones.append("el producto final debe ser un PDF")
-        if not soportes:
-            obs.append("no tiene carpeta «Soportes de producto final» o está vacía")
+        # El instructivo pide los archivos directamente en cada carpeta.
+        for tipo, lista in (("producto final", finales), ("soportes", soportes)):
+            anidados = [r for r in lista if _subniveles(r.archivo)]
+            if anidados:
+                obs.append(
+                    f"«{ETIQUETAS[tipo]}» tiene {len(anidados)} archivos dentro de "
+                    "subcarpetas: el instructivo pide los archivos directamente "
+                    "en la carpeta"
+                )
+            for r in anidados:
+                r.observaciones.append(f"está en una subcarpeta de «{ETIQUETAS[tipo]}»")
         for r in grupo:
             if r.carpeta == "suelto":
                 r.observaciones.append(

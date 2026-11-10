@@ -18,8 +18,10 @@ from pathlib import Path, PurePosixPath
 
 from app.servicios.calidad.soportes.modelos import Archivo
 
-# «ACCION 1.3» (plan 2016) o «ACCIÓN 1.2.1» (plantilla institucional).
-PATRON_ACCION = re.compile(r"^\s*ACCI[OÓ]N\s*(\d+(?:\.\d+)+)", re.IGNORECASE)
+# «ACCION 1.3» (plan 2016) o «ACCIÓN 1.2.1» (plantilla institucional). En las
+# carpetas de Drive aparecen también «Acción 6.1.» (punto final), «Acción 2.1 »
+# (espacio final) y «Accion_1.1»: el código es el mismo.
+PATRON_ACCION = re.compile(r"^\s*ACCI[OÓ]N[\s_\-]*(\d+(?:\.\d+)+)", re.IGNORECASE)
 
 # Topes de lectura. Un soporte más grande no se abre: se lista con su nota.
 # Los xlsx y docx también son zip: antes de abrirlos se mira cuánto declaran
@@ -83,6 +85,15 @@ def accion_de_ruta(ruta: str) -> str:
     return ""
 
 
+def carpetas(raiz: Path) -> list[str]:
+    """Carpetas de `raiz` (relativas, en NFC), también las vacías."""
+    return sorted(
+        nfc(r.relative_to(raiz).as_posix())
+        for r in raiz.rglob("*")
+        if r.is_dir() and not r.is_symlink() and "__MACOSX" not in r.parts
+    )
+
+
 def tipo_de(nombre: str) -> tuple[str, str]:
     ext = Path(nombre).suffix.lower()
     return TIPOS.get(ext, "otro"), ext
@@ -134,6 +145,14 @@ def _fecha_imagen(datos: bytes) -> tuple[str | None, str]:
 
 
 def _fecha_office(datos: bytes, tipo: str) -> str | None:
+    # Los exportados de Google (Docs, Hojas) no traen docProps/core.xml; sin
+    # él, openpyxl y python-docx devuelven la fecha de hoy como «creado».
+    try:
+        with zipfile.ZipFile(io.BytesIO(datos)) as zf:
+            if "docProps/core.xml" not in zf.namelist():
+                return None
+    except zipfile.BadZipFile:
+        return None
     try:
         if tipo == "xlsx":
             from openpyxl import load_workbook
@@ -148,6 +167,18 @@ def _fecha_office(datos: bytes, tipo: str) -> str | None:
     except Exception:
         return None
     return creado.date().isoformat() if isinstance(creado, datetime) else None
+
+
+_DIAPOSITIVA = re.compile(r"^ppt/slides/slide\d+\.xml$")
+
+
+def _diapositivas(datos: bytes) -> int | None:
+    try:
+        with zipfile.ZipFile(io.BytesIO(datos)) as zf:
+            n = sum(1 for i in zf.infolist() if _DIAPOSITIVA.match(i.filename))
+    except zipfile.BadZipFile:
+        return None
+    return n or None
 
 
 class Presupuesto:
@@ -205,6 +236,9 @@ def _completar_metadatos(
         archivo.nota = nota
         if fecha:
             archivo.fecha, archivo.fuente_fecha = fecha, "EXIF"
+    elif archivo.extension == ".pptx":
+        # Presentación (también la de Google exportada): una página por diapositiva.
+        archivo.paginas = _diapositivas(datos)
     elif archivo.tipo in ("xlsx", "docx"):
         fecha = _fecha_office(datos, archivo.tipo)
         if fecha:
