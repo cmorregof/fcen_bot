@@ -32,7 +32,7 @@ from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
 from app.core import solicitudes
-from app.core.programas import Miembro, Programa
+from app.core.programas import Miembro, Programa, normalizar
 from app.normativa.base import NormaCitada, normas_para
 from app.schemas.caso import (
     TITULOS_TIPO,
@@ -40,7 +40,9 @@ from app.schemas.caso import (
     AsignaturaSolicitada,
     Caso,
     Concepto,
+    DatosSIA,
     ExtraccionCaso,
+    FilaCreditos,
     Jurado,
     Sentido,
 )
@@ -114,6 +116,15 @@ def limpiar(texto: str) -> str:
 
 def _num(valor: float) -> str:
     return f"{valor:.1f}".replace(".", ",")
+
+
+def _cifra(valor: float) -> str:
+    """El número como se leyó, sin redondear («4,25», «4,0»), con coma decimal."""
+    return repr(float(valor)).replace(".", ",")
+
+
+# Dato que se ve en el SIA pero no se leyó: va en amarillo en el acta y el oficio.
+VERIFICAR_SIA = "[verificar en el SIA]"
 
 
 @dataclass
@@ -331,11 +342,18 @@ def _bullets_analisis(item: CasoDocumento, periodo: str) -> list[str]:
                 f"Tiene aprobados {a.disciplinares_aprobados} créditos del componente "
                 "disciplinar"
             )
+    if sia is not None:
+        estado = (sia.estado_historia or "").strip() or VERIFICAR_SIA
+        vinetas.append(f"Estado de la historia académica: {estado}")
     metricas = []
     if a.papa is not None:
-        metricas.append(f"P.A.P.A. {_num(a.papa)}")
+        metricas.append(f"P.A.P.A. {_cifra(a.papa)}")
+    elif sia is not None:
+        metricas.append(f"P.A.P.A. {VERIFICAR_SIA}")
+    if sia is not None and sia.promedio_academico is not None:
+        metricas.append(f"P.A. {_cifra(sia.promedio_academico)}")
     if a.porcentaje_avance is not None:
-        metricas.append(f"porcentaje de avance {_num(a.porcentaje_avance)} %")
+        metricas.append(f"porcentaje de avance {_cifra(a.porcentaje_avance)} %")
     if metricas:
         texto = "; ".join(metricas)
         vinetas.append(texto[0].upper() + texto[1:])
@@ -714,12 +732,95 @@ def _solicitud(
         _r(p, "…”.", cursiva=True)
 
 
-def _analisis(doc: DocumentoDocx, item: CasoDocumento, periodo: str) -> None:
+def _vineta(doc: DocumentoDocx, texto: str) -> None:
+    """Viñeta del análisis; lo que falta verificar en el SIA va en amarillo."""
+    p = _p(doc, "FCEN Vineta")
+    partes = f"•\t{texto}".split(VERIFICAR_SIA)
+    for i, parte in enumerate(partes):
+        if parte:
+            _r(p, parte)
+        if i < len(partes) - 1:
+            _marcador(p, VERIFICAR_SIA)
+
+
+_COLUMNAS_SIA = (
+    ("exigidos", "Exigidos"),
+    ("aprobados", "Aprobados"),
+    ("pendientes", "Pendientes"),
+    ("inscritos", "Inscritos"),
+    ("cursados", "Cursados"),
+)
+_FILAS_TOTALES = {"total", "total estudiante"}
+
+
+def _tabla_creditos(doc: DocumentoDocx, sia: DatosSIA) -> None:
+    """El «Resumen de créditos» del SIA: mismas filas, nombres y orden.
+
+    Solo las columnas que trae el pantallazo. Una celda vacía en una columna
+    que sí se leyó queda en amarillo para verificarla en el SIA.
+    """
+    filas: list[FilaCreditos] = sia.resumen_creditos
+    if not filas:
+        _vineta(doc, f"Créditos por tipología: {VERIFICAR_SIA}")
+        return
+    columnas = [
+        (campo, titulo)
+        for campo, titulo in _COLUMNAS_SIA
+        if any(getattr(f, campo) is not None for f in filas)
+    ]
+    _p(doc, "FCEN Cuerpo", "Créditos por tipología (resumen de créditos del SIA):")
+    tabla = doc.add_table(rows=1, cols=1 + len(columnas))
+    try:
+        tabla.style = doc.styles["Table Grid"]
+    except KeyError:
+        pass
+    for celda, titulo in zip(
+        tabla.rows[0].cells, ["Tipología", *(t for _, t in columnas)], strict=True
+    ):
+        celda.text = ""
+        _r(celda.paragraphs[0], titulo, negrita=True)
+    for fila in filas:
+        total = normalizar(fila.tipologia) in _FILAS_TOTALES
+        celdas = tabla.add_row().cells
+        celdas[0].text = ""
+        _r(celdas[0].paragraphs[0], fila.tipologia, negrita=total)
+        for celda, (campo, _) in zip(celdas[1:], columnas, strict=True):
+            celda.text = ""
+            valor = getattr(fila, campo)
+            parrafo = celda.paragraphs[0]
+            parrafo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            if valor is None:
+                _marcador(parrafo, VERIFICAR_SIA)
+                _resaltar_celda_amarillo(celda)
+            else:
+                _r(parrafo, str(valor), negrita=total)
+    ancho_num = min(2.2, 11.0 / max(len(columnas), 1))
+    anchos = (5.5, *([ancho_num] * len(columnas)))
+    tabla.autofit = False
+    for columna, ancho_col in zip(tabla.columns, anchos, strict=True):
+        columna.width = Cm(ancho_col)
+    for fila_t in tabla.rows:
+        for celda, ancho in zip(fila_t.cells, anchos, strict=True):
+            celda.width = Cm(ancho)
+            for parrafo in celda.paragraphs:
+                for run in parrafo.runs:
+                    run.font.size = Pt(9)
+
+
+def _analisis(
+    doc: DocumentoDocx, item: CasoDocumento, periodo: str, *, acta: bool = False
+) -> None:
     vinetas = _bullets_analisis(item, periodo)
-    if vinetas:
+    sia = item.extraccion.sia
+    # El desglose por tipología va en el acta (pedido del Área de Matemáticas).
+    con_tabla = acta and sia is not None
+    if vinetas or con_tabla:
         _p(doc, "FCEN Rotulo", "ANÁLISIS:")
         for vineta in vinetas:
-            _p(doc, "FCEN Vineta", f"•\t{vineta}")
+            _vineta(doc, vineta)
+    if con_tabla:
+        assert sia is not None
+        _tabla_creditos(doc, sia)
     _vacio(doc, "FCEN Cuerpo")
 
 
@@ -772,7 +873,7 @@ def _caso(
         # El acta narra la sesión: solicitud, análisis, conceptos y, como
         # resultado de la deliberación, la recomendación.
         _solicitud(doc, item, numero, "FCEN Caso")
-        _analisis(doc, item, periodo)
+        _analisis(doc, item, periodo, acta=True)
         _vacio(doc, "FCEN Cuerpo")
         _conceptos(doc, item.caso.conceptos, datos.borrador)
         _recomendacion(doc, datos, item, None, "FCEN Cuerpo")

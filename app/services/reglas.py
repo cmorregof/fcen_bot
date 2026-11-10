@@ -377,6 +377,8 @@ def analizar(
             a.agregar("aviso", f"Revisa la lectura del pantallazo: {problema}.")
         a.creditos_inscritos = creditos_inscritos(sia)
         a.disciplinares_aprobados = disciplinares_aprobados(sia)
+    if sia is not None:
+        # El P.A.P.A. y el avance se copian aunque falte el resumen de créditos.
         a.papa = sia.papa
         a.porcentaje_avance = sia.porcentaje_avance
 
