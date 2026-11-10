@@ -289,6 +289,10 @@ async def init_db(db: Conexion) -> None:
     from app.services import flujo
 
     await flujo.migrar(db)
+    # Los posgrados de matemáticas pasan a su propia dirección (idempotente).
+    from app.db.reubicar import reubicar_posgrados
+
+    await reubicar_posgrados(db)
     # Lleva las firmas y los casos cerrados antes del consecutivo a las actas
     # del comité (idempotente; ver app/services/actas_comite.py).
     from app.services import actas_comite

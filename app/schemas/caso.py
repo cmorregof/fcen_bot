@@ -62,7 +62,11 @@ TITULOS_TIPO: dict[TipoSolicitud, str] = {
 class FilaCreditos(BaseModel):
     """Una fila de la tabla 'Resumen de créditos' del SIA, tal como aparece."""
 
-    tipologia: str
+    tipologia: str = Field(
+        description="Nombre de la fila tal como lo escribe el SIA (p. ej. FUND. "
+        "OBLIGATORIA, DISCIPLINAR OPTATIVA, LIBRE ELECCIÓN, TOTAL; en posgrado, "
+        "las tipologías propias del plan)"
+    )
     exigidos: int | None = None
     aprobados: int | None = None
     pendientes: int | None = None
@@ -93,8 +97,18 @@ class DatosSIA(BaseModel):
         description="Periodo de admisión del estudiante (p. ej. 2024-1S), solo si "
         "aparece en un pantallazo",
     )
-    papa: float | None = Field(default=None, description="P.A.P.A. acumulado")
-    promedio_academico: float | None = None
+    papa: float | None = Field(
+        default=None, description="P.A.P.A., copiado del pantallazo; vacío si no se lee"
+    )
+    promedio_academico: float | None = Field(
+        default=None,
+        description="P.A. (promedio académico), solo si aparece en el pantallazo",
+    )
+    estado_historia: str | None = Field(
+        default=None,
+        description="Estado de la historia académica tal como lo escribe el SIA "
+        "(p. ej. ACTIVA, BLOQUEADA, CERRADA); vacío si no aparece",
+    )
     porcentaje_avance: float | None = Field(
         default=None, description="Porcentaje de avance, como número (56.5 para 56,5 %)"
     )
@@ -102,7 +116,8 @@ class DatosSIA(BaseModel):
     resumen_creditos: list[FilaCreditos] = Field(
         default_factory=list,
         description="Todas las filas de 'Resumen de créditos', incluidas TOTAL, "
-        "NIVELACIÓN y TOTAL ESTUDIANTE, en el orden en que aparecen",
+        "NIVELACIÓN y TOTAL ESTUDIANTE, en el orden en que aparecen y con los "
+        "nombres del SIA. Las columnas que no trae el pantallazo quedan vacías",
     )
     creditos_disponibles: int | None = None
     creditos_cancelados: int | None = None
