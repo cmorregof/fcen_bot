@@ -44,6 +44,7 @@ from app.services import (
     oficio_consejo,
     suit,
 )
+from app.services.drive import cliente as drive
 
 router = APIRouter(prefix="/actas")
 
@@ -172,16 +173,16 @@ def _evento(e: flujo.Evento) -> dict[str, object]:
         "desde": e.desde.value if e.desde else None,
         "hacia": e.hacia.value,
         "hacia_texto": flujo.NOMBRE_ETAPA[e.hacia],
-        "fecha": e.fecha,
+        "fecha": flujo.hora_local(e.fecha),
         "rol": flujo.NOMBRE_ROL.get(e.rol, e.rol),
         "persona": e.persona,
         "canal": e.canal,
         "detalle": e.detalle,
-        "registrado": e.registrado,
+        "registrado": flujo.hora_local(e.registrado),
     }
 
 
-async def _linea(db: Db, caso: Caso) -> dict[str, object]:
+async def _linea(db: Db, caso: Caso, rol: str) -> dict[str, object]:
     """La línea única del caso: etapa, historia, siguiente paso y tramos."""
     evs = await flujo.eventos(db, caso.id)
     etapa = await flujo.etapa_de(db, caso.id)
@@ -191,6 +192,7 @@ async def _linea(db: Db, caso: Caso) -> dict[str, object]:
         leido=caso.extraccion is not None,
         tipos=caso.extraccion.tipos if caso.extraccion else [],
         instancia_decision=caso.consejo.instancia.value if caso.consejo else None,
+        archivo_drive=drive.configurado(),
     )
     extraccion = caso.extraccion.model_dump_json() if caso.extraccion else None
     return {
@@ -204,7 +206,8 @@ async def _linea(db: Db, caso: Caso) -> dict[str, object]:
         "tramos": [
             {"nombre": t.nombre, "dias": t.dias} for t in flujo.tramos(evs, extraccion)
         ],
-        # Qué botones de la línea puede usar la administrativa ahora.
+        # Qué botones de la línea puede usar la administrativa ahora. Al
+        # comité no se le ofrece ninguno: solo consulta y deja conceptos.
         "acciones": [
             a.value
             for a in (
@@ -215,13 +218,13 @@ async def _linea(db: Db, caso: Caso) -> dict[str, object]:
                 flujo.Accion.ENVIAR_CONSEJO,
                 flujo.Accion.VOLVER_AL_COMITE,
             )
-            if flujo.puede(a, etapa, flujo.ADMINISTRATIVA)
+            if rol == flujo.ADMINISTRATIVA and flujo.puede(a, etapa, rol)
         ],
     }
 
 
-async def _ficha(db: Db, caso: Caso) -> dict[str, object]:
-    return {**_detalle(caso), **await _linea(db, caso)}
+async def _ficha(db: Db, caso: Caso, usuario: Usuario) -> dict[str, object]:
+    return {**_detalle(caso), **await _linea(db, caso, usuario.rol)}
 
 
 def _conflicto(exc: flujo.TransicionNoPermitida) -> HTTPException:
@@ -297,7 +300,7 @@ async def crear(
 
 @router.get("/casos/{caso_id}")
 async def ver(caso_id: int, usuario: _Area, db: Db) -> dict[str, object]:
-    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
 
 
 @router.get("/casos/{caso_id}/oficio-consejo")
@@ -323,7 +326,7 @@ async def descargar_oficio_consejo(caso_id: int, usuario: _Area, db: Db) -> Resp
 async def procesar(caso_id: int, usuario: _Administrativa, db: Db) -> dict[str, object]:
     caso = await _caso_del_area(db, caso_id, usuario)
     if caso.estado not in (EstadoCaso.ABIERTO, EstadoCaso.ERROR, EstadoCaso.PROCESANDO):
-        return await _ficha(db, caso)
+        return await _ficha(db, caso, usuario)
     if not caso.texto.strip() and not caso.imagenes:
         raise HTTPException(400, "El caso está vacío.")
     resultado = await casos.procesar(db, caso)
@@ -331,7 +334,7 @@ async def procesar(caso_id: int, usuario: _Administrativa, db: Db) -> dict[str, 
         raise HTTPException(
             502, f"No pude leer el caso: {resultado.error}. Puede intentarlo de nuevo."
         )
-    return await _ficha(db, resultado.caso)
+    return await _ficha(db, resultado.caso, usuario)
 
 
 class Texto(BaseModel):
@@ -350,7 +353,7 @@ async def corregir(
     resultado = await casos.corregir(db, caso, cuerpo.texto[:2000])
     if resultado.error is not None:
         raise HTTPException(502, f"No pude aplicar la corrección: {resultado.error}")
-    return await _ficha(db, resultado.caso)
+    return await _ficha(db, resultado.caso, usuario)
 
 
 class Recomendacion(BaseModel):
@@ -374,7 +377,7 @@ async def recomendar(
         )
     except flujo.TransicionNoPermitida as exc:
         raise _conflicto(exc) from None
-    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
 
 
 class Prerrevision(BaseModel):
@@ -400,7 +403,7 @@ async def prerrevision(
         )
     except flujo.TransicionNoPermitida as exc:
         raise _conflicto(exc) from None
-    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
 
 
 @router.post("/casos/{caso_id}/completar")
@@ -415,7 +418,7 @@ async def completar(
         )
     except flujo.TransicionNoPermitida as exc:
         raise _conflicto(exc) from None
-    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
 
 
 @router.post("/casos/{caso_id}/enviar-consejo")
@@ -431,7 +434,7 @@ async def enviar_consejo(
         )
     except flujo.TransicionNoPermitida as exc:
         raise _conflicto(exc) from None
-    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
 
 
 @router.post("/casos/{caso_id}/volver-al-comite")
@@ -446,7 +449,7 @@ async def volver_al_comite(
         )
     except flujo.TransicionNoPermitida as exc:
         raise _conflicto(exc) from None
-    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
 
 
 @router.post("/casos/{caso_id}/nota")
@@ -455,7 +458,7 @@ async def nota(
 ) -> dict[str, object]:
     caso = await _caso_del_area(db, caso_id, usuario)
     await repo.set_nota(db, caso.id, cuerpo.texto.strip()[:1500] or None)
-    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
 
 
 class Programa(BaseModel):
@@ -470,7 +473,7 @@ async def fijar_programa(
     if cuerpo.programa not in {p.clave for p in programas_de(caso.direccion)}:
         raise HTTPException(400, "Ese programa no es de su área.")
     await repo.set_programa(db, caso.id, cuerpo.programa)
-    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
 
 
 class NuevoConcepto(BaseModel):
@@ -494,7 +497,7 @@ async def concepto(
         tratamiento=casos.tratamiento_de(caso, miembro),
         texto=cuerpo.texto.strip()[:4000],
     )
-    return await _ficha(db, await _caso_del_area(db, caso_id, usuario))
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
 
 
 # ---------------------------------------------------------------------------

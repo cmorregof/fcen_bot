@@ -47,7 +47,7 @@ h1::after { content: ""; display: block; width: 4rem; height: 3px; background: v
 h2 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; color: var(--marino); font-weight: 700; }
 h3 { font-size: 1.05rem; margin: 1rem 0 0.25rem; }
 p, li { max-width: 46rem; }
-a { color: var(--accion); }
+a { color: var(--accion); overflow-wrap: anywhere; }
 small { color: var(--suave); }
 
 :focus-visible { outline: 4px solid var(--foco); outline-offset: 2px; }
@@ -129,7 +129,7 @@ tbody tr:nth-child(even) td { background: var(--panel); }
 .estado.cumplida { color: var(--exito); background: var(--exito-fondo); }
 .estado.pendiente { color: var(--suave); background: var(--panel); }
 
-.aviso-datos { white-space: pre-wrap; background: var(--panel); padding: 1rem; border-radius: 0.4rem; }
+.aviso-datos { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); padding: 1rem; border-radius: 0.4rem; }
 
 .portada { margin: -1.5rem calc(50% - 50vw) 1.5rem; background: var(--panel); padding-bottom: 1.5rem; }
 .portada img { display: block; width: 100%; height: auto; max-height: 22rem; object-fit: cover; }

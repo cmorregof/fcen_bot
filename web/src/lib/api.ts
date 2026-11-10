@@ -32,6 +32,35 @@ export const SERVICIOS: Record<Servicio, { nombre: string; url: string }> = {
 
 export const servicioConfigurado = (s: Servicio) => SERVICIOS[s].url !== "";
 
+// Proxy de Vercel (next.config.ts): el navegador llama a /srv/<servicio> en el
+// dominio de la web y Vercel reenvía a Railway. Así se llega aunque la red
+// bloquee las IP de Railway. NEXT_PUBLIC_PROXY=false vuelve a la llamada
+// directa (para descartar el proxy si algo falla).
+export const PROXY = process.env.NEXT_PUBLIC_PROXY !== "false";
+
+// Los archivos de más de esto van directo a Railway: Vercel no documenta el
+// tope del cuerpo en rewrites externos y el de sus funciones es 4,5 MB. Un
+// zip de soportes de calidad puede pesar cientos de MB.
+export const MAXIMO_PROXY_BYTES = 4 * 1024 * 1024;
+
+/** La raíz de las rutas de un servicio: el proxy, o Railway si `directo`. */
+export function raiz(servicio: Servicio, directo = false): string {
+  if (!servicioConfigurado(servicio)) return "";
+  return PROXY && !directo ? `/srv/${servicio}` : SERVICIOS[servicio].url;
+}
+
+function pesoCuerpo(cuerpo: BodyInit | undefined): number {
+  if (cuerpo instanceof Blob) return cuerpo.size;
+  if (cuerpo instanceof FormData) {
+    let total = 0;
+    cuerpo.forEach((v) => {
+      total += typeof v === "string" ? v.length : v.size;
+    });
+    return total;
+  }
+  return 0;
+}
+
 export class ErrorApi extends Error {
   constructor(
     public estado: number,
@@ -45,8 +74,10 @@ const MENSAJES: Record<number, string> = {
   401: "Su sesión venció o no ha ingresado. Vuelva a ingresar.",
   403: "Esta herramienta no está habilitada para su usuario.",
   404: "No se encontró lo que busca.",
+  413: "El archivo es demasiado grande para enviarlo.",
   502: "El servicio no pudo completar la tarea. Intente de nuevo en un momento.",
   503: "El servicio no está configurado todavía.",
+  504: "El servicio tardó demasiado en responder. Intente de nuevo en un momento.",
 };
 
 export async function llamar<T>(
@@ -54,8 +85,7 @@ export async function llamar<T>(
   ruta: string,
   opciones: { token?: string | null; metodo?: string; json?: unknown; form?: FormData; archivo?: Blob } = {},
 ): Promise<T> {
-  const base = SERVICIOS[servicio].url;
-  if (!base) throw new ErrorApi(0, "Este servicio no está disponible.");
+  if (!servicioConfigurado(servicio)) throw new ErrorApi(0, "Este servicio no está disponible.");
   const cabeceras: Record<string, string> = {};
   if (opciones.token) cabeceras.Authorization = `Bearer ${opciones.token}`;
   let cuerpo: BodyInit | undefined;
@@ -69,14 +99,25 @@ export async function llamar<T>(
     cabeceras["Content-Type"] = "application/json";
     cuerpo = JSON.stringify(opciones.json);
   }
+  // Un archivo grande no cabe por el proxy: va directo a Railway (CORS).
+  const directo = PROXY && pesoCuerpo(cuerpo) > MAXIMO_PROXY_BYTES;
   let r: Response;
   try {
-    r = await fetch(`${base}/api/web${ruta}`, {
+    r = await fetch(`${raiz(servicio, directo)}/api/web${ruta}`, {
       method: opciones.metodo ?? (cuerpo ? "POST" : "GET"),
       headers: cabeceras,
       body: cuerpo,
     });
   } catch {
+    if (directo) {
+      const mb = Math.floor(MAXIMO_PROXY_BYTES / (1024 * 1024));
+      throw new ErrorApi(
+        0,
+        `No se pudo enviar el archivo. Los archivos de más de ${mb} MB van directo al servidor del servicio, ` +
+          "y esta red parece bloquearlo. Intente desde otra red (por ejemplo, los datos del celular) " +
+          `o con un archivo de menos de ${mb} MB.`,
+      );
+    }
     throw new ErrorApi(0, "No hay conexión con el servicio. Revise su internet e intente de nuevo.");
   }
   if (!r.ok) {

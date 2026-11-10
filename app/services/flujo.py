@@ -845,8 +845,11 @@ def siguiente(
     leido: bool,
     tipos: list[TipoSolicitud],
     instancia_decision: str | None = None,
+    archivo_drive: bool = True,
 ) -> Siguiente | None:
-    """El siguiente paso y quién lo hace. Solo describe: no decide nada."""
+    """El siguiente paso y quién lo hace. Solo describe: no decide nada.
+    `archivo_drive`: el archivo oficial en Drive está activo; sin él, la
+    línea termina al notificar (no hay dónde archivar desde MemorIA)."""
     config = solicitudes.actual()
     adm = "Administrativa del programa"
     if etapa == Etapa.LLEGADA:
@@ -888,7 +891,7 @@ def siguiente(
         )
     if etapa == Etapa.EXPEDIDA:
         return Siguiente("Notificar al estudiante (fecha)", "Secretaría de Facultad")
-    if etapa == Etapa.NOTIFICADA:
+    if etapa == Etapa.NOTIFICADA and archivo_drive:
         return Siguiente(
             "Archivar en Drive el oficio o la resolución firmados",
             "Secretaría de Facultad",
@@ -917,6 +920,21 @@ def dia(valor: str | None) -> date | None:
     if momento.tzinfo is None:
         momento = momento.replace(tzinfo=UTC)
     return momento.astimezone(_zona()).date()
+
+
+def hora_local(valor: str | None) -> str | None:
+    """Para mostrar: las marcas de tiempo se guardan en UTC y se muestran en
+    la hora local (la misma de los días por tramo); las fechas de día (acta,
+    expedición, notificación) quedan tal cual."""
+    if not valor or len(valor) == 10:
+        return valor
+    try:
+        momento = datetime.fromisoformat(valor)
+    except ValueError:
+        return valor
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=UTC)
+    return momento.astimezone(_zona()).strftime("%Y-%m-%d %H:%M")
 
 
 def _ultimo(evs: list[Evento], accion: Accion) -> Evento | None:

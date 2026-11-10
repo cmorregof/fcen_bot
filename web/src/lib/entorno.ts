@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PRACTICA, SERVICIOS, Servicio, servicioConfigurado } from "./api";
+import { PRACTICA, SERVICIOS, Servicio, raiz, servicioConfigurado } from "./api";
 
 // ¿Es el entorno de práctica? Sí si este despliegue se construyó con
 // NEXT_PUBLIC_PRACTICA=true o si algún backend al que apunta lo declara
@@ -13,7 +13,7 @@ let consulta: Promise<boolean> | null = null;
 function consultar(): Promise<boolean> {
   consulta ??= Promise.all(
     (Object.keys(SERVICIOS) as Servicio[]).filter(servicioConfigurado).map((s) =>
-      fetch(`${SERVICIOS[s].url}/api/web/entorno`)
+      fetch(`${raiz(s)}/api/web/entorno`)
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => d?.practica === true)
         .catch(() => false), // sin conexión: se muestra como producción
