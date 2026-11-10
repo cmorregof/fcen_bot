@@ -198,15 +198,15 @@ export default function RevisionSoportes() {
       servicio="calidad"
       roles={["calidad", "admin"]}
       hace={[
-        "Revisa las carpetas y los nombres de las evidencias según el instructivo de la Dirección Académica y prellena el índice electrónico del expediente, sin costo.",
-        "Con la revisión con el modelo encendida: describe cada archivo y los cruza con las acciones del plan.",
-        "Antes de empezar le dice cuántos archivos hay y cuánto costará, y solo empieza si usted confirma.",
-        "Entrega tres archivos para revisar: inventario, cruce y borrador del cierre.",
+        "Revisa carpetas y nombres según el instructivo y prellena el índice del expediente, sin costo.",
+        "Con el modelo encendido, describe cada archivo y lo cruza con el plan.",
+        "Antes le dice cuánto costará y espera su confirmación.",
+        "Entrega inventario, cruce y borrador del cierre.",
       ]}
       noHace={[
         "No decide si una acción se cumplió: propone, y usted revisa.",
         "No cambia el % de avance del plan.",
-        "No guarda los soportes: se borran al terminar. Los resultados se borran con el botón «Borrar soportes» o solos, pasado un tiempo.",
+        "No guarda los soportes: se borran al terminar.",
       ]}
     >
       {apagado ? (

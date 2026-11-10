@@ -43,8 +43,8 @@ export function Ingreso() {
 
   return (
     <div>
-      <h2>Ingresar como funcionario</h2>
-      <p>Use su cuenta institucional @unal.edu.co. No se crea ninguna contraseña nueva.</p>
+      <h2>Ingresar</h2>
+      <p>Con su cuenta institucional @unal.edu.co, sin contraseñas nuevas.</p>
       {CLIENT_ID ? (
         <>
           <Script src="https://accounts.google.com/gsi/client" onLoad={iniciarGoogle} />
@@ -61,8 +61,8 @@ export function Ingreso() {
           }}
         >
           <label htmlFor="correo-dev">
-            Correo ficticio (solo para pruebas en este computador)
-            <span className="ayuda">Ejemplo: calidad@unal.edu.co, administrativa@unal.edu.co, decana@unal.edu.co</span>
+            Correo de prueba (solo en este computador)
+            <span className="ayuda">Ej.: administrativa@unal.edu.co</span>
           </label>
           <input id="correo-dev" type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} required />
           <div className="botones">

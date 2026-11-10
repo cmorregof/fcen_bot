@@ -149,18 +149,18 @@ export default function BorradorAvance() {
 
   return (
     <Pantalla
-      titulo="Borrador de avance del corte"
+      titulo="Avance del corte"
       servicio="calidad"
       roles={["calidad", "admin"]}
       hace={[
-        "Propone, para cada acción de un programa, la descripción de avance de un corte, con las tareas del cronograma, el % declarado, lo escrito en cortes anteriores, los enlaces de evidencia y los soportes que el revisor ya describió.",
-        "Cada frase cita su fuente (hoja y fila del plan, enlace o soporte). Lo que no tiene fuente se marca y no se afirma.",
+        "Propone el texto de avance de cada acción en un corte, con sus evidencias.",
+        "Cada frase cita su fuente; lo que no la tiene se marca.",
         "Si una acción no tiene evidencia nueva, lo dice: «Sin evidencia nueva en el corte».",
       ]}
       noHace={[
-        "No decide si una acción se cumplió ni cambia el % de avance: propone, y la oficina de calidad aprueba, edita o descarta en el Excel.",
+        "No decide si una acción se cumplió ni cambia el % de avance: propone, y Calidad aprueba.",
         "No escribe nombres de personas: solo cargos y dependencias.",
-        "No escribe en el plan: el texto aprobado se carga a mano en el plan o en el sistema de autoevaluación.",
+        "No escribe en el plan: el texto aprobado se carga a mano.",
       ]}
     >
       {apagado ? (

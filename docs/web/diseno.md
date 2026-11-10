@@ -80,14 +80,17 @@ Navegador ──(páginas y JS)──► Vercel: web/ (Next.js, sin datos)
 
 ## 5. Accesibilidad (usuarios de unos 50 años)
 
-- Letra base de 20 px, títulos de 32 px, interlineado amplio; contraste AA o mejor (texto casi
+- Letra base de 20 px (18 px en celular), títulos de 32 px, interlineado amplio; contraste AA o mejor (texto casi
   negro sobre blanco, azul oscuro para acciones). Funciona con el zoom del navegador.
 - Todo en español, sin jerga: «Revisar documento», no «Upload»; «Recomendar aprobar», no «OK».
 - **Pocos pasos**: cada pantalla tiene una tarea principal y un botón grande para hacerla.
 - **Etiquetas explícitas** en cada campo, nunca solo un ícono ni un *placeholder*.
-- Cada pantalla abre con un recuadro **«Qué hace esta pantalla / Qué no hace»**.
+- Cada pantalla tiene, bajo el título, la línea plegable **«¿Qué hace esta pantalla?»** con lo que hace
+  y lo que no hace. El trabajo de la pantalla va primero.
+- Pocas cajas: superficies suaves en lugar de bordes; un botón primario (azul marino) y uno
+  secundario (azul claro) por acción; tablas sin relleno oscuro. Íconos de trazo en línea, sin librerías.
 - Mensajes de error que dicen qué pasó y qué hacer.
-- Foco visible para teclado, botones de al menos 48 px de alto.
+- Foco visible para teclado (contorno magenta), botones y controles de al menos 44 px de alto.
 - Estilo sobrio, sin logos oficiales hasta tener aval. El nombre es «MemorIA · FCEN».
 
 ## 6. Datos y privacidad
