@@ -7,8 +7,9 @@ aprobar», y decide el Consejo.
 
 from __future__ import annotations
 
-import hashlib
+from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -17,7 +18,6 @@ from pydantic import BaseModel
 from app.api.web import auth
 from app.api.web.auth import Db, Usuario
 from app.core import solicitudes
-from app.core.config import settings
 from app.core.programas import (
     DIRECCIONES,
     PROGRAMAS,
@@ -35,6 +35,7 @@ from app.schemas.consejo import (
 )
 from app.services import (
     actas_comite,
+    adjuntos,
     borrador,
     casos,
     consejo,
@@ -55,9 +56,9 @@ _ActaConsejo = Annotated[Usuario, Depends(auth.requiere("administrativa", "admin
 # Oficio, acta y firma: la administrativa o admin, siempre de su dirección.
 _Firma = Annotated[Usuario, Depends(auth.requiere("administrativa", "admin"))]
 
-_IMAGENES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
-_MAX_IMAGEN = 10_000_000
-_MAX_IMAGENES = 12
+# Adjuntos por envío; el tope por caso y por archivo está en
+# app/services/adjuntos.py.
+_MAX_POR_ENVIO = 20
 
 ETIQUETA_SENTIDO = {
     Sentido.APROBAR: "Recomendar aprobar",
@@ -224,7 +225,12 @@ async def _linea(db: Db, caso: Caso, rol: str) -> dict[str, object]:
 
 
 async def _ficha(db: Db, caso: Caso, usuario: Usuario) -> dict[str, object]:
-    return {**_detalle(caso), **await _linea(db, caso, usuario.rol)}
+    return {
+        **_detalle(caso),
+        **await _linea(db, caso, usuario.rol),
+        "adjuntos": await adjuntos.listar(db, caso.id),
+        "tipos_adjuntos": adjuntos.TEXTO_PERMITIDOS,
+    }
 
 
 def _conflicto(exc: flujo.TransicionNoPermitida) -> HTTPException:
@@ -246,31 +252,51 @@ async def listar(usuario: _Area, db: Db) -> dict[str, object]:
     }
 
 
+async def _leer_adjuntos(archivos: list[UploadFile]) -> list[tuple[bytes, str]]:
+    """Lee y valida todo antes de guardar nada: si uno no sirve, no entra
+    ninguno y se dice cuál."""
+    if len(archivos) > _MAX_POR_ENVIO:
+        raise HTTPException(400, f"Adjunte máximo {_MAX_POR_ENVIO} archivos a la vez.")
+    leidos: list[tuple[bytes, str]] = []
+    for a in archivos:
+        nombre = (a.filename or "archivo").rsplit("/", 1)[-1][:200]
+        datos = await a.read(adjuntos.MAX_DOCUMENTO + 1)
+        try:
+            adjuntos.validar(datos, nombre)
+        except adjuntos.AdjuntoInvalido as exc:
+            raise HTTPException(400, str(exc)) from None
+        leidos.append((datos, nombre))
+    return leidos
+
+
+async def _guardar_adjuntos(
+    db: Db, caso_id: int, leidos: list[tuple[bytes, str]]
+) -> list[adjuntos.Agregado]:
+    if len(leidos) > await adjuntos.cupo(db, caso_id):
+        raise HTTPException(
+            400, f"Un caso admite máximo {adjuntos.MAX_POR_CASO} adjuntos."
+        )
+    try:
+        return [await adjuntos.agregar(db, caso_id, d, n) for d, n in leidos]
+    except adjuntos.AdjuntoInvalido as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
 @router.post("/casos")
 async def crear(
     usuario: _Administrativa,
     db: Db,
     texto: Annotated[str, Form()] = "",
+    archivos: Annotated[list[UploadFile] | None, File()] = None,
     imagenes: Annotated[list[UploadFile] | None, File()] = None,
 ) -> dict[str, object]:
-    """Crea un caso con el texto del correo y los pantallazos del SIA."""
+    """Crea un caso con el texto del correo y sus adjuntos: pantallazos del
+    SIA, formatos de solicitud y anexos (PDF, Word o imágenes)."""
     direccion = _direccion(usuario)
-    archivos = imagenes or []
-    if not texto.strip() and not archivos:
-        raise HTTPException(400, "Pegue el correo o adjunte al menos un pantallazo.")
-    if len(archivos) > _MAX_IMAGENES:
-        raise HTTPException(400, f"Adjunte máximo {_MAX_IMAGENES} pantallazos.")
-    leidos: list[tuple[bytes, str]] = []
-    for a in archivos:
-        ext = _IMAGENES.get(a.content_type or "")
-        if ext is None:
-            raise HTTPException(
-                400, f"«{a.filename}» no es una imagen JPG, PNG o WEBP."
-            )
-        datos = await a.read(_MAX_IMAGEN + 1)
-        if len(datos) > _MAX_IMAGEN:
-            raise HTTPException(400, f"«{a.filename}» pesa más de 10 MB.")
-        leidos.append((datos, ext))
+    todos = [*(archivos or []), *(imagenes or [])]
+    if not texto.strip() and not todos:
+        raise HTTPException(400, "Pegue el correo o adjunte al menos un archivo.")
+    leidos = await _leer_adjuntos(todos)
     caso_id = await repo.crear_caso(
         db,
         chat_id=0,
@@ -281,26 +307,149 @@ async def crear(
     )
     if texto.strip():
         await repo.agregar_texto(db, caso_id, texto.strip())
-    carpeta = settings.media_dir / str(caso_id)
-    carpeta.mkdir(parents=True, exist_ok=True)
-    for datos, ext in leidos:
-        unico = "web_" + hashlib.sha256(datos).hexdigest()[:24]
-        ruta = carpeta / f"{unico}{ext}"
-        ruta.write_bytes(datos)
-        await repo.agregar_archivo(
-            db,
-            caso_id,
-            tipo="imagen",
-            ruta=str(ruta),
-            nombre=None,
-            file_unique_id=unico,
-        )
+    await _guardar_adjuntos(db, caso_id, leidos)
     return {"id": caso_id}
 
 
 @router.get("/casos/{caso_id}")
 async def ver(caso_id: int, usuario: _Area, db: Db) -> dict[str, object]:
     return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
+
+
+_Borrar = Annotated[Usuario, Depends(auth.requiere("administrativa", "admin"))]
+
+
+@router.post("/casos/{caso_id}/archivos")
+async def adjuntar(
+    caso_id: int,
+    usuario: _Administrativa,
+    db: Db,
+    archivos: Annotated[list[UploadFile], File()],
+) -> dict[str, object]:
+    """Agrega adjuntos a un caso ya creado."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    if caso.estado in (EstadoCaso.CERRADO, EstadoCaso.DECIDIDO_CONSEJO):
+        raise HTTPException(
+            409, "El caso ya pasó por el comité; no se le agregan adjuntos."
+        )
+    if not archivos:
+        raise HTTPException(400, "Elija al menos un archivo.")
+    agregados = await _guardar_adjuntos(db, caso.id, await _leer_adjuntos(archivos))
+    caso = await _caso_del_area(db, caso_id, usuario)
+    avisos: list[str] = []
+    if any(a.tipo == "pendiente" for a in agregados):
+        avisos.append("Hay un PDF escaneado: indique si es el formato.")
+    if caso.extraccion is not None and any(
+        a.nuevo and a.tipo in ("imagen", "formato") for a in agregados
+    ):
+        avisos.append("Vuelva a leer el caso para incluir lo nuevo.")
+    return {**await _ficha(db, caso, usuario), "aviso": " ".join(avisos) or None}
+
+
+@router.get("/casos/{caso_id}/archivos/{archivo_id}")
+async def descargar_adjunto(
+    caso_id: int, archivo_id: int, usuario: _Area, db: Db
+) -> Response:
+    caso = await _caso_del_area(db, caso_id, usuario)
+    archivo = await repo.get_archivo_por_id(db, caso.id, archivo_id)
+    if archivo is None or not archivo.ruta or not Path(archivo.ruta).exists():
+        raise HTTPException(404, "Ese adjunto no está guardado.")
+    ruta = Path(archivo.ruta)
+    nombre = archivo.nombre or f"adjunto_{archivo.id}{ruta.suffix}"
+    return Response(
+        ruta.read_bytes(),
+        media_type=adjuntos.MIME.get(ruta.suffix.lower(), "application/octet-stream"),
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(nombre)}"
+        },
+    )
+
+
+class Clasificacion(BaseModel):
+    es_formato: bool
+
+
+@router.post("/casos/{caso_id}/archivos/{archivo_id}/clasificar")
+async def clasificar_adjunto(
+    caso_id: int,
+    archivo_id: int,
+    cuerpo: Clasificacion,
+    usuario: _Administrativa,
+    db: Db,
+) -> dict[str, object]:
+    """Un PDF escaneado: la administrativa dice si es el formato de solicitud."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    archivo = await repo.get_archivo_por_id(db, caso.id, archivo_id)
+    if archivo is None or archivo.file_unique_id is None:
+        raise HTTPException(404, "No encontré ese adjunto.")
+    mensaje = await adjuntos.resolver_pendiente(
+        db, caso.id, archivo.file_unique_id, es_formato=cuerpo.es_formato
+    )
+    if mensaje is None:
+        raise HTTPException(409, "Ese adjunto ya estaba clasificado.")
+    return {
+        **await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario),
+        "aviso": mensaje,
+    }
+
+
+@router.delete("/casos/{caso_id}/archivos/{archivo_id}")
+async def borrar_adjunto(
+    caso_id: int, archivo_id: int, usuario: _Borrar, db: Db
+) -> dict[str, object]:
+    """Borra un adjunto equivocado del disco y de la base. Solo la
+    administrativa del área del caso o admin. La web pide confirmación antes."""
+    if usuario.rol == "admin" and usuario.direccion not in DIRECCIONES:
+        caso = await repo.get_caso(db, caso_id)
+        if caso is None:
+            raise HTTPException(404, "No encontré ese caso.")
+    else:
+        caso = await _caso_del_area(db, caso_id, usuario)
+    try:
+        borrado = await adjuntos.borrar(
+            db,
+            caso,
+            archivo_id,
+            rol=usuario.rol,
+            persona=_persona(usuario),
+            canal="web",
+        )
+    except KeyError:
+        raise HTTPException(404, "No encontré ese adjunto en el caso.") from None
+    actualizado = await repo.get_caso(db, caso.id)
+    assert actualizado is not None
+    return {
+        **await _ficha(db, actualizado, usuario),
+        "aviso": borrado.aviso,
+        "borrado_leido": borrado.leido,
+    }
+
+
+@router.post("/casos/{caso_id}/releer")
+async def releer(caso_id: int, usuario: _Administrativa, db: Db) -> dict[str, object]:
+    """Vuelve a leer con el modelo un caso ya leído (p. ej. tras quitar un
+    adjunto). Cambia los datos leídos; nunca la recomendación."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    if caso.estado in (
+        EstadoCaso.CERRADO,
+        EstadoCaso.DECIDIDO_CONSEJO,
+        EstadoCaso.DESCARTADO,
+    ):
+        raise HTTPException(
+            409, f"El caso está {caso.estado.value}; ya no se vuelve a leer."
+        )
+    if not caso.texto.strip() and not caso.imagenes:
+        raise HTTPException(400, "El caso está vacío.")
+    estaba_listo = caso.estado == EstadoCaso.LISTO
+    resultado = await casos.procesar(db, caso)
+    if resultado.error is not None:
+        if estaba_listo:
+            # Se conserva la lectura anterior.
+            await repo.set_estado_caso(db, caso.id, EstadoCaso.LISTO)
+        raise HTTPException(
+            502, f"No pude leer el caso: {resultado.error}. Puede intentarlo de nuevo."
+        )
+    return await _ficha(db, resultado.caso, usuario)
 
 
 @router.get("/casos/{caso_id}/oficio-consejo")

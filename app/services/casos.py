@@ -56,6 +56,8 @@ async def procesar(db: Conexion, caso: Caso) -> Resultado:
         salida.extraccion,
         salida.programa.clave if salida.programa else None,
     )
+    # Para avisar, si se borra un adjunto, que ya se había usado.
+    await repo.marcar_leidos(db, caso.id)
     # Con la lectura lista, el caso entra al comité (si la prerrevisión no es
     # obligatoria): app/services/flujo.py.
     await flujo.lectura_lista(db, caso.id)

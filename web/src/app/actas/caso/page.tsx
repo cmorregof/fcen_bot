@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { guardarArchivo, llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
+import { type Adjunto, Adjuntos } from "./Adjuntos";
 
 type Detalle = {
   id: number;
@@ -35,6 +36,9 @@ type Detalle = {
   programas: { clave: string; nombre: string }[];
   imagenes: number;
   anexos: string[];
+  // Pantallazos, formatos y anexos, con su id para descargar o quitar.
+  adjuntos: Adjunto[];
+  tipos_adjuntos: string;
   consejo: DecisionConsejo | null;
   // Hay decisión final del Consejo de Facultad: se puede bajar el borrador del oficio.
   oficio_consejo: boolean;
@@ -332,6 +336,16 @@ function Ficha() {
           ) : null}
         </div>
       ) : null}
+      {caso ? (
+        <Adjuntos<Detalle & { aviso?: string | null }>
+          casoId={caso.id}
+          adjuntos={caso.adjuntos}
+          leido={caso.extraccion !== null}
+          editable={administrativa}
+          token={t}
+          onFicha={setCaso}
+        />
+      ) : null}
       {caso && !caso.extraccion ? (
         <>
           <Mensaje tipo="info">Este caso todavía no se ha leído.</Mensaje>
@@ -352,7 +366,6 @@ function Ficha() {
             <li>Documento: {caso.extraccion.documento ?? "no aparece"}</li>
             <li>Fecha de la solicitud: {caso.extraccion.fecha_solicitud ?? "no aparece"}</li>
             <li>Justificación: {caso.extraccion.justificacion_breve}</li>
-            <li>Pantallazos: {caso.imagenes}. Anexos: {caso.anexos.length ? caso.anexos.join(", ") : "ninguno"}</li>
           </ul>
           <h3>Quién decide</h3>
           <p>

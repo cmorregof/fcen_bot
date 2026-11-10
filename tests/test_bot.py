@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import io
 from typing import Any
 
 import aiosqlite
 import pytest
+from docx import Document as DocxDocument
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.db import repo
+from app.integrations import telegram
 from app.integrations.claude import Imagen, Resultado
 from app.main import app
 from app.schemas.caso import EstadoCaso, ExtraccionCaso, Sentido
@@ -120,24 +123,37 @@ async def test_flujo_completo(
             photo=[{"file_id": "f1", "file_unique_id": "u1", "width": 40, "height": 20}]
         ),
     )
+    soporte = io.BytesIO()
+    documento = DocxDocument()
+    documento.add_paragraph("Certificado ficticio de asistencia")
+    documento.save(soporte)
+    descargar_png = tg.descargar_archivo
+
+    async def descargar(file_id: str, **kw: Any) -> bytes:
+        if file_id == "f2":
+            return soporte.getvalue()
+        return await descargar_png(file_id, **kw)
+
+    monkeypatch.setattr(telegram, "descargar_archivo", descargar)
     await bot.manejar_update(
         db,
         _update(
             document={
                 "file_id": "f2",
                 "file_unique_id": "u2",
-                "file_name": "soporte.pdf",
-                "mime_type": "application/pdf",
+                "file_name": "soporte.docx",
+                "mime_type": "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document",
             }
         ),
     )
     caso = await repo.get_caso(db, 1)
-    assert caso and len(caso.imagenes) == 1 and caso.anexos_archivos == ["soporte.pdf"]
+    assert caso and len(caso.imagenes) == 1 and caso.anexos_archivos == ["soporte.docx"]
 
     await bot.manejar_update(db, _update(text="/listo"))
     llamada = estructurador.llamadas[-1]
     assert len(llamada["imagenes"]) == 1 and isinstance(llamada["imagenes"][0], Imagen)
-    assert "soporte.pdf" in llamada["texto"]
+    assert "soporte.docx" in llamada["texto"]
     caso = await repo.get_caso(db, 1)
     assert caso and caso.estado == EstadoCaso.LISTO and caso.programa == "ing_fisica"
     ficha = tg.textos()[-1]
