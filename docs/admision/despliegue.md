@@ -1,7 +1,7 @@
 # Despliegue del servicio de admisión en Railway
 
 Se crea igual que `fcen-calidad`: mismo repositorio, misma rama, mismo `Dockerfile`
-y `railway.toml`, con su propio volumen, su propio bot de Telegram y su propia base.
+y la misma configuración de `.railway/railway.ts`, con su propio volumen, su propio bot de Telegram y su propia base.
 La guía general (BotFather, secretos de webhook, `set_webhook.py`) está en
 [`docs/despliegue-servicios.md`](../despliegue-servicios.md).
 
@@ -10,8 +10,12 @@ La guía general (BotFather, secretos de webhook, `set_webhook.py`) está en
 1. En el proyecto de Railway: **+ New** → **GitHub Repo** → `cmorregof/fcen_bot`, rama `main`.
 2. **Settings**:
    - Nombre: `fcen-admision`.
-   - Build: `Dockerfile` de la raíz (lo fija `railway.toml`).
-   - Healthcheck: `/health` (lo fija `railway.toml`, con 300 s de espera).
+   - Build: `Dockerfile` de la raíz.
+   - Healthcheck: `/health`, con 300 s de espera.
+   - Ambos los fija `.railway/railway.ts`: agregue allí el servicio `fcen-admision` y su
+     volumen, y aplíquelo con `railway config apply` (ver
+     [`docs/despliegue-servicios.md`](../despliegue-servicios.md#9-configuración-de-despliegue-railwayrailwayts)).
+     Si no está en ese archivo, el siguiente `apply` lo marca para borrarlo.
    - **Networking** → **Generate Domain** (por ejemplo `fcen-admision.up.railway.app`).
 3. **Volumes** → **Add Volume** montado en `/data`. Es solo de este servicio: allí
    quedan la base (`/data/admision/fcen.db`, solo consentimientos y contadores) y

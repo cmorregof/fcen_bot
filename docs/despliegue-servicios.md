@@ -231,3 +231,73 @@ Definiciones y lo que falta de la plantilla de Calidad: `docs/indicadores.md`.
 - Está apagado por defecto: con `REPORTE_MENSUAL_ACTIVO` en `false` la ruta responde `activo: false` y no envía nada. Se enciende con `true`.
 - Si el reporte de un mes ya salió, una nueva corrida responde `ya_enviado: true` y no lo repite.
 - Como con la decanatura, cada persona de la Vicedecanatura debe abrir el bot y enviar `/start` una vez.
+
+---
+
+## 9. Configuración de despliegue (`.railway/railway.ts`)
+
+Railway dejó de recomendar `railway.toml` (Config as Code) y **deja de leerlo el 1 de diciembre de 2026**. Lo reemplaza `.railway/railway.ts` (Infrastructure as Code). Si no se migra, los servicios pierden el healthcheck: Railway reemplazaría el despliegue vivo aunque falte el volumen o Postgres no responda (en esos casos `/health` responde 503).
+
+### Qué cambió
+
+| | Antes (`railway.toml`) | Ahora (`.railway/railway.ts`) |
+|---|---|---|
+| Builder | `DOCKERFILE` | `build.builder: "DOCKERFILE"` (con `buildEnvironment: "V3"`, el que ya usan los servicios) |
+| Healthcheck | `healthcheckPath = "/health"`, `healthcheckTimeout = 300` | `healthcheck: "/health"`, `healthcheckTimeout: 300` |
+| Reinicio | `restartPolicyType = "ON_FAILURE"`, `restartPolicyMaxRetries = 10` | `deploy.restartPolicyType: "ON_FAILURE"`, `deploy.restartPolicyMaxRetries: 10` |
+| Cuándo se lee | En cada despliegue | **Nunca al desplegar.** Solo con `railway config apply`, que guarda esos valores en los ajustes de cada servicio |
+| Alcance | Cualquier servicio que despliegue el repo | El proyecto completo: `fcen_bot` (actas), `fcen-calidad`, `fcen-oportunidades`, Postgres y los cuatro volúmenes |
+
+- Las **variables no las gestiona el archivo** (`variables: { managed: false }`): siguen en la pestaña Variables de cada servicio y `apply` no las toca.
+- Volúmenes, regiones, réplicas y Postgres se declaran tal como están hoy en Railway (los importó `railway config migrate`). No cambian.
+- **Lo que no esté en el archivo, `apply` lo marca para borrarlo.** Al crear un servicio nuevo (admisión), agréguelo al archivo con su volumen antes del siguiente `apply`. El plan siempre muestra las destrucciones y pide confirmación.
+- `.railway/package.json` instala el SDK de Railway (`railway` 3.16.0), que la CLI necesita para evaluar el archivo. Lo usa solo la CLI; la imagen Docker no lo incluye (`.dockerignore`).
+
+Cómo se generó: `railway config migrate --variables unmanaged --show` (CLI 5.71, solo lectura), con dos ajustes a mano:
+
+1. La política de reinicio se escribe explícita. El generador la omitió.
+2. `fcen_bot` usa la misma fuente que los otros dos servicios (`cmorregof/fcen_bot`, rama `main`). El generador la había fijado en un commit (`commitSha`), lo que habría congelado sus despliegues.
+
+No se usó `railway config migrate --apply` ni `cutover`: según la documentación, `--apply` además borra la ruta del archivo de configuración en los ajustes de los servicios.
+
+### Plan esperado
+
+Desde la raíz del repo, con la CLI enlazada al proyecto `fcen-bot`, entorno `production`:
+
+```bash
+(cd .railway && npm ci)
+```
+
+```bash
+railway config plan --verbose
+```
+
+Debe decir `Plan: 0 to add, 6 to change, 0 to destroy` y `variables: unmanaged`. Los seis cambios son, por servicio, poner en sus ajustes el builder (`null → "DOCKERFILE"`) y el healthcheck y la política de reinicio (`null → "/health"`, `null → 300`, `null → "ON_FAILURE"`, `null → 10`). Hoy esos ajustes están vacíos en Railway porque los aporta `railway.toml` en cada despliegue. **Si el plan muestra algo que destruir, o cambios de variables o volúmenes, no aplique.**
+
+### Pasos para activarla (los hace una persona, no el PR)
+
+1. Fusionar el PR. `railway.toml` se queda en el repo por ahora: mientras exista, cada despliegue sigue tomando de ahí los mismos valores.
+2. `railway config plan --verbose` y revisar que coincida con lo anterior.
+3. `railway config apply`. Puede disparar un despliegue nuevo de cada servicio.
+4. Verificar (siguiente apartado).
+5. En un PR aparte, borrar `railway.toml`. Antes de fusionarlo, `railway config plan --detailed-exit-code` debe salir con 0 (sin cambios pendientes). Todo esto antes del 1-dic-2026.
+
+### Cómo verificar que Railway usa la configuración nueva
+
+En el panel de Railway, en **Settings** de cada servicio (`fcen_bot`, `fcen-calidad`, `fcen-oportunidades`):
+
+- **Build** → Builder: `Dockerfile`.
+- **Deploy** → Healthcheck Path: `/health`; Healthcheck Timeout: `300`.
+- **Deploy** → Restart Policy: `On Failure`, máximo `10` reintentos.
+
+Desde la terminal:
+
+```bash
+railway config plan --detailed-exit-code
+```
+
+Sale con 0 cuando Railway ya coincide con el archivo (sale con 2 si hay cambios pendientes).
+
+`railway config migrate status` no sirve para esto: ya hoy dice que ningún servicio lee Config as Code, porque los servicios no tienen una ruta de archivo configurada (Railway lee `railway.toml` de la raíz por defecto).
+
+Y el despliegue sigue sano: `curl https://<app-name>.up.railway.app/health` responde `"ok": true` en cada servicio. En el registro del despliegue, la fase **Healthcheck** debe aparecer con la ruta `/health`.
