@@ -10,7 +10,7 @@ from app.schemas.caso import AsignaturaSolicitada, Sentido
 from app.services.documento import construir_acta, construir_oficio
 from app.services.ficha import ficha
 from app.services.reglas import analizar
-from tests.conftest import extraccion_ejemplo
+from tests.conftest import extraccion_ejemplo, tablas_del_caso
 from tests.test_documento import _datos
 
 
@@ -52,8 +52,8 @@ def test_cuadro_con_grupo_y_tipologia_sin_columna_de_tramite() -> None:
         texto = [p.text for p in doc.paragraphs]
         assert "Cancelar las siguientes asignaturas:" in texto
         assert "Inscribir las siguientes asignaturas:" in texto
-        assert len(doc.tables) == 2
-        for tabla in doc.tables:
+        assert len(tablas_del_caso(doc)) == 2
+        for tabla in tablas_del_caso(doc):
             assert [c.text for c in tabla.rows[0].cells] == [
                 "Código",
                 "Asignatura",
@@ -61,7 +61,7 @@ def test_cuadro_con_grupo_y_tipologia_sin_columna_de_tramite() -> None:
                 "Tipología",
                 "Créditos",
             ]
-        assert [c.text for c in doc.tables[0].rows[1].cells] == [
+        assert [c.text for c in tablas_del_caso(doc)[0].rows[1].cells] == [
             "4100849",
             "Termodinámica",
             "2",
