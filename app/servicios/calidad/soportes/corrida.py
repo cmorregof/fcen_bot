@@ -40,7 +40,7 @@ from app.servicios.calidad.config import calidad_settings
 from app.servicios.calidad.soportes.carga import ZipNoValido, extraer
 from app.servicios.calidad.soportes.cliente import ClienteAnthropic, ClienteModelo
 from app.servicios.calidad.soportes.describir import Cache
-from app.servicios.calidad.soportes.inventario import inventariar
+from app.servicios.calidad.soportes.inventario import carpetas, inventariar
 from app.servicios.calidad.soportes.modelos import Accion, Archivo, Uso
 from app.servicios.calidad.soportes.organizacion import revisar as revisar_organizacion
 from app.servicios.calidad.soportes.revisor import (
@@ -267,7 +267,7 @@ def _preparar(
     if not archivos:
         raise ZipNoValido("El zip no trae soportes.")
     # Carpetas y nombres según el instructivo: sin modelo, antes de pagar.
-    org = revisar_organizacion(archivos)
+    org = revisar_organizacion(archivos, carpetas(_soportes()))
     organizacion_xlsx(_salidas() / DESCARGAS["organizacion"][0], org)
     indice_electronico_xlsx(_salidas() / DESCARGAS["indice"][0], org)
     if not calidad_settings.revisor_activo:

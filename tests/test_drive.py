@@ -434,10 +434,21 @@ def _doc(**cambios: object) -> archivo.Documento:
     return archivo.Documento(**base)  # type: ignore[arg-type]
 
 
+def _formato(falso: DriveFalso, ruta: str):  # type: ignore[no-untyped-def]
+    return load_workbook(io.BytesIO(falso.archivos()[ruta]))["Formato"]
+
+
 def _indice(falso: DriveFalso, ruta: str) -> list[tuple[object, ...]]:
-    libro = load_workbook(io.BytesIO(falso.archivos()[ruta]))
-    ws = libro.worksheets[0]
-    return [f[1:12] for f in ws.iter_rows(min_row=11, values_only=True) if f[1]]
+    ws = _formato(falso, ruta)
+    filas = []
+    for f in ws.iter_rows(min_row=13, min_col=2, max_col=12, values_only=True):
+        if not f[0] or str(f[0]).startswith(("Fecha de cierre", "Firma")):
+            break
+        filas.append(f)
+    return filas
+
+
+INDICE_CN = "Actas/2026/Ciencias Naturales/Índice Actas 2026.xlsx"
 
 
 async def test_estructura_e_indice(configurado: DriveFalso) -> None:
@@ -456,38 +467,136 @@ async def test_estructura_e_indice(configurado: DriveFalso) -> None:
     await archivo.archivar(
         configurado,
         RAIZ,
+        _doc(numero="020", programa="ing_fisica", fecha=date(2026, 11, 6)),
+        hoy,
+    )
+    await archivo.archivar(
+        configurado,
+        RAIZ,
         _doc(tipo="oficio", numero="Mz.FCEN.1.004-000-2026"),
         hoy,
     )
     archivos = configurado.archivos()
     assert set(archivos) == {
         "Actas/2026/Ciencias Naturales/Ingeniería Física/Acta_019_ing_fisica_20261030.pdf",
+        "Actas/2026/Ciencias Naturales/Ingeniería Física/Acta_020_ing_fisica_20261106.pdf",
         "Actas/2026/Matemáticas y Estadística/Matemáticas/Acta_Acta-7-2026_matematicas_20260901.pdf",
-        "Actas/2026/Índice Actas 2026.xlsx",
+        INDICE_CN,
+        "Actas/2026/Matemáticas y Estadística/Índice Actas 2026.xlsx",
         "Oficios/2026/Ciencias Naturales/Ingeniería Física/Oficio_Mz.FCEN.1.004-000-2026_ing_fisica_20261030.pdf",
         "Oficios/2026/Índice Oficios 2026.xlsx",
     }
-    filas = _indice(configurado, "Actas/2026/Índice Actas 2026.xlsx")
-    assert [f[0] for f in filas] == ["1", "2"]
-    assert filas[0][:7] == (
-        "1",
-        "2026-10-30",
-        "Acta",
-        "019",
-        "Ciencias Naturales",
-        "Ingeniería Física",
-        "Acta_019_ing_fisica_20261030.pdf",
+    # Un índice por área: cada dirección de área es su oficina productora.
+    ws = _formato(configurado, INDICE_CN)
+    assert ws["C7"].value == "Dirección del Área Curricular de Ciencias Naturales"
+    assert ws["C8"].value == "ACTAS"
+    assert ws["C9"].value == "ACTAS DE COMITÉS ASESORES DE PROGRAMAS CURRICULARES"
+    filas = _indice(configurado, INDICE_CN)
+    assert [f[0] for f in filas] == [
+        "Acta_019_ing_fisica_20261030",
+        "Acta_020_ing_fisica_20261106",
+    ]
+    assert filas[0][1:5] == ("30/10/2026", "31/10/2026", 1, 1)
+    assert filas[1][3] == 2
+    assert filas[0][7:10] == ("pdf", "1 kb", "Electrónico")
+    assert filas[0][10] == "Acta 019 · Ingeniería Física · archivó area@unal.edu.co"
+    # Las fórmulas de foliación siguen de una fila a la otra.
+    assert ws["G14"].value == '=IF(F14=0,"0",(1+H13))'
+    assert ws["B16"].value == "Fecha de cierre del expediente"
+    mate = _formato(
+        configurado, "Actas/2026/Matemáticas y Estadística/Índice Actas 2026.xlsx"
     )
-    assert filas[0][7:9] == ("2026-10-31", "PDF")
-    assert filas[1][3] == "Acta 7/2026"
+    assert mate["C7"].value.endswith("Matemáticas y Estadística")
+    oficios = _formato(configurado, "Oficios/2026/Índice Oficios 2026.xlsx")
+    assert oficios["C7"].value == "Secretaría de Facultad"
     assert len(_indice(configurado, "Oficios/2026/Índice Oficios 2026.xlsx")) == 1
+
+
+async def test_indice_actas_tiene_la_estructura_del_de_calidad(
+    configurado: DriveFalso, tmp_path: Path
+) -> None:
+    """Mismo formato oficial: celdas combinadas, rótulos y columnas."""
+    from app.servicios.calidad.soportes.organizacion import Organizacion
+    from app.servicios.calidad.soportes.salidas import indice_electronico_xlsx
+
+    await archivo.archivar(configurado, RAIZ, _doc(), date(2026, 10, 31))
+    actas = _formato(configurado, INDICE_CN)
+    salida = tmp_path / "calidad.xlsx"
+    indice_electronico_xlsx(salida, Organizacion(archivos=[], acciones={}))
+    calidad = load_workbook(salida)["Formato"]
+
+    def forma(ws):  # type: ignore[no-untyped-def]
+        rotulos = {
+            c: ws[c].value
+            for c in ["B3", "B7", "B8", "B9", "B10", "I7", "I8", "I9", "I10"]
+        }
+        titulos = [ws.cell(12, j).value for j in range(2, 13)]
+        combinadas = sorted(str(r) for r in ws.merged_cells.ranges)
+        anchos = [ws.column_dimensions[c].width for c in "ABCDEFGHIJKL"]
+        return rotulos, titulos, combinadas, anchos
+
+    assert forma(actas) == forma(calidad)
+    assert actas["B5"].value != calidad["B5"].value  # cambia la dependencia
+    assert calidad["C9"].value == "PLANES DE MEJORAMIENTO DE PROGRAMAS CURRICULARES"
+
+
+async def test_indice_conserva_lo_escrito_y_migra_el_anterior(
+    configurado: DriveFalso,
+) -> None:
+    from openpyxl import Workbook
+
+    # Un índice del formato anterior (títulos en la fila 10) ya en Drive.
+    anterior = Workbook()
+    ws = anterior.active
+    assert ws is not None
+    for j, t in enumerate(archivo.COLUMNAS_ANTERIORES, start=2):
+        ws.cell(10, j, t)
+    for j, v in enumerate(
+        ["1", "2026-09-30", "Acta", "018", "Ciencias Naturales", "Ingeniería Física",
+         "Acta_018_ing_fisica_20260930.pdf", "2026-10-01", "PDF", "40 kB", "a@unal.edu.co"],
+        start=2,
+    ):  # fmt: skip
+        ws.cell(11, j, v)
+    salida = io.BytesIO()
+    anterior.save(salida)
+    carpeta = await drive.carpeta(
+        configurado, RAIZ, ["Actas", "2026", "Ciencias Naturales"]
+    )
+    await configurado.subir(
+        "Índice Actas 2026.xlsx", carpeta, salida.getvalue(), archivo.MIME_XLSX
+    )
+
+    await archivo.archivar(configurado, RAIZ, _doc(), date(2026, 10, 31))
+    filas = _indice(configurado, INDICE_CN)
+    assert [f[0] for f in filas] == [
+        "Acta_018_ing_fisica_20260930",
+        "Acta_019_ing_fisica_20261030",
+    ]
+    assert filas[0][1:3] == ("30/09/2026", "01/10/2026")
+
+    # Lo que la oficina escribe en el encabezado se conserva.
+    contenido = configurado.archivos()[INDICE_CN]
+    libro = load_workbook(io.BytesIO(contenido))
+    libro["Formato"]["C10"] = "EXP-PRUEBA-01"
+    editado = io.BytesIO()
+    libro.save(editado)
+    existente = next(
+        a for a in await configurado.listar(carpeta) if a.nombre.startswith("Índice")
+    )
+    await configurado.reemplazar(existente.id, editado.getvalue(), archivo.MIME_XLSX)
+    await archivo.archivar(
+        configurado, RAIZ, _doc(numero="020", fecha=date(2026, 11, 6))
+    )
+    ws = _formato(configurado, INDICE_CN)
+    assert ws["C10"].value == "EXP-PRUEBA-01"
+    assert len(_indice(configurado, INDICE_CN)) == 3
 
 
 async def test_no_se_sobrescribe(configurado: DriveFalso) -> None:
     await archivo.archivar(configurado, RAIZ, _doc())
     with pytest.raises(archivo.YaArchivado):
         await archivo.archivar(configurado, RAIZ, _doc())
-    filas = _indice(configurado, "Actas/2026/Índice Actas 2026.xlsx")
+    filas = _indice(configurado, INDICE_CN)
     assert len(filas) == 1
 
 

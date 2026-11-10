@@ -3,7 +3,7 @@
 MemorIA tiene dos usos de Google Drive. Los dos quedan apagados mientras falte alguna de las variables `DRIVE_*`: nada se sube y nada falla.
 
 1. **Copia nocturna de la base.** Cada noche, cada servicio (actas, calidad y admisión) sube una copia comprimida de su propia base. Es una segunda línea, además de los respaldos del volumen que hace Railway Pro.
-2. **Archivo oficial.** Las actas, los oficios y las resoluciones **firmados** quedan en Drive, ordenados por tipo, año, área curricular y programa, con un índice por año.
+2. **Archivo oficial.** Las actas, los oficios y las resoluciones **firmados** quedan en Drive, ordenados por tipo, año, área curricular y programa, con un índice electrónico en el formato oficial de la Vicedecanatura.
 
 La cuenta dueña hoy es la cuenta @unal.edu.co de Carlos. Más adelante pasa a la de la Vicedecanatura (ver «Cambiar de cuenta»).
 
@@ -17,8 +17,8 @@ MemorIA/                                     ← DRIVE_CARPETA_ID
 │   └── admision/memoria_admision_20261031.db.gz
 ├── Actas/
 │   └── 2026/
-│       ├── Índice Actas 2026.xlsx
 │       └── Ciencias Naturales/
+│           ├── Índice Actas 2026.xlsx       ← un índice por área y año
 │           └── Ingeniería Física/Acta_019_ing_fisica_20261030.pdf
 ├── Oficios/2026/Índice Oficios 2026.xlsx, <área>/<programa>/Oficio_<número>_<programa>_<AAAAMMDD>.pdf
 └── Resoluciones/2026/…
@@ -58,7 +58,22 @@ El nombre del archivo es `<Tipo>_<número>_<programa>_<AAAAMMDD>.pdf`; la fecha 
 
 ### Índice
 
-En cada carpeta de año (`Actas/2026/`, `Oficios/2026/`, `Resoluciones/2026/`) hay un `Índice <Tipo> <año>.xlsx` con el estilo del índice electrónico de Calidad: encabezado del fondo y una fila por documento con número de orden, fecha del documento, tipo documental, número o radicado, área curricular, programa, nombre del archivo, fecha de incorporación, formato, tamaño y quién lo archivó. Cada archivo nuevo agrega su fila. El índice no lleva nombres de estudiantes.
+El índice sigue el formato oficial «Índice electrónico» de la Vicedecanatura (`00IndiceElectronicoPlanesMejoraFCEN`), el mismo del índice de los planes de mejoramiento (`app/core/indice_electronico.py`, `docs/calidad/organizacion-evidencias.md`): encabezado del fondo en las filas 3 a 5; Oficina Productora, Serie, Subserie e identificación del expediente en C7:G10; expediente físico en I7:L10; columnas B a L desde la fila 12 (nombre, fecha de creación, fecha de incorporación, orden, páginas, página inicio y fin con las fórmulas de foliación, formato, tamaño, origen y observaciones), y al final la fecha de cierre y la firma.
+
+- **Actas de los comités:** un índice por área y año, en `Actas/<año>/<área>/Índice Actas <año>.xlsx`, porque cada dirección de área es su propia oficina productora.
+- **Oficios y resoluciones:** un índice por año en `Oficios/<año>/` y `Resoluciones/<año>/`; oficina productora, la Secretaría de Facultad. La subserie queda en amarillo.
+
+Encabezado de las actas (**por confirmar** con la Vicedecanatura):
+
+| Campo | Valor | Variable para cambiarlo |
+| --- | --- | --- |
+| Oficina Productora | Dirección del Área Curricular de … (la del programa) | — |
+| Serie | ACTAS | `DRIVE_ACTAS_SERIE` |
+| Subserie | ACTAS DE COMITÉS ASESORES DE PROGRAMAS CURRICULARES | `DRIVE_ACTAS_SUBSERIE` |
+
+Cada PDF archivado agrega su fila: el nombre del archivo, la fecha de la sesión o de expedición como fecha de creación, el día en que se archivó como fecha de incorporación, las páginas del PDF y, en observaciones, tipo, número, programa y quién lo archivó. Lo que la oficina escriba a mano en el encabezado (identificación del expediente, expediente físico) se conserva cuando MemorIA agrega una fila. El índice no lleva nombres de estudiantes.
+
+Si en Drive queda un índice del formato anterior (el propio de MemorIA, con los títulos en la fila 10), al archivar el siguiente documento en esa carpeta sus filas pasan al formato oficial. Los índices de actas anteriores estaban en la carpeta del año (`Actas/<año>/`); ese archivo queda ahí y las actas nuevas van al índice del área.
 
 ## Activarlo (lo hace Carlos)
 
