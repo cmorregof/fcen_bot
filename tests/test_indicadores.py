@@ -536,7 +536,11 @@ async def test_reporte_mensual_por_area_y_consolidado(
         "ok": True,
         "activo": True,
         "mes": "2026-10",
-        "areas": {"ciencias_naturales": 1, "matematicas": 1},
+        "areas": {
+            "ciencias_naturales": 1,
+            "matematicas": 1,
+            "posgrados_matematicas": 0,
+        },
         "vicedecanatura": 1,
         "enviados": 3,
         "pendientes": [],
@@ -587,7 +591,11 @@ async def test_reporte_mensual_sigue_si_un_envio_falla(
 
     monkeypatch.setattr("app.integrations.telegram.send_message", enviar)
     resultado = await reporte_mensual.enviar(db, HOY)
-    assert resultado["areas"] == {"ciencias_naturales": 0, "matematicas": 1}
+    assert resultado["areas"] == {
+        "ciencias_naturales": 0,
+        "matematicas": 1,
+        "posgrados_matematicas": 0,
+    }
     assert resultado["vicedecanatura"] == 1
 
 
@@ -793,13 +801,21 @@ async def test_falla_a_mitad_de_camino_reintenta_solo_lo_que_falta(
 
     monkeypatch.setattr(reporte_mensual, "armar", armar_que_falla)
     primera = await reporte_mensual.enviar(db, HOY)
-    assert primera["areas"] == {"ciencias_naturales": 1, "matematicas": 0}
+    assert primera["areas"] == {
+        "ciencias_naturales": 1,
+        "matematicas": 0,
+        "posgrados_matematicas": 0,
+    }
     assert primera["vicedecanatura"] == 1
     assert primera["pendientes"] == ["matematicas"]
 
     monkeypatch.setattr(reporte_mensual, "armar", original)
     segunda = await reporte_mensual.enviar(db, HOY)
-    assert segunda["areas"] == {"ciencias_naturales": 0, "matematicas": 1}
+    assert segunda["areas"] == {
+        "ciencias_naturales": 0,
+        "matematicas": 1,
+        "posgrados_matematicas": 0,
+    }
     assert segunda["vicedecanatura"] == 0 and segunda["enviados"] == 1
     assert sorted(m["chat_id"] for m in tg.mensajes) == sorted(
         [ADM_NATURALES, ADM_MATE, VICEDECANA]

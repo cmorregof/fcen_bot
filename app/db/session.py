@@ -259,6 +259,10 @@ async def init_db(db: Conexion) -> None:
     from app.services import flujo
 
     await flujo.migrar(db)
+    # Los posgrados de matemáticas pasan a su propia dirección (idempotente).
+    from app.db.reubicar import reubicar_posgrados
+
+    await reubicar_posgrados(db)
     await db.commit()
 
 
