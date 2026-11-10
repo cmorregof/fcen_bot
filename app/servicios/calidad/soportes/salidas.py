@@ -13,6 +13,9 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.worksheet import Worksheet
 
+from app.core import indice_electronico as indice
+from app.core.indice_electronico import celda as celda
+from app.core.indice_electronico import limpio as limpio
 from app.servicios.calidad.soportes.modelos import (
     Archivo,
     Cruce,
@@ -34,25 +37,6 @@ NOTA_PROPUESTA = (
     "Comité Asesor recomienda y el Consejo de Facultad decide."
 )
 
-# Caracteres de control que no caben en XML: openpyxl y python-docx fallan con
-# ellos y la corrida perdería las salidas después de haber pagado las llamadas.
-_ILEGALES = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
-
-
-def limpio(texto: str) -> str:
-    return _ILEGALES.sub("", texto)
-
-
-def celda(valor: Any) -> Any:
-    """Texto seguro para una celda: sin caracteres ilegales y nunca una fórmula."""
-    if not isinstance(valor, str):
-        return valor
-    valor = limpio(valor)
-    if valor[:1] in ("=", "+", "-", "@"):
-        valor = "\u2019" + valor  # apóstrofo tipográfico: se lee como texto
-    return valor
-
-
 AMARILLO = PatternFill("solid", fgColor="FFF2CC")
 GRIS = PatternFill("solid", fgColor="D9D9D9")
 
@@ -63,10 +47,10 @@ def _hoja(
     ws.append(encabezado)
     for j, ancho in enumerate(anchos, start=1):
         ws.column_dimensions[get_column_letter(j)].width = ancho
-        celda = ws.cell(row=1, column=j)
-        celda.font = Font(bold=True)
-        celda.alignment = Alignment(wrap_text=True, vertical="top")
-        celda.fill = AMARILLO if j > len(encabezado) - humanas else GRIS
+        titulo = ws.cell(row=1, column=j)
+        titulo.font = Font(bold=True)
+        titulo.alignment = Alignment(wrap_text=True, vertical="top")
+        titulo.fill = AMARILLO if j > len(encabezado) - humanas else GRIS
     ws.freeze_panes = "A2"
 
 
@@ -76,8 +60,8 @@ def _fila(ws: Worksheet, valores: list[Any]) -> None:
 
 def _ajustar(ws: Worksheet) -> None:
     for fila in ws.iter_rows(min_row=2):
-        for celda in fila:
-            celda.alignment = Alignment(wrap_text=True, vertical="top")
+        for c in fila:
+            c.alignment = Alignment(wrap_text=True, vertical="top")
     ws.auto_filter.ref = ws.dimensions
 
 
@@ -474,17 +458,26 @@ LEEME_ORGANIZACION = [
 
 
 # Formato «Índice electrónico» de la Vicedecanatura para el expediente de los
-# planes de mejoramiento (00IndiceElectronicoPlanesMejoraFCEN.xlsx).
+# planes de mejoramiento (00IndiceElectronicoPlanesMejoraFCEN.xlsx). El formato
+# vive en app/core/indice_electronico.py; aquí solo van los datos de calidad.
 _FORMATOS = {"pdf": "pdf", "imagen": "imagen", "xlsx": "excel", "docx": "word"}
-_COLUMNAS_INDICE = [
-    "Nombre Documento", "Fecha Creación Documento", "Fecha Incorporación Expediente",
-    "Orden Documento", "Número Páginas", "Página Inicio", "Página Fin", "Formato",
-    "Tamaño", "Origen", "Observaciones",
-]  # fmt: skip
+# Formatos que el revisor no abre pero que el índice nombra igual (los de
+# Google Docs, Hojas y Presentaciones llegan exportados a docx, xlsx y pptx).
+_FORMATOS_EXTENSION = {
+    ".xlsx": "excel", ".xlsm": "excel", ".docx": "word", ".png": "imagen",
+    ".jpg": "imagen", ".jpeg": "imagen", ".xls": "excel", ".csv": "excel", ".ods": "excel", ".doc": "word",
+    ".odt": "word", ".pptx": "powerpoint", ".ppt": "powerpoint",
+    ".odp": "powerpoint", ".txt": "texto", ".mp4": "video", ".mp3": "audio",
+}  # fmt: skip
 _CARPETAS_INDICE = {
     "producto final": "Producto final",
     "soportes": "Soportes de producto final",
 }
+EXPEDIENTE_PLANES = indice.Expediente(
+    oficina_productora="Vicedecanatura Ciencias Exactas y Naturales",
+    serie="PLANES",
+    subserie="PLANES DE MEJORAMIENTO DE PROGRAMAS CURRICULARES",
+)
 
 
 def _fecha_dmy(iso: str | None) -> str:
@@ -496,79 +489,8 @@ def _fecha_dmy(iso: str | None) -> str:
         return ""
 
 
-def _tamano_kb(n: int) -> str:
-    return f"{max(1, round(n / 1024))} kb"
-
-
-def indice_electronico_xlsx(ruta: Path, org: Organizacion) -> None:
-    """Índice electrónico del expediente, prellenado desde el inventario.
-
-    Una fila por documento (sin los zip contenedores), ordenadas por acción y
-    carpeta. Página inicio y fin llevan las mismas fórmulas del formato. Lo
-    que el inventario no sabe (identificación del expediente, fecha de
-    incorporación, páginas de un Word o un Excel) queda en amarillo.
-    """
-    from openpyxl.styles import Border, Side
-
-    libro = Workbook()
-    ws = libro.active
-    assert ws is not None
-    ws.title = "Formato"
-    borde = Border(*(Side(style="thin"),) * 4)
-    negrita = Font(bold=True)
-    amarillo = PatternFill("solid", fgColor="FFFF00")
-    for col, ancho in zip(
-        "ABCDEFGHIJKL", [2, 42, 14, 14, 10, 10, 9, 9, 10, 10, 13, 40], strict=True
-    ):
-        ws.column_dimensions[col].width = ancho
-
-    for fila, texto in [
-        (3, "FONDO UNIVERSIDAD NACIONAL DE COLOMBIA"),
-        (4, "SUBFONDO"),
-        (5, "Vicedecanatura Facultad Ciencias Exactas y Naturales"),
-    ]:
-        ws.merge_cells(f"B{fila}:L{fila}")
-        ws[f"B{fila}"] = texto
-        ws[f"B{fila}"].font = Font(bold=True, size=13)
-        ws[f"B{fila}"].alignment = Alignment(horizontal="center")
-    datos = [
-        ("Oficina Productora", "Vicedecanatura Ciencias Exactas y Naturales"),
-        ("Serie", "PLANES"),
-        ("Subserie Documental", "PLANES DE MEJORAMIENTO DE PROGRAMAS CURRICULARES"),
-        ("Identificación del expediente", ""),
-    ]
-    fisico = [
-        ("EXPEDIENTE FÍSICO", None),
-        ("El expediente posee documentos físicos:", "NO"),
-        ("No. de carpetas", ""),
-        ("No. de folios", ""),
-    ]
-    for i, ((rotulo, valor), (rot_f, val_f)) in enumerate(
-        zip(datos, fisico, strict=True), start=7
-    ):
-        ws.merge_cells(f"C{i}:G{i}")
-        ws[f"B{i}"], ws[f"C{i}"] = rotulo, valor
-        ws[f"B{i}"].font = negrita
-        for c in ("B", "C"):
-            ws[f"{c}{i}"].border = borde
-        if not valor:
-            ws[f"C{i}"].fill = amarillo
-        if val_f is None:
-            ws.merge_cells(f"I{i}:L{i}")
-            ws[f"I{i}"] = rot_f
-            ws[f"I{i}"].font = negrita
-        else:
-            ws.merge_cells(f"I{i}:J{i}")
-            ws.merge_cells(f"K{i}:L{i}")
-            ws[f"I{i}"], ws[f"K{i}"] = rot_f, val_f
-
-    for j, titulo in enumerate(_COLUMNAS_INDICE, start=2):
-        c = ws.cell(row=12, column=j, value=titulo)
-        c.font = negrita
-        c.border = borde
-        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    ws.row_dimensions[12].height = 45
-
+def filas_indice(org: Organizacion) -> list[indice.Fila]:
+    """Una fila por documento (sin los zip contenedores), por acción y carpeta."""
     documentos = [r for r in org.archivos if r.archivo.tipo != "zip"]
     orden_carpeta = {"producto final": 0, "soportes": 1, "suelto": 2, "": 3}
     documentos.sort(
@@ -579,53 +501,37 @@ def indice_electronico_xlsx(ruta: Path, org: Organizacion) -> None:
             r.archivo.ruta.casefold(),
         )
     )
-    primera = 13
-    for k, r in enumerate(documentos):
+    filas = []
+    for r in documentos:
         a = r.archivo
-        n = primera + k
         if a.accion:
             obs = f"Acción {a.accion}"
             if r.carpeta in _CARPETAS_INDICE:
                 obs += f" — {_CARPETAS_INDICE[r.carpeta]}"
         else:
             obs = "Documento general del plan"
-        inicio = f'=IF(F{n}=0,"0","1")' if k == 0 else f'=IF(F{n}=0,"0",(1+H{n - 1}))'
-        valores: list[Any] = [
-            Path(a.nombre).stem,
-            _fecha_dmy(a.fecha),
-            "",
-            k + 1,
-            a.paginas,
-            inicio,
-            f"=G{n}+(F{n}-1)" if k else f"=G{n}+(F{n}-G{n})",
-            _FORMATOS.get(a.tipo, a.extension.lstrip(".").lower()),
-            _tamano_kb(a.tamano),
-            "Electrónico",
-            obs,
-        ]
-        for j, v in enumerate(valores, start=2):
-            c = ws.cell(row=n, column=j, value=celda(v) if j not in (7, 8) else v)
-            c.border = borde
-            if j > 2:
-                c.alignment = Alignment(horizontal="center")
-        ws.cell(row=n, column=4).fill = amarillo  # fecha de incorporación
-        if not a.fecha:
-            ws.cell(row=n, column=3).fill = amarillo
-        if a.paginas is None:
-            ws.cell(row=n, column=6).fill = amarillo
-    fin = primera + len(documentos) + 1
-    ws[f"B{fin}"] = "Fecha de cierre del expediente"
-    ws[f"B{fin + 2}"] = "Firma del jefe de la oficina productora"
-    for c in (f"B{fin}", f"B{fin + 2}"):
-        ws[c].font = negrita
+        filas.append(
+            indice.Fila(
+                nombre=Path(a.nombre).stem,
+                fecha_creacion=_fecha_dmy(a.fecha),
+                paginas=a.paginas,
+                formato=_FORMATOS.get(a.tipo)
+                or _FORMATOS_EXTENSION.get(a.extension.lower())
+                or a.extension.lstrip(".").lower(),
+                tamano=indice.tamano_kb(a.tamano),
+                observaciones=obs,
+            )
+        )
+    return filas
 
-    leeme = libro.create_sheet("Léeme")
-    leeme.column_dimensions["A"].width = 120
-    for linea in LEEME_INDICE:
-        leeme.append([linea])
-    leeme["A1"].font = Font(bold=True, size=13)
-    for fila in leeme.iter_rows(min_row=2):
-        fila[0].alignment = Alignment(wrap_text=True)
+
+def indice_electronico_xlsx(ruta: Path, org: Organizacion) -> None:
+    """Índice electrónico del expediente, prellenado desde el inventario.
+
+    Lo que el inventario no sabe (identificación del expediente, fecha de
+    incorporación, páginas de un Word o un Excel) queda en amarillo.
+    """
+    libro = indice.libro(EXPEDIENTE_PLANES, filas_indice(org), LEEME_INDICE)
     ruta.parent.mkdir(parents=True, exist_ok=True)
     libro.save(ruta)
 
