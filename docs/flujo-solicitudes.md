@@ -116,7 +116,7 @@ stateDiagram-v2
 | `anular_notificacion`, `anular_expedicion` | notificada, expedida | expedida, decidida | secretaria, admin | — | Notificaciones (corrige una fecha) |
 | `archivar_documento` | expedida | expedida (solo anota) | secretaria, admin | — | Archivar oficio firmado |
 | `archivar` | notificada | archivada | secretaria, admin | — | Archivar oficio firmado (o al notificar, si ya estaba en Drive) |
-| `descartar` | llegada, incompleta, improcedente, en_comite, recomendada | descartada | administrativa | `/cancelar`, 🗑 | — |
+| `descartar` | llegada, incompleta, improcedente, en_comite, recomendada | descartada | administrativa | `/cancelar`, 🗑 | Más acciones → «Descartar (registrado por error)…», con confirmación |
 
 - **El rol `comite` no tiene ninguna transición.** El comité deja su concepto
   y recomienda en su sesión; la administrativa lo registra. `tests/test_flujo.py`
