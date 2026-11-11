@@ -9,8 +9,14 @@ nombre. Qué pasa con cada uno:
   lee aquí, sin el modelo, y entra al caso como un correo pegado
   (app/services/formatos.py).
 - pendiente: PDF escaneado; la administrativa dice si es el formato.
-- anexo: cualquier otro soporte (certificado, carta…). Se guarda y se lista
-  en el caso; al modelo solo le llega su nombre, nunca el contenido.
+- anexo: cualquier otro soporte (certificado, carta…). El modelo lo lee
+  aparte y deja un resumen que va al análisis del acta (app/services/anexos.py);
+  la extracción del caso solo recibe su nombre.
+
+En la web hay dos zonas (`zona`): «sia», solo imágenes, que son pantallazos;
+y «anexos», lo que manda el estudiante: ahí una imagen o un PDF escaneado son
+anexos, y un PDF o Word con título «FORMATO DE …» sigue siendo el formato.
+Sin zona (Telegram), el tipo se decide como antes.
 
 Ninguno decide nada: el modelo solo extrae datos.
 
@@ -31,7 +37,7 @@ from app.core.conexion import Conexion
 from app.core.config import settings
 from app.db import repo
 from app.schemas.caso import Caso
-from app.services import flujo, formatos
+from app.services import anexos, flujo, formatos
 
 # Extensión → nombre legible. Es la lista completa de tipos permitidos.
 TIPOS: dict[str, str] = {
@@ -63,6 +69,9 @@ NOMBRE_TIPO = {
 }
 
 
+ZONAS = ("sia", "anexos")
+
+
 class AdjuntoInvalido(ValueError):
     """El archivo no se puede adjuntar; el mensaje es para la persona."""
 
@@ -87,12 +96,17 @@ def detectar(datos: bytes) -> str | None:
     return None
 
 
-def validar(datos: bytes, nombre: str) -> str:
+def validar(datos: bytes, nombre: str, zona: str | None = None) -> str:
     """Comprueba tipo y tamaño. Devuelve la extensión o lanza AdjuntoInvalido."""
     ext = detectar(datos)
     if ext is None:
         raise AdjuntoInvalido(
             f"«{nombre}» no se puede adjuntar: solo se aceptan {TEXTO_PERMITIDOS}."
+        )
+    if zona == "sia" and ext not in IMAGENES:
+        raise AdjuntoInvalido(
+            f"«{nombre}» no es una imagen. Los pantallazos del SIA van como "
+            "JPG, PNG o WEBP; los PDF y Word van en «Otros anexos del estudiante»."
         )
     limite = MAX_IMAGEN if ext in IMAGENES else MAX_DOCUMENTO
     if len(datos) > limite:
@@ -130,10 +144,12 @@ async def agregar(
     nombre: str,
     *,
     unico: str | None = None,
+    zona: str | None = None,
 ) -> Agregado:
     """Valida, guarda y clasifica un adjunto. `unico` evita duplicados (en
-    Telegram, el file_unique_id; en la web, un hash del contenido)."""
-    ext = validar(datos, nombre)
+    Telegram, el file_unique_id; en la web, un hash del contenido). `zona`:
+    «sia», «anexos» o None (ver arriba)."""
+    ext = validar(datos, nombre, zona)
     unico = unico or unico_de(datos)
     if await repo.get_archivo(db, caso_id, unico) is not None:
         return Agregado("duplicado", unico, nombre, nuevo=False)
@@ -141,13 +157,13 @@ async def agregar(
         raise AdjuntoInvalido(f"El caso ya tiene {MAX_POR_CASO} adjuntos.")
     carpeta = settings.media_dir / str(caso_id)
     carpeta.mkdir(parents=True, exist_ok=True)
-    tipo = "imagen"
+    tipo = "anexo" if zona == "anexos" else "imagen"
     texto = ""
     if ext not in IMAGENES:
         texto = await formatos.texto_de_archivo(datos, ext)
         if formatos.es_formato(texto):
             tipo = "formato"
-        elif ext == ".pdf" and not texto.strip():
+        elif ext == ".pdf" and not texto.strip() and zona != "anexos":
             # Escaneado: no se puede saber si es el formato o un soporte.
             tipo = "pendiente"
         else:
@@ -234,6 +250,11 @@ def describir(archivo: repo.Archivo, n: int) -> dict[str, object]:
         "leido": archivo.leido is not None,
         # Se puede descargar si el archivo sigue guardado.
         "descargable": bool(archivo.ruta and Path(archivo.ruta).exists()),
+        # En qué zona de la ficha va: pantallazos del SIA u otros anexos.
+        "zona": "sia" if archivo.tipo == "imagen" else "anexos",
+        # Anexo del estudiante que el modelo resume (app/services/anexos.py).
+        "se_lee": anexos.se_lee(archivo),
+        "resumen": anexos.describir(archivo),
     }
 
 
@@ -312,6 +333,8 @@ async def borrar(
         avisos.append(
             "Ya se había usado en la lectura: revise los datos o vuelva a leer el caso."
         )
+    if archivo.resumen:
+        avisos.append("Su resumen también se quitó del caso y del acta.")
     if texto_restante:
         avisos.append("No pude quitar el texto de ese formato del caso.")
     return Borrado(archivo.tipo, leido, " ".join(avisos) or None)

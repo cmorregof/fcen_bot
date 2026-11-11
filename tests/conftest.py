@@ -103,6 +103,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 @pytest.fixture(autouse=True)
 def aislar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     _rutas(tmp_path, monkeypatch)
+    # Ninguna prueba llama al modelo de verdad (p. ej. la lectura de anexos).
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
     if TEST_DATABASE_URL:
         yield from _esquema_postgres(monkeypatch)
     else:

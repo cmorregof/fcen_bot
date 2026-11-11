@@ -34,6 +34,7 @@ from docx.text.run import Run
 from app.core import solicitudes
 from app.core.programas import PROGRAMAS, Miembro, Programa, normalizar
 from app.normativa.base import NormaCitada, normas_para
+from app.schemas.anexo import VERIFICAR_ANEXO
 from app.schemas.caso import (
     TITULOS_TIPO,
     AsignaturaCuadro,
@@ -46,6 +47,7 @@ from app.schemas.caso import (
     Jurado,
     Sentido,
 )
+from app.services import anexos
 from app.services.firmas import ruta_firma
 from app.services.reglas import Analisis, lleva_zapc
 
@@ -125,6 +127,7 @@ def _cifra(valor: float) -> str:
 
 # Dato que se ve en el SIA pero no se leyó: va en amarillo en el acta y el oficio.
 VERIFICAR_SIA = "[verificar en el SIA]"
+_MARCADORES = f"({re.escape(VERIFICAR_SIA)}|{re.escape(VERIFICAR_ANEXO)})"
 
 
 @dataclass
@@ -367,6 +370,8 @@ def _bullets_analisis(item: CasoDocumento, periodo: str) -> list[str]:
         )
     for anexo in e.anexos:
         vinetas.append(f"Se anexa {anexo}")
+    # Resumen de cada anexo leído (app/services/anexos.py).
+    vinetas.extend(anexos.vinetas(item.caso))
     return vinetas
 
 
@@ -752,12 +757,11 @@ def _solicitud(
 def _vineta(doc: DocumentoDocx, texto: str) -> None:
     """Viñeta del análisis; lo que falta verificar en el SIA va en amarillo."""
     p = _p(doc, "FCEN Vineta")
-    partes = f"•\t{texto}".split(VERIFICAR_SIA)
-    for i, parte in enumerate(partes):
-        if parte:
+    for parte in re.split(_MARCADORES, f"•\t{texto}"):
+        if parte in (VERIFICAR_SIA, VERIFICAR_ANEXO):
+            _marcador(p, parte)
+        elif parte:
             _r(p, parte)
-        if i < len(partes) - 1:
-            _marcador(p, VERIFICAR_SIA)
 
 
 _COLUMNAS_SIA = (

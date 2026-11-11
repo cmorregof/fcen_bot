@@ -38,6 +38,7 @@ from app.schemas.consejo import (
 from app.services import (
     actas_comite,
     adjuntos,
+    anexos,
     borrador,
     casos,
     consejo,
@@ -306,34 +307,52 @@ async def desarchivar_casos(
     return {"desarchivados": await _bandeja(cuerpo, usuario, db, archivar=False)}
 
 
-async def _leer_adjuntos(archivos: list[UploadFile]) -> list[tuple[bytes, str]]:
+# (contenido, nombre, zona): zona «sia», «anexos» o None (app/services/adjuntos.py).
+_Leido = tuple[bytes, str, str | None]
+
+
+async def _leer_adjuntos(
+    archivos: list[tuple[UploadFile, str | None]],
+) -> list[_Leido]:
     """Lee y valida todo antes de guardar nada: si uno no sirve, no entra
     ninguno y se dice cuál."""
     if len(archivos) > _MAX_POR_ENVIO:
         raise HTTPException(400, f"Adjunte máximo {_MAX_POR_ENVIO} archivos a la vez.")
-    leidos: list[tuple[bytes, str]] = []
-    for a in archivos:
+    leidos: list[_Leido] = []
+    for a, zona in archivos:
         nombre = (a.filename or "archivo").rsplit("/", 1)[-1][:200]
         datos = await a.read(adjuntos.MAX_DOCUMENTO + 1)
         try:
-            adjuntos.validar(datos, nombre)
+            adjuntos.validar(datos, nombre, zona)
         except adjuntos.AdjuntoInvalido as exc:
             raise HTTPException(400, str(exc)) from None
-        leidos.append((datos, nombre))
+        leidos.append((datos, nombre, zona))
     return leidos
 
 
 async def _guardar_adjuntos(
-    db: Db, caso_id: int, leidos: list[tuple[bytes, str]]
+    db: Db, caso_id: int, leidos: list[_Leido]
 ) -> list[adjuntos.Agregado]:
     if len(leidos) > await adjuntos.cupo(db, caso_id):
         raise HTTPException(
             400, f"Un caso admite máximo {adjuntos.MAX_POR_CASO} adjuntos."
         )
     try:
-        return [await adjuntos.agregar(db, caso_id, d, n) for d, n in leidos]
+        return [await adjuntos.agregar(db, caso_id, d, n, zona=z) for d, n, z in leidos]
     except adjuntos.AdjuntoInvalido as exc:
         raise HTTPException(400, str(exc)) from None
+
+
+def _zona(zona: str | None) -> str | None:
+    if zona is not None and zona not in adjuntos.ZONAS:
+        raise HTTPException(400, "Zona de adjuntos desconocida.")
+    return zona
+
+
+def _aviso_anexos(errores: list[str]) -> str | None:
+    if not errores:
+        return None
+    return "No pude resumir estos anexos: " + "; ".join(errores) + "."
 
 
 @router.post("/casos")
@@ -343,11 +362,19 @@ async def crear(
     texto: Annotated[str, Form()] = "",
     archivos: Annotated[list[UploadFile] | None, File()] = None,
     imagenes: Annotated[list[UploadFile] | None, File()] = None,
+    pantallazos: Annotated[list[UploadFile] | None, File()] = None,
+    anexos_estudiante: Annotated[list[UploadFile] | None, File(alias="anexos")] = None,
 ) -> dict[str, object]:
-    """Crea un caso con el texto del correo y sus adjuntos: pantallazos del
-    SIA, formatos de solicitud y anexos (PDF, Word o imágenes)."""
+    """Crea un caso con el texto del correo y sus adjuntos. `pantallazos`:
+    imágenes del SIA. `anexos`: lo que manda el estudiante (PDF, Word o
+    imágenes). `archivos` e `imagenes` (sin zona) se clasifican solos."""
     direccion = _direccion(usuario)
-    todos = [*(archivos or []), *(imagenes or [])]
+    todos: list[tuple[UploadFile, str | None]] = [
+        *((a, None) for a in (archivos or [])),
+        *((a, None) for a in (imagenes or [])),
+        *((a, "sia") for a in (pantallazos or [])),
+        *((a, "anexos") for a in (anexos_estudiante or [])),
+    ]
     if not texto.strip() and not todos:
         raise HTTPException(400, "Pegue el correo o adjunte al menos un archivo.")
     leidos = await _leer_adjuntos(todos)
@@ -379,8 +406,11 @@ async def adjuntar(
     usuario: _Administrativa,
     db: Db,
     archivos: Annotated[list[UploadFile], File()],
+    zona: Annotated[str | None, Form()] = None,
 ) -> dict[str, object]:
-    """Agrega adjuntos a un caso ya creado."""
+    """Agrega adjuntos a un caso ya creado, en la zona «sia» (pantallazos) o
+    «anexos» (del estudiante). Los anexos nuevos se resumen enseguida."""
+    zona = _zona(zona)
     caso = await _caso_del_area(db, caso_id, usuario)
     if caso.estado in (EstadoCaso.CERRADO, EstadoCaso.DECIDIDO_CONSEJO):
         raise HTTPException(
@@ -388,9 +418,15 @@ async def adjuntar(
         )
     if not archivos:
         raise HTTPException(400, "Elija al menos un archivo.")
-    agregados = await _guardar_adjuntos(db, caso.id, await _leer_adjuntos(archivos))
-    caso = await _caso_del_area(db, caso_id, usuario)
+    agregados = await _guardar_adjuntos(
+        db, caso.id, await _leer_adjuntos([(a, zona) for a in archivos])
+    )
     avisos: list[str] = []
+    if any(a.nuevo and a.tipo == "anexo" for a in agregados):
+        aviso = _aviso_anexos(await anexos.leer_pendientes(db, caso))
+        if aviso:
+            avisos.append(aviso)
+    caso = await _caso_del_area(db, caso_id, usuario)
     if any(a.tipo == "pendiente" for a in agregados):
         avisos.append("Hay un PDF escaneado: indique si es el formato.")
     if caso.extraccion is not None and any(
@@ -444,6 +480,27 @@ async def clasificar_adjunto(
     return {
         **await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario),
         "aviso": mensaje,
+    }
+
+
+@router.post("/casos/{caso_id}/archivos/{archivo_id}/leer")
+async def leer_anexo(
+    caso_id: int, archivo_id: int, usuario: _Administrativa, db: Db
+) -> dict[str, object]:
+    """Resume (o vuelve a resumir) un anexo del estudiante con el modelo. Solo
+    extrae: no cambia los datos leídos ni la recomendación."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    try:
+        error = await anexos.leer(db, caso, archivo_id)
+    except KeyError:
+        raise HTTPException(
+            404, "Ese adjunto no es un anexo que se pueda leer."
+        ) from None
+    if error:
+        raise HTTPException(502, f"No pude leer el anexo: {error}")
+    return {
+        **await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario),
+        "aviso": "Anexo leído.",
     }
 
 
@@ -503,7 +560,10 @@ async def releer(caso_id: int, usuario: _Administrativa, db: Db) -> dict[str, ob
         raise HTTPException(
             502, f"No pude leer el caso: {resultado.error}. Puede intentarlo de nuevo."
         )
-    return await _ficha(db, resultado.caso, usuario)
+    return {
+        **await _ficha(db, resultado.caso, usuario),
+        "aviso": _aviso_anexos(resultado.errores_anexos),
+    }
 
 
 @router.get("/casos/{caso_id}/oficio-consejo")
@@ -537,7 +597,10 @@ async def procesar(caso_id: int, usuario: _Administrativa, db: Db) -> dict[str, 
         raise HTTPException(
             502, f"No pude leer el caso: {resultado.error}. Puede intentarlo de nuevo."
         )
-    return await _ficha(db, resultado.caso, usuario)
+    return {
+        **await _ficha(db, resultado.caso, usuario),
+        "aviso": _aviso_anexos(resultado.errores_anexos),
+    }
 
 
 class Texto(BaseModel):

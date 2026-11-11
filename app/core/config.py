@@ -100,6 +100,13 @@ class Settings(BaseSettings):
     extraction_timeout_seconds: float = 90.0
     # Lado mayor de las imágenes antes de enviarlas al modelo (controla tokens).
     max_image_side: int = 1568
+    # Lectura de los anexos del estudiante (app/services/anexos.py): modelo,
+    # esfuerzo (low, medium, high…) y topes de lo que se le envía.
+    anexos_modelo: str = "claude-sonnet-5-5"
+    anexos_esfuerzo: str = "medium"
+    anexos_max_tokens: int = 8000
+    anexos_max_caracteres: int = 30_000
+    anexos_max_paginas: int = 10
     # Precios en USD por millón de tokens, para el comando /costo.
     precio_input_mtok: float = 2.0
     precio_output_mtok: float = 10.0

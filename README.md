@@ -154,6 +154,7 @@ Ambos documentos usan la misma plantilla membreteada para los cinco programas y 
 
 - `docs/diseno.md`: diseño, decisiones, estado actual y lo que sigue.
 - `docs/inventario-insumos.md`: lo que entregó la Facultad (actas, oficios, normativa) y las reglas que se derivan de ahí.
+- `docs/anexos.md`: pantallazos del SIA y otros anexos del estudiante; resumen de cada anexo con el modelo para el acta.
 
 ## Desarrollo
 

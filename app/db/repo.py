@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 
 from app.core.conexion import Conexion, Fila
+from app.schemas.anexo import AnexoLeido, LecturaAnexo
 from app.schemas.caso import Caso, Concepto, EstadoCaso, ExtraccionCaso, Sentido
 from app.schemas.consejo import DecisionConsejo, Instancia, SentidoConsejo
 
@@ -210,6 +211,7 @@ class Archivo:
     bytes_: int | None
     creado: str | None
     leido: str | None  # cuándo entró a una lectura del modelo
+    resumen: str | None = None  # JSON de LecturaAnexo (app/services/anexos.py)
 
 
 def _archivo(r: Fila) -> Archivo:
@@ -222,10 +224,11 @@ def _archivo(r: Fila) -> Archivo:
         bytes_=int(r["bytes"]) if r["bytes"] is not None else None,
         creado=str(r["creado"]) if r["creado"] else None,
         leido=str(r["leido"]) if r["leido"] else None,
+        resumen=r["resumen"],
     )
 
 
-_COLS_ARCHIVO = "id, tipo, ruta, nombre, file_unique_id, bytes, creado, leido"
+_COLS_ARCHIVO = "id, tipo, ruta, nombre, file_unique_id, bytes, creado, leido, resumen"
 
 
 async def archivos_de(
@@ -270,6 +273,20 @@ async def borrar_archivo(db: Conexion, caso_id: int, archivo_id: int) -> None:
     await db.execute(
         "UPDATE casos SET actualizado = CURRENT_TIMESTAMP WHERE id = ?", (caso_id,)
     )
+
+
+async def set_resumen_archivo(
+    db: Conexion, caso_id: int, archivo_id: int, resumen: str | None
+) -> None:
+    """Guarda (o quita, con None) el resumen de un anexo del estudiante."""
+    await db.execute(
+        "UPDATE caso_archivos SET resumen = ? WHERE caso_id = ? AND id = ?",
+        (resumen, caso_id, archivo_id),
+    )
+    await db.execute(
+        "UPDATE casos SET actualizado = CURRENT_TIMESTAMP WHERE id = ?", (caso_id,)
+    )
+    await db.commit()
 
 
 async def set_texto(db: Conexion, caso_id: int, texto: str) -> None:
@@ -322,13 +339,17 @@ async def set_tipo_archivo(
     await db.commit()
 
 
-async def _archivos(db: Conexion, caso_id: int) -> tuple[list[str], list[str]]:
+async def _archivos(
+    db: Conexion, caso_id: int
+) -> tuple[list[str], list[str], list[AnexoLeido]]:
     cur = await db.execute(
-        "SELECT tipo, ruta, nombre FROM caso_archivos WHERE caso_id = ? ORDER BY id",
+        "SELECT id, tipo, ruta, nombre, resumen FROM caso_archivos "
+        "WHERE caso_id = ? ORDER BY id",
         (caso_id,),
     )
     imagenes: list[str] = []
     anexos: list[str] = []
+    leidos: list[AnexoLeido] = []
     for row in await cur.fetchall():
         if row["tipo"] == "imagen" and row["ruta"]:
             imagenes.append(str(row["ruta"]))
@@ -336,7 +357,19 @@ async def _archivos(db: Conexion, caso_id: int) -> tuple[list[str], list[str]]:
             continue  # su texto ya está en el caso
         else:
             anexos.append(str(row["nombre"] or "archivo"))
-    return imagenes, anexos
+            if row["resumen"]:
+                try:
+                    lectura = LecturaAnexo.model_validate_json(row["resumen"])
+                except ValueError:
+                    continue
+                leidos.append(
+                    AnexoLeido(
+                        archivo_id=int(row["id"]),
+                        nombre=str(row["nombre"] or "archivo"),
+                        lectura=lectura,
+                    )
+                )
+    return imagenes, anexos, leidos
 
 
 async def conceptos_de(db: Conexion, caso_id: int) -> list[Concepto]:
@@ -411,7 +444,7 @@ async def decision_consejo(db: Conexion, caso_id: int) -> DecisionConsejo | None
 
 
 async def _row_to_caso(db: Conexion, row: Fila) -> Caso:
-    imagenes, anexos = await _archivos(db, int(row["id"]))
+    imagenes, anexos, leidos = await _archivos(db, int(row["id"]))
     extraccion = (
         ExtraccionCaso.model_validate_json(row["extraccion_json"])
         if row["extraccion_json"]
@@ -427,6 +460,7 @@ async def _row_to_caso(db: Conexion, row: Fila) -> Caso:
         texto=str(row["texto"] or ""),
         imagenes=imagenes,
         anexos_archivos=anexos,
+        anexos_leidos=leidos,
         extraccion=extraccion,
         nota_comite=row["nota_comite"],
         conceptos=await conceptos_de(db, int(row["id"])),
