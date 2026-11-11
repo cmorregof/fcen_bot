@@ -227,6 +227,7 @@ async def _linea(db: Db, caso: Caso, rol: str) -> dict[str, object]:
                 flujo.Accion.RECOMENDAR,
                 flujo.Accion.ENVIAR_CONSEJO,
                 flujo.Accion.VOLVER_AL_COMITE,
+                flujo.Accion.DESCARTAR,
             )
             if rol == flujo.ADMINISTRATIVA and flujo.puede(a, etapa, rol)
         ],
@@ -713,6 +714,23 @@ async def volver_al_comite(
         await flujo.volver_al_comite(
             db, caso.id, rol=usuario.rol, persona=_persona(usuario), canal="web"
         )
+    except flujo.TransicionNoPermitida as exc:
+        raise _conflicto(exc) from None
+    return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)
+
+
+@router.post("/casos/{caso_id}/descartar")
+async def descartar(
+    caso_id: int, usuario: _Administrativa, db: Db
+) -> dict[str, object]:
+    """Quita un caso registrado por error, antes del Consejo. No cuenta en las
+    métricas ni entra al oficio o al acta. Lo que no procede es improcedente."""
+    caso = await _caso_del_area(db, caso_id, usuario)
+    try:
+        await flujo.descartar(
+            db, caso.id, rol=usuario.rol, persona=_persona(usuario), canal="web"
+        )
+        await db.commit()
     except flujo.TransicionNoPermitida as exc:
         raise _conflicto(exc) from None
     return await _ficha(db, await _caso_del_area(db, caso_id, usuario), usuario)

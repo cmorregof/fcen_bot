@@ -617,3 +617,31 @@ async def test_al_comite_la_ficha_no_le_ofrece_transiciones(
     ]:
         r = c.post(f"/api/web/actas/casos/{caso}/{ruta}", json=cuerpo, headers=com)
         assert r.status_code == 403, ruta
+
+
+async def test_la_web_descarta_un_caso_registrado_por_error(
+    db: aiosqlite.Connection,
+    tg: TelegramFalso,
+    estructurador: EstructuradorFalso,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: Cliente,  # noqa: F811
+) -> None:
+    await _registrar(db, monkeypatch)
+    await bot.manejar_update(db, _update(text="Correo ficticio"))
+    await bot.manejar_update(db, _update(text="/listo"))
+    c = cliente("actas")
+    adm = await _token("adm@unal.edu.co", "administrativa", "ciencias_naturales")
+    otra = await _token("otra@unal.edu.co", "administrativa", "matematicas")
+    comite = await _token("com@unal.edu.co", "comite", "ciencias_naturales")
+    ruta = "/api/web/actas/casos/1"
+    r = c.post(ruta + "/recomendacion", json={"sentido": "aprobar"}, headers=adm)
+    assert "descartar" in r.json()["acciones"]
+    # Ni otra área ni el comité pueden descartarlo.
+    assert c.post(ruta + "/descartar", headers=otra).status_code == 404
+    assert c.post(ruta + "/descartar", headers=comite).status_code == 403
+    r = c.post(ruta + "/descartar", headers=adm)
+    assert r.status_code == 200, r.text
+    assert r.json()["etapa"] == "descartada"
+    assert (await repo.get_caso(db, 1)).estado == EstadoCaso.DESCARTADO  # type: ignore[union-attr]
+    # Ya descartado, no se puede volver a descartar.
+    assert c.post(ruta + "/descartar", headers=adm).status_code == 409
