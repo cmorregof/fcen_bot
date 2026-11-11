@@ -35,7 +35,6 @@ from app.core import solicitudes
 from app.core.programas import PROGRAMAS, Miembro, Programa, normalizar
 from app.normativa.base import NormaCitada, normas_para
 from app.schemas.caso import (
-    TITULOS_TIPO,
     AsignaturaCuadro,
     AsignaturaSolicitada,
     Caso,
@@ -45,6 +44,7 @@ from app.schemas.caso import (
     FilaCreditos,
     Jurado,
     Sentido,
+    titulo_tipo,
 )
 from app.services.firmas import ruta_firma
 from app.services.reglas import Analisis, lleva_zapc
@@ -284,10 +284,11 @@ def _encabezado_oficio(doc: DocumentoDocx, datos: DatosOficio) -> None:
     _vacio(doc, "FCEN Cuerpo")
 
 
-def titulo_seccion(extraccion: ExtraccionCaso) -> str:
+def titulo_seccion(extraccion: ExtraccionCaso, *, posgrado: bool = False) -> str:
+    """«SOLICITUD DE …». En posgrado, «cursos» en lugar de «asignaturas»."""
     if not extraccion.tipos:
         return "OTRAS SOLICITUDES"
-    titulos = [TITULOS_TIPO[t] for t in extraccion.tipos]
+    titulos = [titulo_tipo(t, posgrado=posgrado) for t in extraccion.tipos]
     if len(titulos) == 1:
         return f"SOLICITUD DE {titulos[0]}".upper()
     return ("SOLICITUD DE " + ", ".join(titulos[:-1]) + " Y " + titulos[-1]).upper()
@@ -389,8 +390,10 @@ def texto_recomendacion(
     zapc = (
         " y, en consecuencia, la apertura del componente ZAPC" if lleva_zapc(e) else ""
     )
+    # En el comité único de posgrados, con su nombre, como en sus actas.
+    comite = programa.comite if programa.es_comite_unico else "Comité Asesor"
     return (
-        "El Comité Asesor recomienda al Consejo de Facultad ",
+        f"El {comite} recomienda al Consejo de Facultad ",
         sentido,
         f" la solicitud de {objeto}{final}{zapc}.",
     )
@@ -973,8 +976,11 @@ def _documento(datos: DatosOficio) -> DocumentoDocx:
 
 def _secciones(datos: DatosOficio) -> OrderedDict[str, list[CasoDocumento]]:
     secciones: OrderedDict[str, list[CasoDocumento]] = OrderedDict()
+    posgrado = datos.programa.nivel == "posgrado"
     for item in datos.casos:
-        secciones.setdefault(titulo_seccion(item.extraccion), []).append(item)
+        secciones.setdefault(
+            titulo_seccion(item.extraccion, posgrado=posgrado), []
+        ).append(item)
     return secciones
 
 
@@ -1027,22 +1033,14 @@ def _encabezado_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
         r.font.color.rgb = RGBColor(0xB0, 0x00, 0x20)
         _vacio(doc)
 
-    unico = datos.programa.es_comite_unico
-    if unico:
-        # Como el encabezado del acta 029 del comité de posgrados.
-        lineas: tuple[str, ...] = (
-            "UNIVERSIDAD NACIONAL DE COLOMBIA",
-            "SEDE MANIZALES",
-            datos.programa.comite.upper(),
-        )
-    else:
-        lineas = (
-            "UNIVERSIDAD NACIONAL DE COLOMBIA",
-            "SEDE MANIZALES",
-            "FACULTAD DE CIENCIAS EXACTAS Y NATURALES",
-            f"COMITÉ ASESOR PROGRAMA CURRICULAR {datos.programa.nombre.upper()}",
-            "PREGRADO",
-        )
+    # El comité único de posgrados tiene su propia acta (acta_posgrado.py).
+    lineas = (
+        "UNIVERSIDAD NACIONAL DE COLOMBIA",
+        "SEDE MANIZALES",
+        "FACULTAD DE CIENCIAS EXACTAS Y NATURALES",
+        f"COMITÉ ASESOR PROGRAMA CURRICULAR {datos.programa.nombre.upper()}",
+        "PREGRADO",
+    )
     for linea in lineas:
         _p(
             doc, "FCEN Destinatario", linea, negrita=True
@@ -1050,13 +1048,12 @@ def _encabezado_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
     _vacio(doc)
     p = _p(doc, "FCEN Destinatario")
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _r(p, "ACTA-" if unico else "ACTA ", negrita=True)
+    _r(p, "ACTA ", negrita=True)
     if datos.numero_acta:
         _r(p, datos.numero_acta, negrita=True)
     else:
         _marcador(p, "[No.]")
-    if not unico:
-        _r(p, f" DE {datos.fecha.year}", negrita=True)
+    _r(p, f" DE {datos.fecha.year}", negrita=True)
     _vacio(doc, "FCEN Texto")
 
     _linea_dato(
@@ -1070,20 +1067,7 @@ def _encabezado_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
     _vacio(doc, "FCEN Texto")
 
     _p(doc, "FCEN Texto", "ASISTENTES:", negrita=True)
-    if datos.miembros and unico:
-        # «Profesor NOMBRE, en calidad de cargo;», como en el acta 029.
-        for i, m in enumerate(datos.miembros, start=1):
-            p = _p(doc, "FCEN Vineta", "•\t")
-            titulo = m.tratamiento.removeprefix("El ").removeprefix("La ")
-            if titulo:
-                _r(p, f"{titulo.capitalize()} ")
-            if m.nombre:
-                _r(p, m.nombre.upper())
-            else:
-                _marcador(p, "[nombre]")
-            fin = "." if i == len(datos.miembros) else ";"
-            _r(p, f", en calidad de {m.cargo}{fin}")
-    elif datos.miembros:
+    if datos.miembros:
         for m in datos.miembros:
             p = _p(doc, "FCEN Vineta", "•\t")
             if m.nombre:
@@ -1108,9 +1092,7 @@ def _encabezado_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
         for item in items:
             numero += 1
             nombre = (item.extraccion.nombre_estudiante or "____").title()
-            del_programa = programa_del_caso(datos, item)
-            sufijo = f" ({del_programa})" if del_programa else ""
-            _p(doc, "FCEN Caso", f"2.{numero} {nombre}{sufijo}")
+            _p(doc, "FCEN Caso", f"2.{numero} {nombre}")
     _p(doc, "FCEN Vineta", "3.\tVarios")
     _vacio(doc, "FCEN Texto")
 
@@ -1131,6 +1113,12 @@ def _cierre_acta(doc: DocumentoDocx, datos: DatosOficio) -> None:
 
 def construir_acta(datos: DatosOficio, periodo: str) -> bytes:
     """Acta interna del comité: la sesión, los casos y los conceptos."""
+    if datos.programa.es_comite_unico:
+        # El comité de posgrados tiene otra estructura (sus actas 022 a 029).
+        # Import diferido: acta_posgrado usa los bloques de este módulo.
+        from app.services.acta_posgrado import construir_acta_posgrado
+
+        return construir_acta_posgrado(datos, periodo)
     doc = _documento(datos)
     _encabezado_acta(doc, datos)
     _casos(doc, datos, periodo, acta=True)

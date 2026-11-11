@@ -155,8 +155,8 @@ async def extraer_caso(db: Conexion, caso: Caso) -> SalidaExtraccion:
     extraccion = validar(resultado, ExtraccionCaso)
     if extraccion is None:
         return SalidaExtraccion(None, None, resultado.error or "Sin resultado.")
-    extraccion = completar_tipos(extraccion)
     programa = _programa_de(extraccion, caso.direccion)
+    extraccion = completar_tipos(extraccion, programa)
     return SalidaExtraccion(extraccion, programa)
 
 
@@ -187,8 +187,8 @@ async def corregir_caso(db: Conexion, caso: Caso, correccion: str) -> SalidaExtr
     extraccion = validar(resultado, ExtraccionCaso)
     if extraccion is None:
         return SalidaExtraccion(None, None, resultado.error or "Sin resultado.")
-    extraccion = completar_tipos(extraccion)
-    return SalidaExtraccion(extraccion, _programa_de(extraccion, caso.direccion))
+    programa = _programa_de(extraccion, caso.direccion)
+    return SalidaExtraccion(completar_tipos(extraccion, programa), programa)
 
 
 def _programa_de(extraccion: ExtraccionCaso, direccion: str) -> Programa | None:

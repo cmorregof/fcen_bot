@@ -34,6 +34,20 @@ class TipoSolicitud(StrEnum):
     CANCELACION_PERIODO = "cancelacion_periodo"
     RESERVA_CUPO = "reserva_cupo"
     HOMOLOGACION = "homologacion"
+    # Posgrado (actas del Comité Asesor de Posgrados de Ciencias Exactas,
+    # docs/solicitudes-posgrado.md).
+    SUSTENTACION_TESIS = "sustentacion_tesis"
+    CALIFICACION_TRABAJO_FINAL = "calificacion_trabajo_final"
+    NOMBRAMIENTO_EVALUADORES = "nombramiento_evaluadores"
+    MODIFICACION_PROYECTO = "modificacion_proyecto"
+    TRANSITO_POSGRADO = "transito_posgrado"
+    EXAMEN_CALIFICACION = "examen_calificacion"
+    EXENCION_PAGO = "exencion_pago"
+    DESBLOQUEO_HISTORIA = "desbloqueo_historia"
+    # Asuntos que presenta el programa, no un estudiante.
+    ADMISION_NO_MASIVA = "admision_no_masiva"
+    CREACION_CURSO = "creacion_curso"
+    PROPUESTA_PROGRAMA = "propuesta_programa"
     OTRO = "otro"
 
 
@@ -55,8 +69,67 @@ TITULOS_TIPO: dict[TipoSolicitud, str] = {
     TipoSolicitud.CANCELACION_PERIODO: "cancelación del periodo académico",
     TipoSolicitud.RESERVA_CUPO: "reserva de cupo adicional",
     TipoSolicitud.HOMOLOGACION: "homologación, convalidación o equivalencia de asignaturas",
+    TipoSolicitud.SUSTENTACION_TESIS: "sustentación de tesis y registro de la calificación",
+    TipoSolicitud.CALIFICACION_TRABAJO_FINAL: "registro de la calificación del trabajo final",
+    TipoSolicitud.NOMBRAMIENTO_EVALUADORES: "entrega de tesis o trabajo final y nombramiento de evaluadores",
+    TipoSolicitud.MODIFICACION_PROYECTO: "cambio de título, objetivos o director de la tesis o trabajo final",
+    TipoSolicitud.TRANSITO_POSGRADO: "tránsito entre programas de posgrado",
+    TipoSolicitud.EXAMEN_CALIFICACION: "examen de calificación del doctorado",
+    TipoSolicitud.EXENCION_PAGO: "exención de pago de derechos académicos",
+    TipoSolicitud.DESBLOQUEO_HISTORIA: "desbloqueo de la historia académica",
+    TipoSolicitud.ADMISION_NO_MASIVA: "cronograma y cupos de admisión (aplicación no masiva)",
+    TipoSolicitud.CREACION_CURSO: "creación o modificación de cursos",
+    TipoSolicitud.PROPUESTA_PROGRAMA: "propuestas del programa curricular (convenios, plan de estudios)",
     TipoSolicitud.OTRO: "otras solicitudes",
 }
+
+# Tipos que solo existen en posgrado: en un programa de pregrado la ficha avisa.
+TIPOS_POSGRADO: frozenset[TipoSolicitud] = frozenset(
+    {
+        TipoSolicitud.SUSTENTACION_TESIS,
+        TipoSolicitud.CALIFICACION_TRABAJO_FINAL,
+        TipoSolicitud.NOMBRAMIENTO_EVALUADORES,
+        TipoSolicitud.MODIFICACION_PROYECTO,
+        TipoSolicitud.TRANSITO_POSGRADO,
+        TipoSolicitud.EXAMEN_CALIFICACION,
+    }
+)
+
+# Asuntos que presenta el programa (un coordinador), no un estudiante: no
+# llevan nombre ni documento de estudiante.
+ASUNTOS_PROGRAMA: frozenset[TipoSolicitud] = frozenset(
+    {
+        TipoSolicitud.ADMISION_NO_MASIVA,
+        TipoSolicitud.CREACION_CURSO,
+        TipoSolicitud.PROPUESTA_PROGRAMA,
+    }
+)
+
+# Tipos de posgrado que traen el trabajo de grado (tesis o trabajo final):
+# título y director son indispensables.
+TIPOS_CON_TRABAJO: frozenset[TipoSolicitud] = frozenset(
+    {
+        TipoSolicitud.PROYECTO_TESIS,
+        TipoSolicitud.SUSTENTACION_TESIS,
+        TipoSolicitud.CALIFICACION_TRABAJO_FINAL,
+        TipoSolicitud.NOMBRAMIENTO_EVALUADORES,
+        TipoSolicitud.MODIFICACION_PROYECTO,
+    }
+)
+
+# En posgrado se habla de «cursos», no de «asignaturas» (§5.4 de la reunión
+# del 28-oct).
+TITULOS_POSGRADO: dict[TipoSolicitud, str] = {
+    TipoSolicitud.INSCRIPCION_EXTEMPORANEA: "inscripción extemporánea de cursos",
+    TipoSolicitud.CANCELACION: "cancelación de cursos",
+    TipoSolicitud.HOMOLOGACION: "homologación, convalidación o equivalencia de cursos",
+}
+
+
+def titulo_tipo(tipo: TipoSolicitud, *, posgrado: bool = False) -> str:
+    if posgrado:
+        return TITULOS_POSGRADO.get(tipo, TITULOS_TIPO[tipo])
+    return TITULOS_TIPO[tipo]
 
 
 class FilaCreditos(BaseModel):
@@ -200,6 +273,55 @@ class ProyectoTesis(BaseModel):
     linea: str | None = Field(
         default=None, description="Línea o grupo de investigación, solo si aparece"
     )
+    titulo_anterior: str | None = Field(
+        default=None,
+        description="Solo en un cambio de título: el título que se reemplaza",
+    )
+    director_anterior: str | None = Field(
+        default=None,
+        description="Solo en un cambio de director: el director que se reemplaza",
+    )
+    objetivo_general: str | None = Field(
+        default=None, description="Objetivo general, copiado tal como aparece"
+    )
+    objetivos_especificos: list[str] = Field(
+        default_factory=list,
+        description="Objetivos específicos, uno por elemento, copiados tal como aparecen",
+    )
+    actividad: str | None = Field(
+        default=None,
+        description="Actividad académica tal como aparece, con código y tipología "
+        "(p. ej. 'Tesis de Maestría, código 9100001'); solo si aparece",
+    )
+    fecha_sustentacion: str | None = Field(
+        default=None, description="Fecha de la sustentación en formato AAAA-MM-DD"
+    )
+    fecha_entrega: str | None = Field(
+        default=None,
+        description="Fecha en que se entregó el documento para evaluación, AAAA-MM-DD",
+    )
+    calificacion: str | None = Field(
+        default=None,
+        description="Calificación o concepto que emitieron los jurados o el "
+        "evaluador, tal como aparece (p. ej. 'Aprobado (AP)')",
+    )
+
+
+class EventoAcademico(BaseModel):
+    """Evento de un permiso académico (congreso, pasantía, curso), como aparece."""
+
+    nombre: str
+    fechas_participacion: str | None = Field(
+        default=None, description="Fechas en que se ausenta, como aparecen"
+    )
+    fechas_evento: str | None = Field(
+        default=None, description="Fechas de realización del evento, como aparecen"
+    )
+    lugar: str | None = None
+    participacion: str | None = Field(
+        default=None,
+        description="En calidad de qué participa (ponente, asistente…), si aparece",
+    )
 
 
 class ExtraccionCaso(BaseModel):
@@ -249,6 +371,33 @@ class ExtraccionCaso(BaseModel):
         default_factory=list,
         description="Cuadros comparativos de asignaturas cursadas y reconocidas, "
         "uno por cada cuadro que traiga la solicitud",
+    )
+    # Posgrado (docs/solicitudes-posgrado.md).
+    periodo_solicitado: str | None = Field(
+        default=None,
+        description="Periodo académico para el que pide el trámite, como aparece "
+        "(p. ej. 2027-1S); solo si aparece",
+    )
+    programa_destino: str | None = Field(
+        default=None,
+        description="Solo en un tránsito: el programa de posgrado al que pide pasar, "
+        "con su sede si aparece",
+    )
+    radicado_portal: str | None = Field(
+        default=None,
+        description="Número de la solicitud en el portal donde se radicó, como "
+        "aparece; solo si aparece",
+    )
+    eventos: list[EventoAcademico] = Field(
+        default_factory=list,
+        description="Solo en un permiso académico: cada evento, en el orden en que "
+        "aparece",
+    )
+    presenta: str | None = Field(
+        default=None,
+        description="Solo en un asunto del programa (admisión no masiva, creación de "
+        "cursos, convenios, plan de estudios): quién lo presenta, por su cargo "
+        "(p. ej. 'El coordinador de la Maestría en …')",
     )
     cuerpo_desde_linea: int | None = Field(
         default=None,

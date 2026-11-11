@@ -17,6 +17,10 @@ from datetime import date
 from app.core import solicitudes
 from app.core.programas import Programa, normalizar
 from app.schemas.caso import (
+    ASUNTOS_PROGRAMA,
+    TIPOS_CON_TRABAJO,
+    TIPOS_POSGRADO,
+    TITULOS_TIPO,
     Alerta,
     DatosSIA,
     ExtraccionCaso,
@@ -164,16 +168,32 @@ def creditos_tras_solicitud(
     return inscritos + delta
 
 
-def completar_tipos(extraccion: ExtraccionCaso) -> ExtraccionCaso:
+def es_posgrado(programa: Programa | None) -> bool:
+    return programa is not None and programa.nivel == "posgrado"
+
+
+def es_asunto_programa(extraccion: ExtraccionCaso) -> bool:
+    """Lo presenta el programa (un coordinador), no un estudiante."""
+    return bool(extraccion.tipos) and set(extraccion.tipos) <= ASUNTOS_PROGRAMA
+
+
+def completar_tipos(
+    extraccion: ExtraccionCaso, programa: Programa | None = None
+) -> ExtraccionCaso:
     """Agrega «carga mínima» cuando el estudiante quedaría por debajo de ella.
 
     Art. 10 del Acuerdo 008 de 2008: inscribir menos de la carga mínima
     requiere autorización del Consejo de Facultad, aunque el estudiante no lo
     pida con ese nombre (p. ej., quien solo inscribe Trabajo de Grado). El
-    valor sale de config/solicitudes.yaml.
+    valor sale de config/solicitudes.yaml. El artículo habla de «un programa
+    de pregrado»: en posgrado no se agrega.
     """
     sia = extraccion.sia
-    if sia is None or TipoSolicitud.CARGA_MINIMA in extraccion.tipos:
+    if (
+        sia is None
+        or TipoSolicitud.CARGA_MINIMA in extraccion.tipos
+        or es_posgrado(programa)
+    ):
         return extraccion
     inscritos = creditos_inscritos(sia)
     if inscritos is None:
@@ -246,9 +266,20 @@ def analizar(
     if jurados_minimo is None:
         jurados_minimo = solicitudes.jurados_minimo()
 
+    asunto = es_asunto_programa(extraccion)
+
     # Identificación
     doc = (extraccion.documento or "").strip()
-    if not doc:
+    if asunto:
+        # Cronograma de admisión, creación de cursos, convenios: los presenta
+        # el programa y no llevan datos de estudiante.
+        if not (extraccion.presenta or "").strip():
+            a.agregar(
+                "aviso",
+                "Es un asunto del programa y no encontré quién lo presenta: en el "
+                "acta sale en amarillo.",
+            )
+    elif not doc:
         a.agregar("error", "No encontré el número de documento del estudiante.")
     elif not doc.isdigit():
         a.agregar("aviso", f"El documento «{doc}» tiene caracteres que no son dígitos.")
@@ -257,7 +288,7 @@ def analizar(
             "aviso",
             f"El documento {doc} tiene {len(doc)} dígitos, algo inusual: verifícalo.",
         )
-    if not extraccion.nombre_estudiante:
+    if not extraccion.nombre_estudiante and not asunto:
         a.agregar("error", "No encontré el nombre del estudiante.")
     if not extraccion.fecha_solicitud:
         a.agregar("aviso", "No encontré la fecha del correo.")
@@ -313,7 +344,7 @@ def analizar(
         )
 
     # Proyecto de tesis o trabajo final de posgrado
-    if TipoSolicitud.PROYECTO_TESIS in tipos:
+    if tipos & TIPOS_CON_TRABAJO:
         proyecto = extraccion.proyecto
         faltan = [
             nombre
@@ -329,15 +360,52 @@ def analizar(
                 f"Falta {' y '.join(faltan)} del proyecto: en el borrador sale en "
                 "amarillo. Responde a la ficha con el dato.",
             )
-        if programa is not None and programa.nivel != "posgrado":
+        if (
+            TipoSolicitud.PROYECTO_TESIS in tipos
+            and programa is not None
+            and programa.nivel != "posgrado"
+        ):
             a.agregar(
                 "aviso",
                 f"Es una inscripción de proyecto de tesis, pero el programa es "
                 f"{programa.nombre} (pregrado). Revisa el programa del caso.",
             )
 
-    # Jurados de Trabajo de Grado
-    if TipoSolicitud.DESIGNACION_JURADOS in tipos or extraccion.jurados:
+    # Trámites que solo existen en posgrado
+    de_posgrado = [TITULOS_TIPO[t] for t in extraccion.tipos if t in TIPOS_POSGRADO]
+    if de_posgrado and programa is not None and programa.nivel != "posgrado":
+        a.agregar(
+            "aviso",
+            f"La solicitud es de {', '.join(de_posgrado)}, un trámite de posgrado, "
+            f"pero el programa es {programa.nombre} (pregrado). Revisa el programa "
+            "del caso.",
+        )
+    con_evaluadores = {
+        TipoSolicitud.SUSTENTACION_TESIS: "los jurados",
+        TipoSolicitud.NOMBRAMIENTO_EVALUADORES: "los evaluadores",
+    }
+    for tipo, quienes in con_evaluadores.items():
+        if tipo in tipos and not extraccion.jurados:
+            a.agregar(
+                "aviso",
+                f"No encontré {quienes} en la solicitud de {TITULOS_TIPO[tipo]}. "
+                "Responde a la ficha con los nombres.",
+            )
+    if (
+        TipoSolicitud.TRANSITO_POSGRADO in tipos
+        and not (extraccion.programa_destino or "").strip()
+    ):
+        a.agregar(
+            "aviso",
+            "No encontré el programa de destino del tránsito: en el acta sale en "
+            "amarillo.",
+        )
+
+    # Jurados de Trabajo de Grado. Los jurados y evaluadores de una tesis o un
+    # trabajo final de posgrado no siguen el mínimo de pregrado.
+    if TipoSolicitud.DESIGNACION_JURADOS in tipos or (
+        extraccion.jurados and not tipos & set(con_evaluadores)
+    ):
         n = len(extraccion.jurados)
         if n < jurados_minimo:
             a.agregar(
@@ -365,7 +433,9 @@ def analizar(
 
     # Historia académica
     sia = extraccion.sia
-    if sia is None or not sia.resumen_creditos:
+    if asunto:
+        pass
+    elif sia is None or not sia.resumen_creditos:
         detalle = (
             "Los pantallazos no muestran el «Resumen de créditos»."
             if hay_imagenes
@@ -393,7 +463,8 @@ def analizar(
             else a.creditos_inscritos
         )
         carga = umbrales.carga_minima
-        if final < carga.valor:
+        # El artículo 10 del Acuerdo 008 de 2008 es para pregrado.
+        if final < carga.valor and not es_posgrado(programa):
             if TipoSolicitud.CARGA_MINIMA in tipos:
                 ruta = config.ruta(TipoSolicitud.CARGA_MINIMA)
                 quien = (

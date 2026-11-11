@@ -114,6 +114,22 @@ PAE_PROCEDIMIENTO = NormaCitada(
     verificada=True,
 )
 
+ACUERDO_033_2008_ART_17 = NormaCitada(
+    norma="Acuerdo 033 de 2008 del Consejo Superior Universitario",
+    articulo="Artículo 17 y parágrafo",
+    texto=(
+        "ARTÍCULO 17. Examen de calificación. Es una actividad cuyo objetivo general "
+        "es mostrar que el(la) estudiante tiene los suficientes conocimientos y "
+        "capacidades para continuar con sus estudios de doctorado.\n"
+        "Parágrafo. Los Consejos de Facultad reglamentarán, a propuesta del "
+        "respectivo Comité Asesor de Programa Curricular de Postgrado, las "
+        "características del examen de calificación de sus programas de doctorado."
+    ),
+    # Copiado de como lo transcribe el acta 029 de 2026 del Comité Asesor de
+    # Posgrados; falta cotejarlo con el PDF del acuerdo.
+    verificada=False,
+)
+
 # Normas transcritas, por el nombre con que las cita config/solicitudes.yaml.
 # Qué normas acompañan a cada tipo de solicitud se define en ese archivo.
 NORMAS: dict[str, NormaCitada] = {
@@ -122,6 +138,7 @@ NORMAS: dict[str, NormaCitada] = {
     "ACUERDO_027_ART_1": ACUERDO_027_ART_1,
     "RES_CFCEN_060_ART_5": RES_CFCEN_060_ART_5,
     "PAE_PROCEDIMIENTO": PAE_PROCEDIMIENTO,
+    "ACUERDO_033_2008_ART_17": ACUERDO_033_2008_ART_17,
 }
 
 
