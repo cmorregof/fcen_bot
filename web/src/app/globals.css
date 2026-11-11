@@ -329,3 +329,18 @@ button.enlace:disabled { background: none; color: var(--suave); }
 .lote { display: flex; flex-wrap: wrap; align-items: center; gap: var(--e3); margin: var(--e3) 0; }
 .lote label { display: flex; align-items: center; gap: var(--e2); margin: 0; font-weight: 400; min-height: var(--toque); }
 .lote label input { width: 1.35rem; height: 1.35rem; accent-color: var(--accion); }
+
+/* Anexos del estudiante: resumen de MemorIA (actas/caso/Adjuntos.tsx). */
+mark.verificar { background: var(--aviso-fondo); color: var(--aviso); border-radius: 0.2rem; padding: 0 0.2em; }
+.resumen-anexo { margin: var(--e2) 0; padding: var(--e3); background: var(--panel); border-radius: var(--radio); max-width: 46rem; }
+.resumen-anexo dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--e1) var(--e3); margin: 0 0 var(--e2); }
+.resumen-anexo dt { font-weight: 700; color: var(--marino); }
+.resumen-anexo dd { margin: 0; }
+.resumen-anexo dd ul { margin: 0; padding-left: 1.1rem; }
+.resumen-anexo blockquote { margin: var(--e2) 0; padding-left: var(--e3); border-left: 3px solid var(--magenta); font-style: italic; }
+.resumen-anexo blockquote small { font-style: normal; }
+.resumen-anexo p { margin: var(--e1) 0 0; }
+@media (max-width: 30rem) {
+  .resumen-anexo dl { grid-template-columns: 1fr; }
+  .resumen-anexo dd { margin-bottom: var(--e1); }
+}

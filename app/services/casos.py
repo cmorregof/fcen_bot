@@ -7,14 +7,14 @@ recomendación lo registra una persona con un botón.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.core.conexion import Conexion
 from app.core.config import settings
 from app.core.programas import PROGRAMAS, comite_de, integrantes_con_nombre
 from app.db import repo
 from app.schemas.caso import Caso, EstadoCaso
-from app.services import extraccion, flujo, reglas
+from app.services import anexos, extraccion, flujo, reglas
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,20 @@ def analizar(caso: Caso) -> reglas.Analisis | None:
 class Resultado:
     caso: Caso
     error: str | None = None
+    # Anexos del estudiante que no se pudieron resumir (app/services/anexos.py).
+    errores_anexos: list[str] = field(default_factory=list)
 
 
 async def procesar(db: Conexion, caso: Caso) -> Resultado:
     """Lee el caso con el modelo. Si falla, el caso queda abierto con el error."""
     await repo.set_estado_caso(db, caso.id, EstadoCaso.PROCESANDO)
+    # Primero los anexos sin resumen (cada uno se lee una sola vez). Si alguno
+    # falla, el caso se lee igual: la ficha permite reintentarlo.
+    try:
+        errores_anexos = await anexos.leer_pendientes(db, caso)
+    except Exception as exc:
+        logger.exception("Falló la lectura de los anexos del caso %s", caso.id)
+        errores_anexos = [f"error inesperado ({exc})"]
     try:
         salida = await extraccion.extraer_caso(db, caso)
     except Exception as exc:
@@ -49,7 +58,7 @@ async def procesar(db: Conexion, caso: Caso) -> Resultado:
         salida = extraccion.SalidaExtraccion(None, None, f"error inesperado ({exc})")
     if salida.extraccion is None:
         await repo.set_estado_caso(db, caso.id, EstadoCaso.ABIERTO, error=salida.error)
-        return Resultado(caso, salida.error or "error desconocido")
+        return Resultado(caso, salida.error or "error desconocido", errores_anexos)
     await repo.guardar_extraccion(
         db,
         caso.id,
@@ -63,7 +72,7 @@ async def procesar(db: Conexion, caso: Caso) -> Resultado:
     await flujo.lectura_lista(db, caso.id)
     actualizado = await repo.get_caso(db, caso.id)
     assert actualizado is not None
-    return Resultado(actualizado)
+    return Resultado(actualizado, errores_anexos=errores_anexos)
 
 
 async def corregir(db: Conexion, caso: Caso, texto: str) -> Resultado:

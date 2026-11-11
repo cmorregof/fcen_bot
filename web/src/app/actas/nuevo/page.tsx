@@ -11,7 +11,7 @@ import { Mensaje, Pantalla } from "@/components/Pantalla";
 import { type Detalle, PRERREVISION } from "@/lib/actas";
 import { llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
-import { ACEPTA, Adjuntos } from "../caso/Adjuntos";
+import { Adjuntos, ZONAS } from "../caso/Adjuntos";
 
 const PASOS = ["Correo y anexos", "Revisar los datos", "Prerrevisión", "Listo para el comité"];
 
@@ -44,7 +44,8 @@ function Asistente() {
   const t = token("actas");
   const [caso, setCaso] = useState<Detalle | null>(null);
   const [texto, setTexto] = useState("");
-  const [archivos, setArchivos] = useState<FileList | null>(null);
+  const [pantallazos, setPantallazos] = useState<FileList | null>(null);
+  const [anexos, setAnexos] = useState<FileList | null>(null);
   const [correccion, setCorreccion] = useState("");
   const [prerrevision, setPrerrevision] = useState("");
   const [notaPre, setNotaPre] = useState("");
@@ -98,7 +99,8 @@ function Asistente() {
     setError(null);
     const form = new FormData();
     form.append("texto", texto);
-    for (const f of Array.from(archivos ?? [])) form.append("archivos", f);
+    for (const f of Array.from(pantallazos ?? [])) form.append("pantallazos", f);
+    for (const f of Array.from(anexos ?? [])) form.append("anexos", f);
     try {
       setOcupado("guardando");
       const { id: nuevo } = await llamar<{ id: number }>("actas", "/actas/casos", { token: t, form });
@@ -136,15 +138,23 @@ function Asistente() {
         </label>
         <textarea id="correo" value={texto} onChange={(e) => setTexto(e.target.value)} />
         <label htmlFor="pantallazos">
-          Adjunte los pantallazos del SIA y los archivos del estudiante
-          <span className="ayuda">PDF, Word o imágenes. Hasta 20 archivos. Puede agregar más después.</span>
+          {ZONAS.sia.titulo}
+          <span className="ayuda">{ZONAS.sia.ayuda}</span>
         </label>
-        <input id="pantallazos" type="file" accept={ACEPTA} multiple onChange={(e) => setArchivos(e.target.files)} />
-        {ocupado === "leyendo" ? <Mensaje tipo="info">MemorIA está leyendo el caso. Puede tardar un minuto.</Mensaje> : null}
+        <input id="pantallazos" type="file" accept={ZONAS.sia.acepta} multiple onChange={(e) => setPantallazos(e.target.files)} />
+        <label htmlFor="anexos">
+          {ZONAS.anexos.titulo}
+          <span className="ayuda">{ZONAS.anexos.ayuda}</span>
+        </label>
+        <input id="anexos" type="file" accept={ZONAS.anexos.acepta} multiple onChange={(e) => setAnexos(e.target.files)} />
+        <p>
+          <small>Hasta 20 archivos entre las dos zonas. Puede agregar más después.</small>
+        </p>
+        {ocupado === "leyendo" ? <Mensaje tipo="info">MemorIA está leyendo el caso y sus anexos. Puede tardar un minuto.</Mensaje> : null}
       </>
     );
     siguiente = (
-      <button type="button" disabled={ocupado !== null || (!texto.trim() && !archivos?.length)} onClick={crear}>
+      <button type="button" disabled={ocupado !== null || (!texto.trim() && !pantallazos?.length && !anexos?.length)} onClick={crear}>
         {ocupado === "guardando" ? "Guardando…" : ocupado === "leyendo" ? "Leyendo el caso…" : "Siguiente: leer el caso"}
       </button>
     );

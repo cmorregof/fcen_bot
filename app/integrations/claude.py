@@ -88,6 +88,24 @@ class Estructurador(Protocol):
     ) -> Resultado: ...
 
 
+class LectorDocumentos(Protocol):
+    """Lee un documento (texto, PDF o imágenes) con un nivel de esfuerzo."""
+
+    async def leer_documento(
+        self,
+        *,
+        sistema: str,
+        texto: str,
+        imagenes: list[Imagen],
+        pdf: bytes | None,
+        modelo_salida: type[BaseModel],
+        nombre_herramienta: str,
+        modelo: str,
+        max_tokens: int,
+        esfuerzo: str,
+    ) -> Resultado: ...
+
+
 class ClaudeEstructurador:
     def __init__(
         self, api_key: str, timeout_seconds: float, workspace_id: str = ""
@@ -108,22 +126,69 @@ class ClaudeEstructurador:
         modelo: str,
         max_tokens: int,
     ) -> Resultado:
+        return await self._llamar(
+            sistema=sistema,
+            contenido=[*_bloques_imagen(imagenes), {"type": "text", "text": texto}],
+            modelo_salida=modelo_salida,
+            nombre_herramienta=nombre_herramienta,
+            descripcion="Registra los datos del caso estudiantil.",
+            modelo=modelo,
+            max_tokens=max_tokens,
+        )
+
+    async def leer_documento(
+        self,
+        *,
+        sistema: str,
+        texto: str,
+        imagenes: list[Imagen],
+        pdf: bytes | None,
+        modelo_salida: type[BaseModel],
+        nombre_herramienta: str,
+        modelo: str,
+        max_tokens: int,
+        esfuerzo: str,
+    ) -> Resultado:
         contenido: list[dict[str, Any]] = []
-        for imagen in imagenes:
+        if pdf is not None:
             contenido.append(
                 {
-                    "type": "image",
+                    "type": "document",
                     "source": {
                         "type": "base64",
-                        "media_type": imagen.media_type,
-                        "data": base64.b64encode(imagen.datos).decode("ascii"),
+                        "media_type": "application/pdf",
+                        "data": base64.b64encode(pdf).decode("ascii"),
                     },
                 }
             )
+        contenido.extend(_bloques_imagen(imagenes))
         contenido.append({"type": "text", "text": texto})
+        return await self._llamar(
+            sistema=sistema,
+            contenido=contenido,
+            modelo_salida=modelo_salida,
+            nombre_herramienta=nombre_herramienta,
+            descripcion="Registra el resumen del anexo.",
+            modelo=modelo,
+            max_tokens=max_tokens,
+            extra={"output_config": {"effort": esfuerzo}} if esfuerzo else {},
+        )
+
+    async def _llamar(
+        self,
+        *,
+        sistema: str,
+        contenido: list[dict[str, Any]],
+        modelo_salida: type[BaseModel],
+        nombre_herramienta: str,
+        descripcion: str,
+        modelo: str,
+        max_tokens: int,
+        extra: dict[str, Any] | None = None,
+    ) -> Resultado:
         herramienta = {
             "name": nombre_herramienta,
-            "description": "Registra los datos del caso estudiantil.",
+            "description": descripcion,
             "input_schema": esquema_plano(modelo_salida),
         }
         try:
@@ -138,6 +203,7 @@ class ClaudeEstructurador:
                 # modelo la usa; si responde con texto, se lee el JSON de ahí.
                 tool_choice={"type": "auto"},
                 messages=[{"role": "user", "content": contenido}],
+                **(extra or {}),
             )
         except Exception as exc:  # red, cuota, clave inválida
             logger.warning("Fallo la llamada a Claude: %s", exc)
@@ -145,11 +211,16 @@ class ClaudeEstructurador:
 
         uso_in = int(getattr(resp.usage, "input_tokens", 0) or 0)
         uso_out = int(getattr(resp.usage, "output_tokens", 0) or 0)
-        if getattr(resp, "stop_reason", None) == "max_tokens":
+        motivo = getattr(resp, "stop_reason", None)
+        if motivo == "max_tokens":
             # La salida quedó cortada: un JSON parcial podría validar con
             # campos vacíos y parecer un caso completo.
             return Resultado(
                 None, uso_in, uso_out, error="La respuesta del modelo quedó incompleta."
+            )
+        if motivo == "refusal":
+            return Resultado(
+                None, uso_in, uso_out, error="El modelo no quiso leer este contenido."
             )
         entrada: Any = None
         for bloque in resp.content:
@@ -165,7 +236,7 @@ class ClaudeEstructurador:
             entrada = json_del_texto(texto)
         if entrada is None:
             return Resultado(
-                None, uso_in, uso_out, error="El modelo no registró el caso."
+                None, uso_in, uso_out, error="El modelo no registró el resultado."
             )
         try:
             objeto = modelo_salida.model_validate(entrada)
@@ -175,6 +246,20 @@ class ClaudeEstructurador:
                 None, uso_in, uso_out, error="El modelo devolvió datos no válidos."
             )
         return Resultado(objeto, uso_in, uso_out)
+
+
+def _bloques_imagen(imagenes: list[Imagen]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": imagen.media_type,
+                "data": base64.b64encode(imagen.datos).decode("ascii"),
+            },
+        }
+        for imagen in imagenes
+    ]
 
 
 def json_del_texto(texto: str) -> Any:

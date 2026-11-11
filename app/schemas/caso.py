@@ -13,6 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.anexo import AnexoLeido
 from app.schemas.consejo import DecisionConsejo
 
 
@@ -479,6 +480,8 @@ class Caso(BaseModel):
     texto: str = ""
     imagenes: list[str] = Field(default_factory=list)
     anexos_archivos: list[str] = Field(default_factory=list)
+    # Resúmenes de los anexos leídos (app/services/anexos.py).
+    anexos_leidos: list[AnexoLeido] = Field(default_factory=list)
     extraccion: ExtraccionCaso | None = None
     nota_comite: str | None = None
     conceptos: list[Concepto] = Field(default_factory=list)

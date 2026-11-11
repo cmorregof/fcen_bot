@@ -280,6 +280,8 @@ _COLUMNAS_NUEVAS = (
     # Adjuntos (app/services/adjuntos.py): tamaño y cuándo los leyó el modelo.
     ("caso_archivos", "bytes", "INTEGER"),
     ("caso_archivos", "leido", "TIMESTAMP"),
+    # Resumen de un anexo del estudiante (JSON de LecturaAnexo, app/services/anexos.py).
+    ("caso_archivos", "resumen", "TEXT"),
 )
 
 
