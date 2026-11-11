@@ -125,8 +125,8 @@ function ActasAnteriores({ token, actas }: { token: string | null; actas: ActaCo
     }
   };
   return (
-    <>
-      <h2>Actas anteriores</h2>
+    <details className="plegable">
+      <summary>Actas anteriores ({actas.length})</summary>
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
       <div className="tabla">
         <table>
@@ -162,7 +162,7 @@ function ActasAnteriores({ token, actas }: { token: string | null; actas: ActaCo
           </tbody>
         </table>
       </div>
-    </>
+    </details>
   );
 }
 type EstadoArchivo = { activo: boolean; programas: { clave: string; nombre: string }[] };
@@ -197,8 +197,9 @@ function ArchivarActa({ token, estado }: { token: string | null; estado: EstadoA
   };
 
   return (
+    <details className="plegable">
+      <summary>Archivar en Drive el acta firmada</summary>
     <form onSubmit={archivar}>
-      <h2>Archivar el acta firmada</h2>
       <p className="ayuda">Suba el PDF del acta ya firmada. Queda en el archivo oficial de Drive, por año, área y programa, y en el índice del año.</p>
       <label htmlFor="programa-acta">Programa</label>
       <select id="programa-acta" value={programa} onChange={(e) => setPrograma(e.target.value)}>
@@ -221,6 +222,7 @@ function ArchivarActa({ token, estado }: { token: string | null; estado: EstadoA
       </div>
       {resultado ? <Mensaje tipo={resultado.tipo === "ok" ? "exito" : "error"}>{resultado.texto}</Mensaje> : null}
     </form>
+    </details>
   );
 }
 
@@ -334,12 +336,6 @@ export default function Documentos() {
           {p.programas.length > 0 ? <span className="ayuda">Una sola acta para {p.programas.join(", ")}.</span> : null}
           Acta en curso: {p.acta_propuesta} de {p.anio} (número propuesto) · {p.casos} caso(s), {p.con_recomendacion} con recomendación
           <div className="botones">
-            <button type="button" disabled={ocupado !== null} onClick={() => bajar(p.clave, p.nombre, "oficio")}>
-              {ocupado === p.clave + "oficio" ? "Preparando…" : "Descargar oficio"}
-            </button>
-            <button type="button" disabled={ocupado !== null} onClick={() => bajar(p.clave, p.nombre, "acta")}>
-              {ocupado === p.clave + "acta" ? "Preparando…" : "Descargar acta"}
-            </button>
             <button
               type="button"
               disabled={ocupado !== null || firmando !== null || cerrando !== null || p.con_recomendacion === 0}
@@ -351,20 +347,31 @@ export default function Documentos() {
             >
               Firmar y cerrar el acta…
             </button>
-            <button
-              type="button"
-              className="secundario"
-              disabled={ocupado !== null || firmando !== null || cerrando !== null || p.con_recomendacion === 0}
-              onClick={() => {
-                setRecien(null);
-                setCerrada(null);
-                setCerrando(p.clave);
-              }}
-            >
-              Cerrar sin firmar…
-            </button>
           </div>
           {p.con_recomendacion === 0 ? <span className="ayuda">Para firmar, registre primero la recomendación del comité.</span> : null}
+          <details className="menu">
+            <summary>Descargar borradores u otras opciones</summary>
+            <div className="opciones">
+              <button type="button" className="enlace" disabled={ocupado !== null} onClick={() => bajar(p.clave, p.nombre, "oficio")}>
+                {ocupado === p.clave + "oficio" ? "Preparando…" : "Descargar el borrador del oficio (Word)"}
+              </button>
+              <button type="button" className="enlace" disabled={ocupado !== null} onClick={() => bajar(p.clave, p.nombre, "acta")}>
+                {ocupado === p.clave + "acta" ? "Preparando…" : "Descargar el borrador del acta (Word)"}
+              </button>
+              <button
+                type="button"
+                className="enlace"
+                disabled={ocupado !== null || firmando !== null || cerrando !== null || p.con_recomendacion === 0}
+                onClick={() => {
+                  setRecien(null);
+                  setCerrada(null);
+                  setCerrando(p.clave);
+                }}
+              >
+                Cerrar el acta sin firmar…
+              </button>
+            </div>
+          </details>
         </div>
       ))}
       {actas.length > 0 ? <ActasAnteriores token={t} actas={actas} /> : null}

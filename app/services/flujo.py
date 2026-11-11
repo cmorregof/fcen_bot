@@ -103,6 +103,10 @@ class Accion(StrEnum):
     DESCARTAR = "descartar"
     # No cambia la etapa: solo deja registro (app/services/adjuntos.py).
     QUITAR_ADJUNTO = "quitar_adjunto"
+    # Tampoco cambian la etapa: sacan o devuelven el caso de la bandeja de la
+    # administrativa (ver `archivar_de_bandeja`).
+    SACAR_DE_BANDEJA = "sacar_de_bandeja"
+    VOLVER_A_BANDEJA = "volver_a_bandeja"
 
 
 NOMBRE_ACCION: dict[Accion, str] = {
@@ -126,6 +130,8 @@ NOMBRE_ACCION: dict[Accion, str] = {
     Accion.ARCHIVAR: "Archivada",
     Accion.DESCARTAR: "Descartada",
     Accion.QUITAR_ADJUNTO: "Se quitó un adjunto",
+    Accion.SACAR_DE_BANDEJA: "Se archivó de la bandeja (no cambia la etapa)",
+    Accion.VOLVER_A_BANDEJA: "Volvió a la bandeja",
 }
 
 # Roles de la web (app/api/web/auth.py) más «sistema». En Telegram, quien usa
@@ -826,6 +832,127 @@ async def archivar(
     accion = Accion.ARCHIVAR if etapa == Etapa.NOTIFICADA else Accion.ARCHIVAR_DOCUMENTO
     return await transicionar(
         db, caso_id, accion, rol=rol, persona=persona, canal="web", detalle=detalle
+    )
+
+
+# ---------------------------------------------------------------------------
+# Archivar de la bandeja (marca aparte de la etapa)
+# ---------------------------------------------------------------------------
+
+# Etapas en las que la administrativa ya no tiene nada que hacer: el caso se
+# puede sacar de su bandeja. Lo que sigue (expedir, notificar, archivar en
+# Drive) es de la Secretaría y no depende de la bandeja.
+TERMINADAS = frozenset(
+    {
+        Etapa.IMPROCEDENTE,
+        Etapa.DECIDIDA,
+        Etapa.EXPEDIDA,
+        Etapa.NOTIFICADA,
+        Etapa.ARCHIVADA,
+        Etapa.DESCARTADA,
+    }
+)
+# Quién puede sacar un caso de la bandeja: la administrativa de su dirección
+# o admin. La dirección la controla la API web.
+ROLES_BANDEJA = frozenset({ADMINISTRATIVA, ADMIN})
+
+
+async def _en_bandeja(
+    db: Conexion,
+    caso_ids: list[int],
+    *,
+    archivar: bool,
+    rol: str,
+    persona: str | None,
+    canal: str,
+    direccion: str | None,
+) -> int:
+    if rol not in ROLES_BANDEJA:
+        raise TransicionNoPermitida(
+            "Solo la administrativa del área o admin pueden archivar casos."
+        )
+    ids = sorted(set(caso_ids))
+    if not ids:
+        raise TransicionNoPermitida("Elija al menos un caso.")
+    # Se valida todo antes de escribir: o se archivan todos o ninguno.
+    pendientes: list[tuple[int, Etapa]] = []
+    for caso_id in ids:
+        cur = await db.execute(
+            "SELECT direccion, archivado FROM casos WHERE id = ?", (caso_id,)
+        )
+        fila = await cur.fetchone()
+        if fila is None or (direccion is not None and fila["direccion"] != direccion):
+            raise TransicionNoPermitida(f"No encontré el caso #{caso_id} en su área.")
+        if bool(fila["archivado"]) == archivar:
+            continue  # ya está como se pide: no se repite el registro
+        etapa = await etapa_de(db, caso_id)
+        if archivar and etapa not in TERMINADAS:
+            raise TransicionNoPermitida(
+                f"El caso #{caso_id} sigue en curso ({NOMBRE_ETAPA[etapa].lower()}):"
+                " solo se archivan los casos decididos, notificados, descartados"
+                " o improcedentes."
+            )
+        pendientes.append((caso_id, etapa))
+    momento = ahora()
+    accion = Accion.SACAR_DE_BANDEJA if archivar else Accion.VOLVER_A_BANDEJA
+    for caso_id, etapa in pendientes:
+        await db.execute(
+            "UPDATE casos SET archivado = ? WHERE id = ?",
+            (momento if archivar else None, caso_id),
+        )
+        await _insertar(
+            db,
+            caso_id,
+            Evento(accion, etapa, etapa, momento, rol, persona, canal),
+        )
+    await db.commit()
+    return len(pendientes)
+
+
+async def archivar_de_bandeja(
+    db: Conexion,
+    caso_ids: list[int],
+    *,
+    rol: str,
+    persona: str | None,
+    canal: str,
+    direccion: str | None,
+) -> int:
+    """Saca de la bandeja casos terminados, sin borrarlos ni cambiar su etapa.
+
+    Es una marca aparte (`casos.archivado`) y no una transición: la etapa
+    oficial, los tramos y los indicadores siguen igual, y la etapa «archivada»
+    sigue siendo la del archivo en Drive. Queda en la línea de tiempo. Devuelve
+    cuántos casos cambiaron. `direccion` None: admin, cualquier dirección."""
+    return await _en_bandeja(
+        db,
+        caso_ids,
+        archivar=True,
+        rol=rol,
+        persona=persona,
+        canal=canal,
+        direccion=direccion,
+    )
+
+
+async def desarchivar_de_bandeja(
+    db: Conexion,
+    caso_ids: list[int],
+    *,
+    rol: str,
+    persona: str | None,
+    canal: str,
+    direccion: str | None,
+) -> int:
+    """Devuelve los casos a la bandeja. También queda en la línea."""
+    return await _en_bandeja(
+        db,
+        caso_ids,
+        archivar=False,
+        rol=rol,
+        persona=persona,
+        canal=canal,
+        direccion=direccion,
     )
 
 

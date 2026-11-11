@@ -1,161 +1,216 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
+import { claseEtapa, GRUPO, type Grupo, NOMBRE_GRUPO, type Resumen } from "@/lib/actas";
 import { llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
-import { ACEPTA } from "./caso/Adjuntos";
 
-type Resumen = {
-  id: number;
-  estado: string;
-  // Etapa de la línea única (app/services/flujo.py).
-  etapa_texto: string | null;
-  sentido_texto: string;
-  programa: string | null;
-  estudiante: string | null;
-  objeto: string | null;
-  consejo: { sentido_texto: string; instancia_texto: string } | null;
-};
+type Vista = "bandeja" | "archivados";
+type Filtro = "todos" | Grupo;
 
-const ESTADO: Record<string, string> = {
-  abierto: "Sin leer",
-  procesando: "Leyendo",
-  listo: "Ficha lista",
-  error: "Con error",
-  cerrado: "Cerrado",
-  decidido_consejo: "Decidido por el Consejo",
-};
+const FILTROS: Filtro[] = ["todos", "preparar", "comite", "consejo", "terminados"];
 
-function NuevoCaso() {
-  const { token } = useSesion();
-  const router = useRouter();
-  const [texto, setTexto] = useState("");
-  const [archivos, setArchivos] = useState<FileList | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [paso, setPaso] = useState<"" | "guardando" | "leyendo">("");
-
-  const crear = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    const form = new FormData();
-    form.append("texto", texto);
-    for (const f of Array.from(archivos ?? [])) form.append("archivos", f);
-    try {
-      setPaso("guardando");
-      const { id } = await llamar<{ id: number }>("actas", "/actas/casos", { token: token("actas"), form });
-      setPaso("leyendo");
-      try {
-        await llamar("actas", `/actas/casos/${id}/procesar`, { token: token("actas"), metodo: "POST" });
-      } catch {
-        /* la ficha mostrará el error y permitirá reintentar */
-      }
-      router.push(`/actas/caso?id=${id}`);
-    } catch (err) {
-      setError((err as Error).message);
-      setPaso("");
-    }
-  };
-
-  return (
-    <form onSubmit={crear}>
-      <h2>Preparar un caso nuevo</h2>
-      <label htmlFor="correo">
-        1. Pegue aquí el correo del estudiante
-        <span className="ayuda">Tal como llegó: con la fecha, el nombre y el cuerpo del mensaje.</span>
-      </label>
-      <textarea id="correo" value={texto} onChange={(e) => setTexto(e.target.value)} />
-      <label htmlFor="pantallazos">
-        2. Adjunte los pantallazos y los archivos del estudiante
-        <span className="ayuda">PDF, Word o imágenes. Hasta 20 archivos.</span>
-      </label>
-      <input id="pantallazos" type="file" accept={ACEPTA} multiple onChange={(e) => setArchivos(e.target.files)} />
-      <div className="botones">
-        <button type="submit" disabled={paso !== "" || (!texto.trim() && !archivos?.length)}>
-          {paso === "guardando" ? "Guardando…" : paso === "leyendo" ? "Leyendo el caso… (puede tardar un minuto)" : "3. Crear y leer el caso"}
-        </button>
-      </div>
-      {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
-    </form>
-  );
+function plural(n: number, uno: string, varios: string) {
+  return `${n} ${n === 1 ? uno : varios}`;
 }
 
 export default function Casos() {
   const { token, tieneRol } = useSesion();
-  const [datos, setDatos] = useState<{ area: string; casos: Resumen[] } | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const t = token("actas");
   const administrativa = tieneRol("actas", "administrativa");
+  const [vista, setVista] = useState<Vista>("bandeja");
+  const [filtro, setFiltro] = useState<Filtro>("todos");
+  const [buscar, setBuscar] = useState("");
+  const [datos, setDatos] = useState<{ area: string; casos: Resumen[] } | null>(null);
+  const [marcados, setMarcados] = useState<Set<number>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
 
-  useEffect(() => {
+  const cargar = useCallback(() => {
     if (!t) return;
-    llamar<{ area: string; casos: Resumen[] }>("actas", "/actas/casos", { token: t })
+    setDatos(null);
+    llamar<{ area: string; casos: Resumen[] }>("actas", `/actas/casos${vista === "archivados" ? "?archivados=true" : ""}`, { token: t })
       .then(setDatos)
       .catch((e: Error) => setError(e.message));
-  }, [t]);
+  }, [t, vista]);
+
+  useEffect(() => {
+    cargar();
+    setMarcados(new Set());
+  }, [cargar]);
+
+  const casos = useMemo(() => datos?.casos ?? [], [datos]);
+  const cuenta = (f: Filtro) => (f === "todos" ? casos.length : casos.filter((c) => c.etapa && GRUPO[c.etapa] === f).length);
+  const texto = buscar.trim().toLowerCase();
+  const visibles = useMemo(
+    () =>
+      casos.filter(
+        (c) =>
+          (vista === "archivados" || filtro === "todos" || (c.etapa && GRUPO[c.etapa] === filtro)) &&
+          (!texto || `#${c.id} ${c.id} ${c.estudiante ?? ""} ${c.objeto ?? ""}`.toLowerCase().includes(texto)),
+      ),
+    [casos, filtro, texto, vista],
+  );
+  // En la bandeja se marcan los terminados para archivarlos; en archivados, cualquiera para devolverlo.
+  const seleccionables = administrativa ? visibles.filter((c) => (vista === "archivados" ? true : c.archivable)) : [];
+  const elegidos = seleccionables.filter((c) => marcados.has(c.id)).map((c) => c.id);
+  const todos = seleccionables.length > 0 && elegidos.length === seleccionables.length;
+
+  const marcar = (id: number, si: boolean) =>
+    setMarcados((m) => {
+      const n = new Set(m);
+      if (si) n.add(id);
+      else n.delete(id);
+      return n;
+    });
+
+  const mover = async () => {
+    setOcupado(true);
+    setError(null);
+    setAviso(null);
+    const archivar = vista === "bandeja";
+    try {
+      await llamar("actas", `/actas/casos/${archivar ? "archivar" : "desarchivar"}`, {
+        token: t,
+        json: { ids: elegidos },
+        metodo: "POST",
+      });
+      setAviso(
+        archivar
+          ? `${plural(elegidos.length, "caso archivado", "casos archivados")}. Los encuentra en «Archivados».`
+          : `${plural(elegidos.length, "caso volvió", "casos volvieron")} a la bandeja.`,
+      );
+      setMarcados(new Set());
+      cargar();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setOcupado(false);
+  };
 
   return (
     <Pantalla
-      titulo={administrativa ? "Casos del comité asesor" : "Consultar casos del comité"}
+      titulo={administrativa ? "Casos del comité" : "Consultar casos del comité"}
       servicio="actas"
       roles={["administrativa", "comite"]}
       hace={
         administrativa
           ? [
-              "Crea un caso con el correo, los pantallazos y los archivos, y lo lee para armar la ficha con alertas.",
-              "Lista los casos de su área para abrir su ficha.",
+              "Lista los casos de su área: por defecto, los que siguen en su bandeja.",
+              "Prepara un caso nuevo paso a paso.",
+              "Archiva los casos terminados (decididos, notificados, improcedentes o descartados) para sacarlos de la bandeja. Se pueden devolver.",
             ]
           : ["Lista los casos de su área para leer la ficha y dejar su concepto."]
       }
       noHace={[
         "No decide: el comité solo recomienda aprobar o no aprobar, y decide el Consejo.",
+        "Archivar no borra el caso ni cambia su etapa.",
         "No muestra casos de otras áreas.",
       ]}
     >
-      {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
-      {administrativa ? <NuevoCaso /> : null}
-      <h2>Casos recientes {datos ? `· ${datos.area}` : ""}</h2>
-      {datos?.casos.length === 0 ? <p>Aún no hay casos.</p> : null}
-      {datos && datos.casos.length > 0 ? (
-        <div className="tabla">
-          <table>
-            <thead>
-              <tr>
-                <th>Caso</th>
-                <th>Estudiante y solicitud</th>
-                <th>Estado</th>
-                <th>Recomendación</th>
-              </tr>
-            </thead>
-            <tbody>
-              {datos.casos.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <Link href={`/actas/caso?id=${c.id}`}>Abrir caso #{c.id}</Link>
-                  </td>
-                  <td>
-                    {c.estudiante ?? "Sin leer"}
-                    {c.objeto ? <div><small>{c.objeto}</small></div> : null}
-                    {c.programa ? <div><small>{c.programa}</small></div> : null}
-                  </td>
-                  <td>{c.etapa_texto ?? ESTADO[c.estado] ?? c.estado}</td>
-                  <td>
-                    {c.sentido_texto}
-                    {c.consejo ? (
-                      <div>
-                        <small>
-                          {c.consejo.instancia_texto}: {c.consejo.sentido_texto}
-                        </small>
-                      </div>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {administrativa ? (
+        <div className="botones">
+          <Link href="/actas/nuevo" className="boton">
+            Preparar un caso nuevo
+          </Link>
         </div>
+      ) : null}
+
+      <h2>
+        {vista === "bandeja" ? "Casos en su bandeja" : "Casos archivados"}
+        {datos ? <small> · {datos.area}</small> : null}
+      </h2>
+
+      <div className="filtros" role="group" aria-label="Filtrar los casos">
+        {FILTROS.map((f) => (
+          <button
+            key={f}
+            type="button"
+            aria-pressed={vista === "bandeja" && filtro === f}
+            onClick={() => {
+              setVista("bandeja");
+              setFiltro(f);
+            }}
+          >
+            {f === "todos" ? "Todos" : NOMBRE_GRUPO[f]}
+            {vista === "bandeja" && datos ? <span className="cuenta"> ({cuenta(f)})</span> : null}
+          </button>
+        ))}
+        <button type="button" aria-pressed={vista === "archivados"} onClick={() => setVista("archivados")}>
+          Archivados
+        </button>
+      </div>
+
+      {casos.length > 5 ? (
+        <>
+          <label htmlFor="buscar">Buscar por nombre, número o solicitud</label>
+          <input id="buscar" type="search" className="buscar" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+        </>
+      ) : null}
+
+      {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
+      {aviso ? <Mensaje tipo="exito">{aviso}</Mensaje> : null}
+      {!datos && !error ? <p>Cargando…</p> : null}
+      {datos && casos.length === 0 ? (
+        <p>{vista === "bandeja" ? "No hay casos en su bandeja." : "No hay casos archivados."}</p>
+      ) : null}
+      {datos && casos.length > 0 && visibles.length === 0 ? <p>Ningún caso coincide con el filtro.</p> : null}
+
+      {seleccionables.length > 0 ? (
+        <div className="lote">
+          <label>
+            <input
+              type="checkbox"
+              checked={todos}
+              onChange={(e) => setMarcados(e.target.checked ? new Set(seleccionables.map((c) => c.id)) : new Set())}
+            />
+            {vista === "bandeja" ? `Marcar los terminados (${seleccionables.length})` : `Marcar todos (${seleccionables.length})`}
+          </label>
+          <button type="button" className="secundario" disabled={ocupado || elegidos.length === 0} onClick={mover}>
+            {ocupado
+              ? "Guardando…"
+              : vista === "bandeja"
+                ? `Archivar ${elegidos.length > 0 ? plural(elegidos.length, "caso", "casos") : "los marcados"}`
+                : `Devolver a la bandeja${elegidos.length > 0 ? ` (${elegidos.length})` : ""}`}
+          </button>
+        </div>
+      ) : null}
+
+      {visibles.length > 0 ? (
+        <ul className="lista-casos">
+          {visibles.map((c) => {
+            const seleccionable = seleccionables.includes(c);
+            return (
+              <li key={c.id}>
+                {seleccionable ? (
+                  <label className="marcar">
+                    <input
+                      type="checkbox"
+                      checked={marcados.has(c.id)}
+                      onChange={(e) => marcar(c.id, e.target.checked)}
+                      aria-label={`Marcar el caso #${c.id}`}
+                    />
+                  </label>
+                ) : administrativa && seleccionables.length > 0 ? (
+                  <span className="vacio" />
+                ) : null}
+                <div className="quien">
+                  <Link href={`/actas/caso?id=${c.id}`}>{c.estudiante ?? `Caso sin leer`}</Link>
+                  <small>
+                    Caso #{c.id}
+                    {c.objeto ? ` · ${c.objeto}` : ""}
+                  </small>
+                </div>
+                <div className="etapa">
+                  <span className={`estado ${claseEtapa(c.etapa)}`}>{c.etapa_texto ?? "Sin etapa"}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
     </Pantalla>
   );

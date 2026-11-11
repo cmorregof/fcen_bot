@@ -245,3 +245,87 @@ td > button, td > .boton { margin: 0 var(--e2) var(--e2) 0; padding: 0.4rem 0.9r
 .herramienta .texto span { display: block; color: var(--suave); font-size: 0.88rem; line-height: 1.35; margin-top: 0.15rem; }
 .herramienta .flecha { flex: none; color: var(--marino); opacity: 0.55; }
 .herramienta:hover .flecha { opacity: 1; }
+
+/* ---------- Divulgación progresiva: etiquetas, pestañas, asistente y menú ---------- */
+.estado.encurso { color: var(--indigo); background: #efeaf7; }
+.estado.archivado { color: var(--suave); background: #fff; box-shadow: inset 0 0 0 1.5px var(--linea); }
+
+/* Un botón que se ve como enlace: para acciones secundarias. */
+button.enlace { background: none; color: var(--accion); padding: 0.4rem 0.2rem; font-weight: 600; text-decoration: underline; text-underline-offset: 0.18em; min-height: var(--toque); }
+button.enlace:hover { background: none; color: var(--accion-hover); }
+button.enlace:disabled { background: none; color: var(--suave); }
+
+/* Menú de acciones secundarias, plegado. */
+.menu { margin: var(--e3) 0; }
+.menu > summary { list-style: none; width: fit-content; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary::after { content: "▾"; font-size: 0.8em; }
+.menu[open] > summary::after { content: "▴"; }
+.menu .opciones { display: flex; flex-direction: column; align-items: flex-start; gap: var(--e1); padding: var(--e2) 0 var(--e2) var(--e4); border-left: 3px solid var(--linea); }
+
+/* Secciones plegables dentro de una pantalla. */
+.plegable { border-top: 1px solid var(--linea); padding: var(--e2) 0; margin: var(--e4) 0; }
+.plegable > summary { font-size: 1.1rem; color: var(--marino); font-weight: 700; }
+
+/* Pestañas: una sección a la vista; en celular se desplazan de lado. */
+.pestanas { display: flex; gap: var(--e1); margin: var(--e4) 0 var(--e5); border-bottom: 2px solid var(--linea); overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.pestanas button[role="tab"] {
+  flex: none; background: none; color: var(--suave); border-radius: var(--radio) var(--radio) 0 0; padding: 0.55rem 0.9rem;
+  font-weight: 600; box-shadow: none; margin-bottom: -2px; border-bottom: 3px solid transparent;
+}
+.pestanas button[role="tab"]:hover { background: var(--panel); color: var(--marino); }
+.pestanas button[role="tab"][aria-selected="true"] { color: var(--marino); border-bottom-color: var(--magenta); }
+.pestanas .cuenta { font-weight: 400; font-size: 0.85em; color: var(--suave); }
+
+/* «Lo que sigue»: la tarjeta de la tarea de ahora, con un solo botón principal. */
+.ahora { background: var(--accion-suave); border-radius: var(--radio-grande); padding: var(--e4) var(--e5); margin: var(--e4) 0; }
+.ahora > .rotulo { display: block; font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--suave); font-weight: 700; }
+.ahora > h2 { margin: var(--e1) 0 var(--e1); }
+.ahora .botones { margin-bottom: 0; }
+.ahora fieldset { border-top: 0; margin: var(--e3) 0 0; padding: 0; }
+
+.datos-clave { display: grid; grid-template-columns: max-content 1fr; gap: var(--e1) var(--e4); margin: var(--e3) 0; max-width: var(--ancho-texto); }
+.datos-clave dt { color: var(--suave); }
+.datos-clave dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 30rem) { .datos-clave { grid-template-columns: 1fr; gap: 0; } .datos-clave dd { margin-bottom: var(--e2); } }
+
+/* Asistente: indicador de pasos. */
+.asistente-pasos { list-style: none; display: flex; gap: var(--e2); padding: 0; margin: var(--e3) 0 var(--e5); counter-reset: paso; }
+.asistente-pasos li { flex: 1; max-width: none; padding-top: var(--e2); border-top: 4px solid var(--linea); color: var(--suave); font-size: 0.9rem; line-height: 1.3; counter-increment: paso; }
+.asistente-pasos li::before { content: counter(paso) ". "; font-weight: 700; }
+.asistente-pasos li.hecho { border-top-color: var(--verde); }
+.asistente-pasos li[aria-current="step"] { border-top-color: var(--marino); color: var(--marino); font-weight: 700; }
+@media (max-width: 40rem) {
+  .asistente-pasos li { font-size: 0; }
+  .asistente-pasos li::before { font-size: 0.85rem; }
+  .asistente-pasos li[aria-current="step"] { font-size: 0.9rem; flex: 3; }
+}
+.navegacion { display: flex; flex-wrap: wrap-reverse; justify-content: space-between; align-items: center; gap: var(--e3); margin: var(--e6) 0 var(--e4); padding-top: var(--e4); border-top: 1px solid var(--linea); }
+@media (max-width: 30rem) { .navegacion > button:not(.enlace), .navegacion > .boton { flex: 1 1 100%; } }
+
+/* Lista de casos: pocas columnas, la etapa como etiqueta. */
+.filtros { display: flex; flex-wrap: wrap; gap: var(--e2); margin: var(--e4) 0 var(--e3); }
+.filtros button { background: var(--panel); color: var(--texto); font-weight: 600; padding: 0.4rem 0.9rem; border-radius: 2rem; box-shadow: none; }
+.filtros button:hover { background: var(--panel-hover); color: var(--texto); }
+.filtros button[aria-pressed="true"] { background: var(--marino); color: #fff; }
+.filtros .cuenta { font-weight: 400; opacity: 0.8; }
+.buscar { max-width: 24rem; }
+.lista-casos { list-style: none; padding: 0; margin: var(--e3) 0; border-top: 1px solid var(--linea); }
+.lista-casos li { max-width: none; display: flex; align-items: center; gap: var(--e3); padding: var(--e3) var(--e2); border-bottom: 1px solid var(--linea); }
+.lista-casos li:hover { background: var(--panel); }
+.lista-casos .marcar { flex: none; display: grid; place-items: center; width: var(--toque); height: var(--toque); margin: 0; }
+.lista-casos .marcar input { width: 1.35rem; height: 1.35rem; accent-color: var(--accion); }
+.lista-casos .vacio { flex: none; width: var(--toque); }
+.lista-casos .quien { flex: 1; min-width: 0; }
+.lista-casos .quien a { font-weight: 700; font-size: 1.05rem; }
+.lista-casos .quien small { display: block; line-height: 1.35; }
+.lista-casos .etapa { flex: none; text-align: right; }
+@media (max-width: 30rem) {
+  .lista-casos li { flex-wrap: wrap; }
+  .lista-casos .vacio { display: none; }
+  .lista-casos .etapa { flex-basis: 100%; text-align: left; }
+  .lista-casos li:has(.marcar) .etapa { padding-left: calc(var(--toque) + var(--e3)); }
+}
+.lote { display: flex; flex-wrap: wrap; align-items: center; gap: var(--e3); margin: var(--e3) 0; }
+.lote label { display: flex; align-items: center; gap: var(--e2); margin: 0; font-weight: 400; min-height: var(--toque); }
+.lote label input { width: 1.35rem; height: 1.35rem; accent-color: var(--accion); }

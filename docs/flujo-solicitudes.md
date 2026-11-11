@@ -140,6 +140,19 @@ stateDiagram-v2
   (`dias_total_*`: días de la solicitud a la decisión del Consejo) e
   `improcedentes`. Ver `docs/indicadores.md`.
 
+### Archivar de la bandeja (marca aparte de la etapa)
+
+La administrativa puede sacar de su bandeja web los casos que ya no le piden nada:
+improcedentes, decididos, expedidos, notificados, archivados en Drive o descartados.
+Es una **marca aparte** (`casos.archivado`, con la fecha), no una transición:
+
+- La etapa no cambia. «Archivada» sigue siendo solo la del archivo en Drive.
+- Los tramos, los indicadores, el SUIT y las estadísticas no cambian.
+- Queda en la línea de tiempo (`sacar_de_bandeja` y `volver_a_bandeja`, con quien lo hizo).
+- La hacen la administrativa de la dirección o admin. Un caso en curso no se archiva, y en
+  un lote se archivan todos o ninguno.
+- Se puede devolver a la bandeja. Telegram sigue listando todos los casos.
+
 ### Qué leen los indicadores, el SUIT y las estadísticas
 
 `casos.recomendado`, `decisiones_consejo` y `notificaciones` se mantienen como
