@@ -32,6 +32,8 @@ class RespuestaSesion(BaseModel):
     nombre: str | None
     rol: str
     direccion: str | None
+    # Administrador de WEB_ADMINS, aunque su rol en este servicio sea otro.
+    admin: bool = False
 
 
 def _respuesta(usuario: Usuario, nombre: str | None) -> RespuestaSesion:
@@ -42,6 +44,7 @@ def _respuesta(usuario: Usuario, nombre: str | None) -> RespuestaSesion:
         nombre=usuario.nombre or nombre,
         rol=usuario.rol,
         direccion=usuario.direccion,
+        admin=auth.es_admin(usuario.correo),
     )
 
 

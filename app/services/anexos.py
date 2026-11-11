@@ -298,16 +298,22 @@ def _limpio(valor: str | None) -> str:
 
 def frase(anexo: AnexoLeido) -> str:
     """La viñeta del análisis del caso. Ejemplo: «Se adjunta certificado médico
-    de Clínica Ejemplo del 3 de septiembre de 2026 que acredita incapacidad
+    de Clínica Ejemplo del 3 de septiembre de 2026, que acredita incapacidad
     entre el 1 y el 10 de septiembre de 2026.»"""
     lectura = anexo.lectura
     r = lectura.resumen
     tipo = " ".join(r.tipo_documento.split()).rstrip(".") or "documento"
     texto = (
-        f"Se adjunta {tipo} de {_limpio(r.emisor)} del {_limpio(r.fecha)} "
+        f"Se adjunta {tipo} de {_limpio(r.emisor)} del {_limpio(r.fecha)}, "
         f"que acredita {_limpio(r.acredita)}."
     )
-    datos = [_limpio(d) for d in r.datos_relevantes if d.strip()]
+    # Los datos que ya están dichos en la frase no se repiten.
+    dicho = texto.casefold()
+    datos = [
+        _limpio(d)
+        for d in r.datos_relevantes
+        if d.strip() and _limpio(d).casefold() not in dicho
+    ]
     if datos:
         lista = "; ".join(datos)
         texto += f" {lista[0].upper()}{lista[1:]}."

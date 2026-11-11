@@ -26,20 +26,22 @@ class ResumenAnexo(BaseModel):
     )
     emisor: str | None = Field(
         default=None,
-        description="Quién lo expide (entidad o persona con su cargo), tal como "
-        "aparece. null si no se lee.",
+        description="Quién lo expide: la entidad, o la persona con su cargo, tal "
+        "como aparece. Sin números de registro ni firmas. null si no se lee.",
     )
     acredita: str | None = Field(
         default=None,
-        description="Lo que el documento hace constar, en una frase que pueda "
-        "seguir a «que acredita…». Solo lo que dice el documento. null si no "
-        "se entiende.",
+        description="Lo que el documento hace constar, como complemento breve que "
+        "siga a «que acredita…», sin repetir el nombre ni el documento del "
+        "estudiante. Ejemplo: «incapacidad médica entre el 20 y el 31 de octubre "
+        "de 2026». Solo lo que dice el documento. null si no se entiende.",
     )
     datos_relevantes: list[str] = Field(
         default_factory=list,
         description="Hasta 5 datos concretos del documento útiles para la "
         "solicitud: fechas, periodos, días de incapacidad, asignaturas, "
-        "horarios, números de radicado. Cada uno breve.",
+        "horarios, números de radicado. Cada uno breve. No repita lo que ya "
+        "dice «acredita» ni el nombre o el documento del estudiante.",
     )
     citas: list[str] = Field(
         default_factory=list,

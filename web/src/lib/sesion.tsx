@@ -11,6 +11,8 @@ export type SesionServicio = {
   nombre: string | null;
   rol: Rol;
   direccion: string | null;
+  // Administrador de usuarios aunque su rol en el servicio sea otro.
+  admin?: boolean;
 };
 
 type Sesiones = Partial<Record<Servicio, SesionServicio>>;
