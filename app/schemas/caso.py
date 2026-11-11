@@ -340,3 +340,5 @@ class Caso(BaseModel):
     etapa: str | None = None
     # Prerrevisión del programa: procedente, improcedente o incompleto.
     prerrevision: str | None = None
+    # Fuera de la bandeja de la administrativa desde esta fecha (None: activo).
+    archivado: str | None = None

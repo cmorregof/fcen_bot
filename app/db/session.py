@@ -274,6 +274,9 @@ _COLUMNAS_NUEVAS = (
     # Línea única de estados (app/services/flujo.py).
     ("casos", "etapa", "TEXT"),
     ("casos", "prerrevision", "TEXT"),
+    # Cuándo se sacó de la bandeja de la administrativa (None: en la bandeja).
+    # Marca aparte de la etapa: no cambia el flujo ni los indicadores.
+    ("casos", "archivado", "TIMESTAMP"),
     # Adjuntos (app/services/adjuntos.py): tamaño y cuándo los leyó el modelo.
     ("caso_archivos", "bytes", "INTEGER"),
     ("caso_archivos", "leido", "TIMESTAMP"),

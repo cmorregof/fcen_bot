@@ -98,6 +98,10 @@ def _resumen(caso: Caso) -> dict[str, object]:
         "consejo": _consejo(caso),
         "etapa": caso.etapa,
         "etapa_texto": flujo.nombre_etapa(caso.etapa),
+        # Bandeja de la administrativa (marca aparte de la etapa).
+        "archivado": caso.archivado,
+        "archivable": caso.archivado is None
+        and caso.etapa in {e.value for e in flujo.TERMINADAS},
     }
 
 
@@ -219,6 +223,7 @@ async def _linea(db: Db, caso: Caso, rol: str) -> dict[str, object]:
                 flujo.Accion.PRERREVISAR_IMPROCEDENTE,
                 flujo.Accion.PRERREVISAR_INCOMPLETO,
                 flujo.Accion.COMPLETAR,
+                flujo.Accion.RECOMENDAR,
                 flujo.Accion.ENVIAR_CONSEJO,
                 flujo.Accion.VOLVER_AL_COMITE,
             )
@@ -246,13 +251,59 @@ def _conflicto(exc: flujo.TransicionNoPermitida) -> HTTPException:
 
 
 @router.get("/casos")
-async def listar(usuario: _Area, db: Db) -> dict[str, object]:
+async def listar(usuario: _Area, db: Db, archivados: bool = False) -> dict[str, object]:
+    """La bandeja: por defecto, los casos activos; con `archivados=true`, los
+    que la administrativa sacó de la bandeja."""
     direccion = _direccion(usuario)
-    recientes = await repo.casos_recientes(db, direccion=direccion, limite=50)
+    recientes = await repo.casos_recientes(
+        db, direccion=direccion, limite=100, archivados=archivados
+    )
     return {
         "area": DIRECCIONES[direccion].nombre,
         "casos": [_resumen(c) for c in recientes],
     }
+
+
+class Seleccion(BaseModel):
+    ids: list[int]
+
+
+# Archivar de la bandeja: la administrativa de su dirección o admin (de
+# cualquier dirección). No cambia la etapa (app/services/flujo.py).
+_Bandeja = Annotated[Usuario, Depends(auth.requiere("administrativa", "admin"))]
+
+
+async def _bandeja(cuerpo: Seleccion, usuario: Usuario, db: Db, archivar: bool) -> int:
+    if not 1 <= len(cuerpo.ids) <= 200:
+        raise HTTPException(400, "Elija entre 1 y 200 casos.")
+    operacion = flujo.archivar_de_bandeja if archivar else flujo.desarchivar_de_bandeja
+    try:
+        return await operacion(
+            db,
+            cuerpo.ids,
+            rol=usuario.rol,
+            persona=_persona(usuario),
+            canal="web",
+            direccion=_alcance(usuario),
+        )
+    except flujo.TransicionNoPermitida as exc:
+        raise _conflicto(exc) from None
+
+
+@router.post("/casos/archivar")
+async def archivar_casos(
+    cuerpo: Seleccion, usuario: _Bandeja, db: Db
+) -> dict[str, object]:
+    """Saca de la bandeja uno o varios casos terminados, sin borrarlos."""
+    return {"archivados": await _bandeja(cuerpo, usuario, db, archivar=True)}
+
+
+@router.post("/casos/desarchivar")
+async def desarchivar_casos(
+    cuerpo: Seleccion, usuario: _Bandeja, db: Db
+) -> dict[str, object]:
+    """Devuelve uno o varios casos a la bandeja."""
+    return {"desarchivados": await _bandeja(cuerpo, usuario, db, archivar=False)}
 
 
 async def _leer_adjuntos(archivos: list[UploadFile]) -> list[tuple[bytes, str]]:

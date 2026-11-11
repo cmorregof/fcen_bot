@@ -434,6 +434,7 @@ async def _row_to_caso(db: Conexion, row: Fila) -> Caso:
         consejo=await decision_consejo(db, int(row["id"])),
         etapa=row["etapa"],
         prerrevision=row["prerrevision"],
+        archivado=str(row["archivado"]) if row["archivado"] else None,
     )
 
 
@@ -636,11 +637,23 @@ async def ultimo_borrador(db: Conexion, programa: str) -> FirmaBorrador | None:
 
 
 async def casos_recientes(
-    db: Conexion, *, direccion: str, limite: int = 15
+    db: Conexion,
+    *,
+    direccion: str,
+    limite: int = 15,
+    archivados: bool | None = None,
 ) -> list[Caso]:
+    """`archivados`: None, todos; False, solo los de la bandeja; True, solo los
+    que la administrativa sacó de la bandeja."""
+    filtro = ""
+    if archivados is not None:
+        filtro = (
+            " AND archivado IS NOT NULL" if archivados else " AND archivado IS NULL"
+        )
     cur = await db.execute(
-        "SELECT * FROM casos WHERE direccion = ? AND estado != ? "
-        "ORDER BY id DESC LIMIT ?",
+        "SELECT * FROM casos WHERE direccion = ? AND estado != ?"
+        + filtro
+        + " ORDER BY id DESC LIMIT ?",
         (direccion, EstadoCaso.DESCARTADO.value, limite),
     )
     return [await _row_to_caso(db, row) for row in await cur.fetchall()]
