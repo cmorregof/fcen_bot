@@ -700,7 +700,7 @@ function Historial({ caso }: { caso: Detalle }) {
       <ul>
         {caso.tramos.map((t) => (
           <li key={t.nombre}>
-            {t.nombre}: {t.dias === null ? "—" : `${t.dias} días`}
+            {t.nombre}: {t.dias === null ? "—" : `${t.dias} ${t.dias === 1 ? "día" : "días"}`}
           </li>
         ))}
       </ul>

@@ -95,7 +95,7 @@ export default function Inicio() {
 
   const mias = HERRAMIENTAS.filter((h) => tieneRol(h.servicio, ...h.roles));
   const decanatura = Object.values(sesiones).some((s) => s.rol === "decanatura" || s.rol === "admin");
-  const admin = Object.values(sesiones).some((s) => s.rol === "admin");
+  const admin = Object.values(sesiones).some((s) => s.rol === "admin" || s.admin);
   const nombre = Object.values(sesiones)[0]?.nombre?.split(" ")[0];
 
   const grupos: { titulo: string; enlaces: Enlace[] }[] = (Object.keys(GRUPO) as Servicio[])

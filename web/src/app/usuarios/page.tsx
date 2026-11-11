@@ -159,7 +159,7 @@ function UsuariosServicio({ servicio }: { servicio: Servicio }) {
 
 export default function Usuarios() {
   const { sesiones } = useSesion();
-  const servicios = (Object.keys(sesiones) as Servicio[]).filter((s) => sesiones[s]?.rol === "admin");
+  const servicios = (Object.keys(sesiones) as Servicio[]).filter((s) => sesiones[s]?.rol === "admin" || sesiones[s]?.admin);
   return (
     <Pantalla
       titulo="Usuarios"

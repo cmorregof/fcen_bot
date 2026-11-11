@@ -213,10 +213,18 @@ async def usuario_actual(
     return usuario
 
 
+def es_admin(correo: str) -> bool:
+    """Los administradores de WEB_ADMINS conservan la gestión de usuarios
+    aunque también estén autorizados con otro rol (p. ej., en un área)."""
+    return correo.strip().lower() in web_settings.lista_admins
+
+
 def requiere(*roles: Rol) -> Callable[..., Awaitable[Usuario]]:
     async def _dep(
         usuario: Annotated[Usuario, Depends(usuario_actual)],
     ) -> Usuario:
+        if "admin" in roles and es_admin(usuario.correo):
+            return usuario
         if usuario.rol not in roles:
             raise HTTPException(403, "Esta herramienta no está habilitada para su rol.")
         return usuario

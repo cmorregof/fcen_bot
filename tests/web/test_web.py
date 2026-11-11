@@ -725,3 +725,26 @@ def test_cors_permite_todos_los_metodos_de_la_web() -> None:
         for ruta, metodos in web.openapi()["paths"].items():
             faltan = {m.upper() for m in metodos} - permitidos
             assert not faltan, f"{servicio} {ruta}: {faltan}"
+
+
+async def test_admin_autorizado_en_un_area_conserva_la_gestion_de_usuarios(
+    cliente: Cliente,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un administrador de WEB_ADMINS que se autoriza en un área (por ejemplo,
+    para probar) sigue pudiendo gestionar usuarios y retirarse a sí mismo."""
+    c = cliente("actas")
+    cab = await _token("admin@unal.edu.co", "administrativa", DIR)
+    assert c.get("/api/web/usuarios", headers=cab).status_code == 200
+    r = c.delete("/api/web/usuarios/admin@unal.edu.co", headers=cab)
+    assert r.status_code == 200
+    # Otra administrativa, sin estar en WEB_ADMINS, no puede.
+    otra = await _token("otra@unal.edu.co", "administrativa", DIR)
+    assert c.get("/api/web/usuarios", headers=otra).status_code == 403
+    # La sesión le avisa a la web que es administrador.
+    monkeypatch.setattr(web_settings, "auth_dev", True)
+    await _autorizar("admin2@unal.edu.co", "administrativa", DIR)
+    monkeypatch.setattr(web_settings, "admins", "admin@unal.edu.co,admin2@unal.edu.co")
+    r = c.post("/api/web/sesion/dev", json={"correo": "admin2@unal.edu.co"})
+    assert r.status_code == 200, r.text
+    assert r.json()["rol"] == "administrativa" and r.json()["admin"] is True

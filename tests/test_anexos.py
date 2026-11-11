@@ -222,7 +222,7 @@ async def test_procesar_resume_los_anexos_una_vez(
     assert [x["verificada"] for x in resumen["citas"]] == [True, False]
     assert resumen["frase_acta"].startswith(
         "Se adjunta certificado médico de Clínica Ficticia del Café del 3 de "
-        "septiembre de 2026 que acredita incapacidad médica"
+        "septiembre de 2026, que acredita incapacidad médica"
     )
     assert f"“{CITA}”." in resumen["frase_acta"]
     assert (
@@ -376,7 +376,7 @@ async def test_resumen_en_el_acta_y_se_va_al_borrar(
     [vineta] = [p for p in _parrafos(docx) if "Se adjunta certificado médico" in p]
     assert vineta == (
         "•\tSe adjunta certificado médico de Clínica Ficticia del Café del "
-        f"{VERIFICAR_ANEXO} que acredita incapacidad médica entre el 1 y el 7 de "
+        f"{VERIFICAR_ANEXO}, que acredita incapacidad médica entre el 1 y el 7 de "
         "septiembre de 2026. Siete días de incapacidad. "
         f"Cita del anexo: “{CITA}”."
     )
@@ -416,7 +416,7 @@ def test_frase_sin_datos_marca_verificar() -> None:
     )
     texto = anexos.frase(AnexoLeido(archivo_id=1, nombre="x.png", lectura=lectura))
     assert texto == (
-        f"Se adjunta constancia de {VERIFICAR_ANEXO} del {VERIFICAR_ANEXO} que "
+        f"Se adjunta constancia de {VERIFICAR_ANEXO} del {VERIFICAR_ANEXO}, que "
         f"acredita {VERIFICAR_ANEXO}. Hay partes del documento que no se leen "
         f"{VERIFICAR_ANEXO}."
     )
@@ -488,3 +488,17 @@ async def test_cliente_real_envia_pdf_y_esfuerzo() -> None:
         esfuerzo="medium",
     )
     assert resultado.objeto is None and resultado.error
+
+
+def test_la_frase_no_repite_los_datos_ya_dichos() -> None:
+    resumen = ResumenAnexo(
+        tipo_documento="certificado médico",
+        emisor="Clínica Ficticia",
+        fecha="3 de septiembre de 2026",
+        acredita="incapacidad médica entre el 1 y el 7 de septiembre de 2026",
+        datos_relevantes=["3 de septiembre de 2026", "Siete días de incapacidad"],
+    )
+    lectura = LecturaAnexo(resumen=resumen)
+    texto = anexos.frase(AnexoLeido(archivo_id=1, nombre="c.pdf", lectura=lectura))
+    assert texto.count("3 de septiembre de 2026") == 1
+    assert "Siete días de incapacidad." in texto
