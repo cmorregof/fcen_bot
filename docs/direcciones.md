@@ -37,7 +37,9 @@ En esa dirección:
 - El acta lleva el encabezado del acta 029 («UNIVERSIDAD NACIONAL DE COLOMBIA /
   SEDE MANIZALES / COMITÉ ASESOR DE POSGRADOS DEL ÁREA CURRICULAR DE CIENCIAS
   EXACTAS / ACTA-030») y los asistentes como en ella: «Profesor NOMBRE, en
-  calidad de cargo;».
+  calidad de cargo;». Por dentro sigue la estructura de las actas de ese
+  comité (orden del día por solicitud, DESARROLLO y un punto por solicitud,
+  sin «Varios»): `docs/solicitudes-posgrado.md`.
 - El consecutivo sigue a `ultima_acta` (029 de 2026): la siguiente que se
   propone es la 030, y no se puede cerrar un número igual o menor en ese año.
   Si la numeración real es otra, se corrige `ultima_acta` en `programas.py`.

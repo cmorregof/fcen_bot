@@ -95,8 +95,8 @@ entre comillas en "justificando que “…”". Cópialo carácter por carácter
 los números de línea, sin el saludo ni la firma, sin corregir ortografía ni \
 puntuación y sin unir ni cortar palabras. Si no puedes copiarlo exacto, déjalo \
 vacío.
-16. En posgrado (maestría), la inscripción del proyecto de tesis o trabajo \
-final es `proyecto_tesis`: registra en `proyecto` el título, el director, el \
+16. En posgrado (especialización, maestría o doctorado), la inscripción del \
+proyecto de tesis o trabajo final es `proyecto_tesis`: registra en `proyecto` el título, el director, el \
 codirector y la línea tal como aparecen. Los cursos que pida inscribir o \
 cancelar van en `asignaturas`, y los jurados en `jurados`. No uses \
 `trabajo_grado` para posgrado.
@@ -105,6 +105,48 @@ cancelar van en `asignaturas`, y los jurados en `jurados`. No uses \
 el P.A. (`promedio_academico`) si aparece, el porcentaje de avance y el \
 estado de la historia académica (`estado_historia`: ACTIVA, BLOQUEADA, \
 CERRADA… con las palabras del SIA). Si no se ven o no se leen, déjalos vacíos.
+18. Si la administrativa es de un área curricular de posgrados, o el plan es \
+de una especialización, maestría o doctorado, usa estos tipos cuando apliquen \
+(sin cambiar el sentido de lo que pide):
+- `sustentacion_tesis`: informa la sustentación de una tesis y pide registrar \
+la calificación. En `proyecto` van el título, el director, el codirector, la \
+actividad académica (con su código), la fecha de sustentación y la \
+calificación que dieron los jurados, tal como aparecen; los jurados van en \
+`jurados`.
+- `calificacion_trabajo_final`: resultado de la evaluación de un trabajo \
+final de maestría. En `proyecto` van el título, el director, la actividad, la \
+fecha de entrega y la calificación; el evaluador va en `jurados`.
+- `nombramiento_evaluadores`: entrega la tesis o el trabajo final y pide \
+nombrar evaluadores. Los evaluadores van en `jurados` (con su institución y \
+correo si aparecen). No uses `designacion_jurados`.
+- `proyecto_tesis`: entrega la propuesta o el proyecto y pide el aval del \
+título y el nombramiento del director. Copia el objetivo general y los \
+objetivos específicos en `proyecto`.
+- `modificacion_proyecto`: cambio de título, objetivos o director. El título \
+o el director que se reemplazan van en `titulo_anterior` o \
+`director_anterior`; los nuevos, en `titulo` y `director`.
+- `transito_posgrado`: tránsito a otro programa de posgrado, con el programa \
+de destino en `programa_destino`.
+- `examen_calificacion`: presentar, homologar o convalidar el examen de \
+calificación del doctorado.
+- `permiso_academico`: registra cada evento en `eventos` (nombre, fechas de \
+participación, fechas del evento, lugar y en calidad de qué participa).
+- `reingreso`, `exencion_pago`, `reexpedicion_recibo`, \
+`desbloqueo_historia`, `cancelacion`, `inscripcion_extemporanea` y \
+`homologacion` se usan igual que en pregrado. Si la solicitud llega fuera de \
+plazo y pide que se estudie como excepción, incluye también \
+`excepcion_norma`.
+En posgrado escribe «curso» o «cursos» en `objeto_solicitud`, no \
+«asignatura». Registra `periodo_solicitado` y `radicado_portal` solo si \
+aparecen.
+19. Algunos asuntos los presenta el programa (un coordinador o el director) \
+y no un estudiante: `admision_no_masiva` (cronograma y cupos de un proceso de \
+admisión de aplicación no masiva), `creacion_curso` (creación o modificación \
+de un curso) y `propuesta_programa` (convenios, modificación del plan de \
+estudios o de un acuerdo del programa). En ellos registra en `presenta` \
+quién lo presenta, por su cargo, y deja vacíos el nombre y el documento del \
+estudiante. `objeto_solicitud` completa la frase "recomienda ... la \
+solicitud de ..." (p. ej. "creación del curso «…» de la Maestría en …").
 
 Tipos de solicitud (puede haber varios; el principal primero):
 {_TIPOS}

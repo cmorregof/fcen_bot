@@ -192,6 +192,114 @@ solicitudes:
     normas: []
     nota: Lo confirma la Vicedecanatura Académica.
 
+  # --- Posgrado (Comité Asesor de Posgrados de Ciencias Exactas) ---
+  # Salen de las actas 022 a 029 de 2026 de ese comité. Inventario y
+  # pendientes: docs/solicitudes-posgrado.md.
+
+  sustentacion_tesis:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Las actas remiten el acta de sustentación para registrar la calificación
+      en el SIA. Quién decide y con qué acto lo confirma la Vicedecanatura Académica.
+
+  calificacion_trabajo_final:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Lo confirma la Vicedecanatura Académica con la Dirección de Área
+      Curricular de Posgrados.
+
+  nombramiento_evaluadores:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Las actas piden al Consejo de Facultad el nombramiento de los
+      evaluadores. Lo confirma la Vicedecanatura Académica.
+
+  modificacion_proyecto:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Lo confirma la Vicedecanatura Académica con la Dirección de Área
+      Curricular de Posgrados.
+
+  transito_posgrado:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Las actas citan la Resolución 035 de 2014 de la Vicerrectoría Académica
+      (arts. 17, 18 y 21) y la Resolución 016 de 2025, que aún no están
+      transcritas en app/normativa. Si el programa de destino tiene otro
+      comité asesor, la solicitud se remite a ese comité. Lo confirma la
+      Vicedecanatura Académica.
+
+  examen_calificacion:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: [ACUERDO_033_2008_ART_17]
+    nota: >-
+      El parágrafo del artículo 17 deja la reglamentación del examen a los
+      Consejos de Facultad. Falta la reglamentación de la Facultad. Lo
+      confirma la Vicedecanatura Académica.
+
+  exencion_pago:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Lo confirma la Vicedecanatura Académica con la Dirección de Área
+      Curricular de Posgrados.
+
+  desbloqueo_historia:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Lo confirma la Vicedecanatura Académica con la Dirección de Área
+      Curricular de Posgrados.
+
+  admision_no_masiva:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Asunto del programa, no de un estudiante: cronograma y cupos del
+      proceso de admisión de aplicación no masiva. Lo confirma la Vicedecanatura
+      Académica.
+
+  creacion_curso:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Asunto del programa. Lo confirma la Vicedecanatura Académica.
+
+  propuesta_programa:
+    recomienda: comite_asesor
+    decide: por_confirmar
+    acto: por_confirmar
+    normas: []
+    nota: >-
+      Asunto del programa (convenios, modificación del plan de estudios).
+      Según el asunto, decide el Consejo de Facultad o el Consejo Académico.
+      Lo confirma la Vicedecanatura Académica.
+
   otro:
     recomienda: comite_asesor
     decide: por_confirmar
