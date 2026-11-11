@@ -225,6 +225,23 @@ function Resumen({
         </button>,
       );
     }
+    if (caso.acciones.includes("descartar")) {
+      secundarias.push(
+        <button
+          key="descartar"
+          type="button"
+          className="enlace"
+          disabled={ocupado}
+          onClick={() => {
+            if (window.confirm("¿Descartar este caso? Úselo solo si se registró por error: sale del oficio, del acta y de las métricas.")) {
+              hacer("/descartar", undefined, "Caso descartado: no entra al oficio, al acta ni a las métricas.");
+            }
+          }}
+        >
+          Descartar (registrado por error)…
+        </button>,
+      );
+    }
     if (caso.archivable && caso.oficio_consejo) {
       secundarias.push(
         <button key="archivar" type="button" className="enlace" disabled={ocupado} onClick={() => bandeja(true)}>
