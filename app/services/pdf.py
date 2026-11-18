@@ -25,7 +25,7 @@ async def docx_a_pdf(docx: bytes) -> bytes | None:
         perfil = base / "perfil"
         proceso = await asyncio.create_subprocess_exec(
             settings.soffice_bin,
-            f"-env:UserInstallation=file://{perfil}",
+            f"-env:UserInstallation={perfil.as_uri()}",
             "--headless",
             "--convert-to",
             "pdf",
