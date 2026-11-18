@@ -856,7 +856,7 @@ function Ficha() {
             {pestana === "datos" ? <Datos caso={caso} administrativa={administrativa} ocupado={ocupado} hacer={hacer} /> : null}
             {pestana === "comite" ? <Comite key={caso.sentido} caso={caso} administrativa={administrativa} ocupado={ocupado} hacer={hacer} /> : null}
             {pestana === "anexos" ? (
-              <Adjuntos<Detalle> casoId={caso.id} adjuntos={caso.adjuntos} leido={caso.extraccion !== null} editable={administrativa} token={t} onFicha={setCaso} />
+              <Adjuntos<Detalle> casoId={caso.id} adjuntos={caso.adjuntos} leido={caso.extraccion !== null} editable={administrativa} token={t} onFicha={setCaso} zonas={caso.lee_anexos} />
             ) : null}
             {pestana === "documentos" ? (
               <Documentos d={caso.consejo} oficio={caso.oficio_consejo} administrativa={administrativa} ocupado={ocupado} onOficio={bajarOficio} />

@@ -11,6 +11,11 @@ fila en `actas_comite` con su número, el año, la fecha de la sesión y los cas
 (`acta_comite_casos`); esos casos salen del borrador y los nuevos entran a la
 siguiente.
 
+Un acta cerrada sin firma se puede reabrir (`reabrir`) si se cerró por error y
+el Consejo aún no decidió ninguno de sus casos: la fila se borra, el número
+queda libre, el Word se quita y los casos vuelven al borrador del comité.
+Las firmadas no se reabren: tienen radicado y PDF firmado.
+
 El número siguiente es una propuesta (el último del comité en el año + 1, o
 el siguiente a `ultima_acta` si el comité numeró actas por fuera de MemorIA).
 La persona lo confirma o lo corrige al cerrar: la dirección puede haber
@@ -316,6 +321,66 @@ async def cerrar_sin_firma(
     return cerrada
 
 
+async def reabrir(
+    db: Conexion,
+    *,
+    acta_id: int,
+    direccion: str,
+    persona: str,
+    rol: str,
+    canal: str,
+) -> ActaComite:
+    """Deshace el cierre sin firma de un acta: los casos vuelven del Consejo
+    al borrador del comité y el número queda libre. Devuelve el acta como
+    estaba antes de reabrirla."""
+    acta = await obtener(db, acta_id)
+    if acta is None or acta.direccion != direccion:
+        raise ActaNoPermitida("No encontré esa acta en su dirección.")
+    if acta.estado != CERRADA:
+        raise ActaNoPermitida(
+            "Esa acta se firmó en MemorIA: tiene radicado y no se reabre."
+        )
+    if acta.numero is None:
+        raise ActaNoPermitida(
+            "Esa acta es histórica, anterior al consecutivo: no se reabre."
+        )
+    nombre = f"acta {formato_numero(acta.numero)} de {acta.anio}"
+    decididos = [
+        caso_id
+        for caso_id in acta.caso_ids
+        if await flujo.etapa_de(db, caso_id) != flujo.Etapa.EN_CONSEJO
+    ]
+    if decididos:
+        raise ActaNoPermitida(
+            f"No puedo reabrir el {nombre}: estos casos ya no están en espera "
+            f"del Consejo: {', '.join(f'#{i}' for i in decididos)}."
+        )
+    try:
+        for caso_id in acta.caso_ids:
+            await flujo.transicionar(
+                db,
+                caso_id,
+                flujo.Accion.VOLVER_AL_COMITE,
+                rol=flujo.ADMIN if rol == flujo.ADMIN else flujo.ADMINISTRATIVA,
+                persona=persona,
+                canal=canal,
+                detalle=f"Se reabrió el {nombre}, cerrada sin firma",
+                commit=False,
+            )
+            await repo.reabrir_en_borrador(db, caso_id)
+        await db.execute("DELETE FROM acta_comite_casos WHERE acta_id = ?", (acta.id,))
+        await db.execute("DELETE FROM actas_comite WHERE id = ?", (acta.id,))
+        await db.commit()
+    except BaseException:
+        await db.rollback()
+        raise
+    # El Word ya no es el acta de nadie; si se cierra de nuevo con el mismo
+    # número, se genera otro.
+    if acta.docx_ruta is not None:
+        acta.docx_ruta.unlink(missing_ok=True)
+    return acta
+
+
 # ---------------------------------------------------------------------------
 # Consultas
 # ---------------------------------------------------------------------------
@@ -367,12 +432,81 @@ def leer_docx(acta: ActaComite) -> bytes:
     """El Word guardado al cerrar, solo si su SHA-256 es el registrado."""
     if acta.docx_ruta is None or acta.docx_sha256 is None:
         raise FileNotFoundError("El acta no tiene Word guardado.")
-    contenido = acta.docx_ruta.read_bytes()
+    contenido = acta.docx_ruta.read_bytes()  # FileNotFoundError si se perdió
     if hashlib.sha256(contenido).hexdigest() != acta.docx_sha256:
         raise ActaNoPermitida(
             f"El archivo {acta.docx_ruta.name} no coincide con el que se guardó."
         )
     return contenido
+
+
+@dataclass(frozen=True)
+class CasoDelActa:
+    id: int
+    estudiante: str | None
+    sentido: Sentido
+
+
+async def casos_de(db: Conexion, actas: list[ActaComite]) -> dict[int, CasoDelActa]:
+    """Estudiante y recomendación de los casos de esas actas, en una consulta."""
+    ids = sorted({i for a in actas for i in a.caso_ids})
+    if not ids:
+        return {}
+    marcas = ",".join("?" for _ in ids)
+    cur = await db.execute(
+        f"SELECT id, sentido, extraccion_json FROM casos WHERE id IN ({marcas})",
+        tuple(ids),
+    )
+    salida: dict[int, CasoDelActa] = {}
+    for r in await cur.fetchall():
+        estudiante: str | None = None
+        if r["extraccion_json"]:
+            try:
+                datos = json.loads(r["extraccion_json"])
+            except ValueError:
+                datos = {}
+            nombre = datos.get("nombre_estudiante") if isinstance(datos, dict) else None
+            estudiante = str(nombre) if nombre else None
+        try:
+            sentido = Sentido(str(r["sentido"]))
+        except ValueError:
+            sentido = Sentido.PENDIENTE
+        salida[int(r["id"])] = CasoDelActa(int(r["id"]), estudiante, sentido)
+    return salida
+
+
+def reabrible(acta: ActaComite) -> bool:
+    """Se puede intentar reabrir: cerrada sin firma y con número. Si el
+    Consejo ya decidió alguno de sus casos, `reabrir` lo dice."""
+    return acta.estado == CERRADA and acta.numero is not None
+
+
+async def docx_reconstruido(db: Conexion, acta: ActaComite, hoy: date) -> bytes:
+    """Un acta sin Word guardado (las históricas, anteriores al consecutivo):
+    se arma de nuevo con sus casos, como borrador. Lo que no se sabe (número,
+    fecha de la sesión) sale marcado para completar."""
+    programa = comite_de(acta.programa)
+    if programa is None:
+        raise ActaNoPermitida("No conozco el programa de esa acta.")
+    items = []
+    for caso_id in acta.caso_ids:
+        caso = await repo.get_caso(db, caso_id)
+        if caso is not None and (item := caso_documento(caso, programa)) is not None:
+            items.append(item)
+    if not items:
+        raise ActaNoPermitida("Los casos de esa acta no tienen datos leídos.")
+    fecha = date.fromisoformat(acta.fecha_sesion) if acta.fecha_sesion else None
+    return construir_acta(
+        DatosOficio(
+            programa=programa,
+            fecha=hoy,
+            casos=items,
+            numero_acta=acta.numero_texto,
+            fecha_sesion=fecha_larga(fecha) if fecha else None,
+            miembros=integrantes(programa),
+        ),
+        settings.periodo_actual,
+    )
 
 
 # ---------------------------------------------------------------------------

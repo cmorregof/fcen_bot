@@ -8,10 +8,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
-import { type Detalle, PRERREVISION } from "@/lib/actas";
+import { DIRECCIONES_POSGRADO, type Detalle, PRERREVISION } from "@/lib/actas";
 import { llamar } from "@/lib/api";
 import { useSesion } from "@/lib/sesion";
-import { Adjuntos, ZONAS } from "../caso/Adjuntos";
+import { ACEPTA, Adjuntos, ZONAS } from "../caso/Adjuntos";
 
 const PASOS = ["Correo y anexos", "Revisar los datos", "Prerrevisión", "Listo para el comité"];
 
@@ -40,8 +40,10 @@ function Asistente() {
   const router = useRouter();
   const id = params.get("id");
   const paso = Math.min(4, Math.max(1, Number(params.get("paso")) || 1));
-  const { token } = useSesion();
+  const { token, sesiones } = useSesion();
   const t = token("actas");
+  // Posgrado: pantallazos y anexos por separado. Pregrado: un solo campo.
+  const posgrado = DIRECCIONES_POSGRADO.includes(sesiones.actas?.direccion ?? "");
   const [caso, setCaso] = useState<Detalle | null>(null);
   const [texto, setTexto] = useState("");
   const [pantallazos, setPantallazos] = useState<FileList | null>(null);
@@ -99,7 +101,7 @@ function Asistente() {
     setError(null);
     const form = new FormData();
     form.append("texto", texto);
-    for (const f of Array.from(pantallazos ?? [])) form.append("pantallazos", f);
+    for (const f of Array.from(pantallazos ?? [])) form.append(posgrado ? "pantallazos" : "archivos", f);
     for (const f of Array.from(anexos ?? [])) form.append("anexos", f);
     try {
       setOcupado("guardando");
@@ -137,20 +139,34 @@ function Asistente() {
           <span className="ayuda">Tal como llegó: con la fecha, el nombre y el cuerpo del mensaje.</span>
         </label>
         <textarea id="correo" value={texto} onChange={(e) => setTexto(e.target.value)} />
-        <label htmlFor="pantallazos">
-          {ZONAS.sia.titulo}
-          <span className="ayuda">{ZONAS.sia.ayuda}</span>
-        </label>
-        <input id="pantallazos" type="file" accept={ZONAS.sia.acepta} multiple onChange={(e) => setPantallazos(e.target.files)} />
-        <label htmlFor="anexos">
-          {ZONAS.anexos.titulo}
-          <span className="ayuda">{ZONAS.anexos.ayuda}</span>
-        </label>
-        <input id="anexos" type="file" accept={ZONAS.anexos.acepta} multiple onChange={(e) => setAnexos(e.target.files)} />
-        <p>
-          <small>Hasta 20 archivos entre las dos zonas. Puede agregar más después.</small>
-        </p>
-        {ocupado === "leyendo" ? <Mensaje tipo="info">MemorIA está leyendo el caso y sus anexos. Puede tardar un minuto.</Mensaje> : null}
+        {posgrado ? (
+          <>
+            <label htmlFor="pantallazos">
+              {ZONAS.sia.titulo}
+              <span className="ayuda">{ZONAS.sia.ayuda}</span>
+            </label>
+            <input id="pantallazos" type="file" accept={ZONAS.sia.acepta} multiple onChange={(e) => setPantallazos(e.target.files)} />
+            <label htmlFor="anexos">
+              {ZONAS.anexos.titulo}
+              <span className="ayuda">{ZONAS.anexos.ayuda}</span>
+            </label>
+            <input id="anexos" type="file" accept={ZONAS.anexos.acepta} multiple onChange={(e) => setAnexos(e.target.files)} />
+            <p>
+              <small>Hasta 20 archivos entre las dos zonas. Puede agregar más después.</small>
+            </p>
+          </>
+        ) : (
+          <>
+            <label htmlFor="pantallazos">
+              Adjunte los pantallazos del SIA y los archivos del estudiante
+              <span className="ayuda">PDF, Word o imágenes. Hasta 20 archivos. Puede agregar más después.</span>
+            </label>
+            <input id="pantallazos" type="file" accept={ACEPTA} multiple onChange={(e) => setPantallazos(e.target.files)} />
+          </>
+        )}
+        {ocupado === "leyendo" ? (
+          <Mensaje tipo="info">{posgrado ? "MemorIA está leyendo el caso y sus anexos. Puede tardar un minuto." : "MemorIA está leyendo el caso. Puede tardar un minuto."}</Mensaje>
+        ) : null}
       </>
     );
     siguiente = (
@@ -162,7 +178,7 @@ function Asistente() {
     cuerpo = (
       <>
         <Mensaje tipo="exito">El correo ya quedó guardado en el caso #{caso.id}. Aquí puede agregar o quitar archivos.</Mensaje>
-        <Adjuntos<Detalle> casoId={caso.id} adjuntos={caso.adjuntos} leido={caso.extraccion !== null} editable token={t} onFicha={setCaso} />
+        <Adjuntos<Detalle> casoId={caso.id} adjuntos={caso.adjuntos} leido={caso.extraccion !== null} editable token={t} onFicha={setCaso} zonas={caso.lee_anexos} />
       </>
     );
     siguiente = (

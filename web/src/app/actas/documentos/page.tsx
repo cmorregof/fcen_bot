@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArchivosFirmados, type Firma, FirmarPrograma } from "@/components/FirmarPrograma";
 import { Mensaje, Pantalla } from "@/components/Pantalla";
@@ -22,6 +23,11 @@ type ActaComite = {
   estado: "firmada" | "cerrada";
   radicado?: string;
   caso_ids: number[];
+  // Estudiante y recomendación de cada caso del acta.
+  casos?: { id: number; estudiante: string | null; sentido_texto: string | null }[];
+  cerrada_por?: string | null;
+  // Cerrada sin firma, con número: se puede reabrir si se cerró por error.
+  reabrible?: boolean;
   archivos: ArchivoActa[];
   acta_siguiente?: string;
 };
@@ -114,7 +120,58 @@ function CerrarSinFirma({ token, clave, alCerrar, alTerminar }: { token: string 
   );
 }
 
-function ActasAnteriores({ token, actas }: { token: string | null; actas: ActaComite[] }) {
+// Reabre un acta cerrada sin firma por error: los casos vuelven al acta en
+// curso y el número queda libre. Pide confirmación explícita.
+function Reabrir({ token, acta, alTerminar }: { token: string | null; acta: ActaComite; alTerminar: (texto: string) => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const [confirmo, setConfirmo] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const nombre = `${acta.numero} de ${acta.anio}`;
+
+  const reabrir = async () => {
+    setOcupado(true);
+    setError(null);
+    try {
+      await llamar("actas", `/actas/actas-comite/${acta.id}/reabrir`, { token, json: { confirmo } });
+      alTerminar(`Se reabrió el acta ${nombre}. Sus casos volvieron al acta en curso y el número ${acta.numero} quedó libre.`);
+    } catch (e) {
+      setError((e as Error).message);
+      setConfirmo(false);
+    }
+    setOcupado(false);
+  };
+
+  if (!abierto) {
+    return (
+      <button type="button" className="enlace" onClick={() => setAbierto(true)}>
+        Reabrir…
+      </button>
+    );
+  }
+  return (
+    <div>
+      <p>
+        <small>Úselo si cerró el acta por error. Los casos vuelven al acta en curso. No se puede si el Consejo ya decidió alguno.</small>
+      </p>
+      <label className="opcion">
+        <input type="checkbox" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} />
+        Reabrir el acta {nombre}
+      </label>
+      {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
+      <div className="botones">
+        <button type="button" disabled={!confirmo || ocupado} onClick={reabrir}>
+          {ocupado ? "Reabriendo…" : "Reabrir"}
+        </button>
+        <button type="button" className="secundario" disabled={ocupado} onClick={() => setAbierto(false)}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ActasAnteriores({ token, actas, alCambiar }: { token: string | null; actas: ActaComite[]; alCambiar: (texto: string) => void }) {
   const [error, setError] = useState<string | null>(null);
   const bajar = async (a: ArchivoActa) => {
     setError(null);
@@ -125,14 +182,13 @@ function ActasAnteriores({ token, actas }: { token: string | null; actas: ActaCo
     }
   };
   return (
-    <details className="plegable">
-      <summary>Actas anteriores ({actas.length})</summary>
+    <section className="tarjeta" style={{ marginBottom: "1rem" }} aria-labelledby="titulo-anteriores">
+      <h2 id="titulo-anteriores">Actas anteriores ({actas.length})</h2>
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
       <div className="tabla">
         <table>
           <thead>
             <tr>
-              <th>Programa</th>
               <th>Acta</th>
               <th>Sesión</th>
               <th>Casos</th>
@@ -142,27 +198,51 @@ function ActasAnteriores({ token, actas }: { token: string | null; actas: ActaCo
           <tbody>
             {actas.map((a) => (
               <tr key={a.id}>
-                <td>{a.programa_nombre}</td>
                 <td>
-                  {a.numero ? `${a.numero} de ${a.anio}` : "Histórica, sin número"}
-                  {a.estado === "firmada" ? ` · firmada${a.radicado ? ` (${a.radicado})` : ""}` : " · cerrada sin firma"}
+                  <strong>{a.numero ? `${a.numero} de ${a.anio}` : "Histórica, sin número"}</strong>
+                  <div>
+                    <small>
+                      {a.programa_nombre}
+                      {a.estado === "firmada" ? ` · firmada${a.radicado ? ` (${a.radicado})` : ""}` : " · cerrada sin firma"}
+                      {a.cerrada_por ? ` · ${a.cerrada_por}` : ""}
+                    </small>
+                  </div>
                 </td>
                 <td>{a.fecha_sesion ?? "—"}</td>
-                <td>{a.caso_ids.length}</td>
                 <td>
-                  {a.archivos.length === 0 ? "—" : null}
-                  {a.archivos.map((x) => (
-                    <button key={x.ruta} type="button" className="secundario" onClick={() => bajar(x)}>
-                      {x.documento === "oficio" ? "Oficio" : "Acta"} ({x.formato.toUpperCase()})
-                    </button>
-                  ))}
+                  {a.casos && a.casos.length > 0 ? (
+                    <ul>
+                      {a.casos.map((c) => (
+                        <li key={c.id}>
+                          <Link href={`/actas/caso?id=${c.id}`}>#{c.id}</Link> · {c.estudiante ?? "sin nombre"}
+                          {c.sentido_texto ? <small> · {c.sentido_texto}</small> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    a.caso_ids.length
+                  )}
+                </td>
+                <td>
+                  <div className="botones">
+                    {a.archivos.length === 0 ? "—" : null}
+                    {a.archivos.map((x) => (
+                      <button key={x.ruta} type="button" className="secundario" onClick={() => bajar(x)}>
+                        {x.documento === "oficio" ? "Oficio" : "Acta"} ({x.formato.toUpperCase()})
+                      </button>
+                    ))}
+                  </div>
+                  {a.reabrible ? <Reabrir token={token} acta={a} alTerminar={alCambiar} /> : null}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </details>
+      <p>
+        <small>Las históricas son anteriores al consecutivo: su Word se arma de nuevo con sus casos, como borrador.</small>
+      </p>
+    </section>
   );
 }
 type EstadoArchivo = { activo: boolean; programas: { clave: string; nombre: string }[] };
@@ -237,6 +317,7 @@ export default function Documentos() {
   const [recien, setRecien] = useState<Firma | null>(null);
   const [cerrando, setCerrando] = useState<string | null>(null);
   const [cerrada, setCerrada] = useState<ActaComite | null>(null);
+  const [reabierta, setReabierta] = useState<string | null>(null);
   const t = token("actas");
 
   const cargar = () => {
@@ -299,6 +380,7 @@ export default function Documentos() {
           {cerrada.acta_siguiente ? ` La siguiente acta del programa es la ${cerrada.acta_siguiente}.` : ""}
         </Mensaje>
       ) : null}
+      {reabierta ? <Mensaje tipo="exito">{reabierta}</Mensaje> : null}
       {cerrando ? (
         <CerrarSinFirma
           token={t}
@@ -374,7 +456,18 @@ export default function Documentos() {
           </details>
         </div>
       ))}
-      {actas.length > 0 ? <ActasAnteriores token={t} actas={actas} /> : null}
+      {actas.length > 0 ? (
+        <ActasAnteriores
+          token={t}
+          actas={actas}
+          alCambiar={(texto) => {
+            setRecien(null);
+            setCerrada(null);
+            setReabierta(texto);
+            cargar();
+          }}
+        />
+      ) : null}
       {archivo?.activo && archivo.programas.length > 0 ? <ArchivarActa token={t} estado={archivo} /> : null}
     </Pantalla>
   );

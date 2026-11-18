@@ -16,6 +16,10 @@ comprueban contra el texto del archivo cuando lo tiene.
 
 El resumen se guarda en la fila del adjunto: si se borra el anexo, su resumen
 se va con él, del caso y del acta.
+
+Solo en posgrado (`aplica`). En pregrado los anexos se manejan como antes de
+este lector: se guardan y se listan, al modelo solo le llega su nombre y el
+acta dice «Se anexa …» sin resumen.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from pypdf import PdfReader, PdfWriter
 
 from app.core.conexion import Conexion
 from app.core.config import settings
+from app.core.programas import es_posgrado
 from app.db import repo
 from app.integrations.claude import (
     ClaudeEstructurador,
@@ -71,6 +76,11 @@ def set_lector(lector: LectorDocumentos | None) -> None:
     """Para pruebas."""
     global _lector
     _lector = lector
+
+
+def aplica(caso: Caso) -> bool:
+    """El lector de anexos es solo para posgrado."""
+    return es_posgrado(caso.programa, caso.direccion)
 
 
 def se_lee(archivo: repo.Archivo) -> bool:
@@ -244,7 +254,7 @@ async def leer(db: Conexion, caso: Caso, archivo_id: int) -> str | None:
     """Lee (o vuelve a leer) un anexo. Devuelve el error para la persona, o
     None si quedó leído. Lanza KeyError si no es un anexo del caso."""
     archivo = await repo.get_archivo_por_id(db, caso.id, archivo_id)
-    if archivo is None or not se_lee(archivo):
+    if archivo is None or not se_lee(archivo) or not aplica(caso):
         raise KeyError(archivo_id)
     lector = get_lector()
     if lector is None:
@@ -256,7 +266,10 @@ async def leer(db: Conexion, caso: Caso, archivo_id: int) -> str | None:
 
 async def leer_pendientes(db: Conexion, caso: Caso) -> list[str]:
     """Lee los anexos del caso que aún no tienen resumen (cada uno se paga una
-    sola vez). Devuelve los errores, con el nombre del archivo."""
+    sola vez). Devuelve los errores, con el nombre del archivo. En pregrado
+    no lee nada."""
+    if not aplica(caso):
+        return []
     lector = get_lector()
     pendientes = [
         a
@@ -336,7 +349,10 @@ def frase(anexo: AnexoLeido) -> str:
 
 
 def vinetas(caso: Caso) -> list[str]:
-    """Las viñetas de los anexos leídos, para el análisis del oficio y el acta."""
+    """Las viñetas de los anexos leídos, para el análisis del oficio y el acta.
+    En pregrado no hay: el acta queda como antes."""
+    if not aplica(caso):
+        return []
     return [frase(a) for a in caso.anexos_leidos]
 
 

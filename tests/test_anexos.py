@@ -1,5 +1,8 @@
 """Anexos del estudiante: dos zonas, resumen con el modelo, acta y borrado.
 
+Solo en posgrado. En pregrado todo queda como antes del lector: una sola
+lista, sin resumen y sin viñetas nuevas en el acta.
+
 El modelo es falso (sin red). Todos los datos son ficticios.
 """
 
@@ -30,7 +33,22 @@ from tests.conftest import png_bytes
 from tests.test_bot import EstructuradorFalso, estructurador  # noqa: F401
 from tests.web.test_web import Cliente, _token, cliente, web  # noqa: F401
 
-DIR = next(iter(DIRECCIONES))
+# Posgrado: la dirección con solo programas de posgrado.
+DIR = "posgrados_matematicas"
+assert DIR in DIRECCIONES
+POSGRADO = PROGRAMAS["mcma"]
+# Pregrado: el lector no corre.
+DIR_PREGRADO = "ciencias_naturales"
+
+
+@pytest.fixture
+def de_posgrado(estructurador: EstructuradorFalso) -> EstructuradorFalso:  # noqa: F811
+    """La extracción lee un plan de posgrado."""
+    estructurador.salida = estructurador.salida.model_copy(
+        update={"plan_codigo": None, "plan_nombre": POSGRADO.nombre}
+    )
+    return estructurador
+
 
 CITA = "presenta incapacidad médica por siete (7) días"
 CERTIFICADO = (
@@ -189,7 +207,7 @@ async def test_dos_zonas_pantallazos_y_anexos(cliente: Cliente) -> None:  # noqa
 
 async def test_procesar_resume_los_anexos_una_vez(
     cliente: Cliente,  # noqa: F811
-    estructurador: EstructuradorFalso,  # noqa: F811
+    de_posgrado: EstructuradorFalso,
     lector: LectorFalso,
 ) -> None:
     c = cliente("actas")
@@ -333,7 +351,7 @@ async def test_pdf_sin_texto_va_como_documento_con_tope_de_paginas(
 
 
 def _acta(caso: Any) -> DatosOficio:
-    programa = PROGRAMAS["ing_fisica"]
+    programa = POSGRADO
     item = borrador.caso_documento(caso, programa)
     assert item is not None
     return DatosOficio(
@@ -351,7 +369,7 @@ def _parrafos(docx: bytes) -> list[str]:
 
 async def test_resumen_en_el_acta_y_se_va_al_borrar(
     cliente: Cliente,  # noqa: F811
-    estructurador: EstructuradorFalso,  # noqa: F811
+    de_posgrado: EstructuradorFalso,
     lector: LectorFalso,
 ) -> None:
     lector.resumen = _resumen(fecha=None, citas=[CITA])
@@ -502,3 +520,92 @@ def test_la_frase_no_repite_los_datos_ya_dichos() -> None:
     texto = anexos.frase(AnexoLeido(archivo_id=1, nombre="c.pdf", lectura=lectura))
     assert texto.count("3 de septiembre de 2026") == 1
     assert "Siete días de incapacidad." in texto
+
+
+# ---------------------------------------------------------------------------
+# Pregrado: como antes del lector de anexos
+# ---------------------------------------------------------------------------
+
+
+async def test_pregrado_no_lee_anexos_ni_los_pone_en_el_acta(
+    cliente: Cliente,  # noqa: F811
+    estructurador: EstructuradorFalso,  # noqa: F811
+    lector: LectorFalso,
+) -> None:
+    c = cliente("actas")
+    adm = await _token("adm@unal.edu.co", "administrativa", DIR_PREGRADO)
+    # Aunque lleguen con zona, en pregrado se clasifican como antes.
+    caso_id = _crear(
+        c,
+        adm,
+        [
+            ("pantallazos", ("historia.png", png_bytes(), "image/png")),
+            ("anexos", ("certificado.docx", _docx(CERTIFICADO), "application/pdf")),
+            ("anexos", ("foto.png", png_bytes() + b"z", "image/png")),
+        ],
+    )
+    r = c.post(f"/api/web/actas/casos/{caso_id}/procesar", headers=adm)
+    assert r.status_code == 200, r.text
+    ficha = r.json()
+    assert ficha["lee_anexos"] is False
+    assert lector.llamadas == []
+    tipos = {a["nombre"]: a["tipo"] for a in ficha["adjuntos"]}
+    # La foto del estudiante va a la lectura del caso, como antes.
+    assert tipos["foto.png"] == "imagen"
+    assert tipos["certificado.docx"] == "anexo"
+    assert all(a["se_lee"] is False and a["resumen"] is None for a in ficha["adjuntos"])
+    assert not any(u["operacion"] == "anexo" for u in await _uso(caso_id))
+
+    # Leer el anexo a propósito tampoco se puede.
+    [anexo] = [a for a in ficha["adjuntos"] if a["tipo"] == "anexo"]
+    r = c.post(
+        f"/api/web/actas/casos/{caso_id}/archivos/{anexo['id']}/leer", headers=adm
+    )
+    assert r.status_code == 404
+    assert lector.llamadas == []
+
+    # Agregar un anexo después no lo resume.
+    r = c.post(
+        f"/api/web/actas/casos/{caso_id}/archivos",
+        data={"zona": "anexos"},
+        files=[
+            ("archivos", ("carta.docx", _docx("Carta ficticia."), "application/pdf"))
+        ],
+        headers=adm,
+    )
+    assert r.status_code == 200, r.text
+    assert lector.llamadas == []
+
+    # El acta no lleva viñetas de resumen.
+    db = await connect()
+    caso = await repo.get_caso(db, caso_id)
+    await db.close()
+    assert caso is not None and caso.programa == "ing_fisica"
+    programa = PROGRAMAS["ing_fisica"]
+    item = borrador.caso_documento(caso, programa)
+    assert item is not None
+    docx = construir_acta(
+        DatosOficio(
+            programa=programa,
+            fecha=date(2026, 10, 13),
+            casos=[item],
+            elaboro="AB",
+            miembros=programa.miembros,
+        ),
+        "2026-2S",
+    )
+    assert not any("Se adjunta" in p for p in _parrafos(docx))
+
+
+def test_pregrado_o_posgrado() -> None:
+    from app.core.programas import direccion_de_posgrado, es_posgrado
+
+    assert direccion_de_posgrado("posgrados_matematicas")
+    assert not direccion_de_posgrado("ciencias_naturales")
+    assert not direccion_de_posgrado(None)
+    # El programa manda sobre la dirección.
+    assert es_posgrado("mcf", "ciencias_naturales")
+    assert not es_posgrado("ing_fisica", "ciencias_naturales")
+    # Sin programa todavía: por la dirección.
+    assert es_posgrado(None, "posgrados_matematicas")
+    assert not es_posgrado(None, "ciencias_naturales")

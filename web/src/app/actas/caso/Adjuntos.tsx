@@ -1,10 +1,13 @@
 "use client";
 
-// Adjuntos del caso (app/services/adjuntos.py), en dos zonas:
+// Adjuntos del caso (app/services/adjuntos.py).
+// En posgrado (`zonas`), dos zonas:
 // - «Pantallazos del SIA»: imágenes de la historia académica; las lee la
 //   extracción del caso.
 // - «Otros anexos del estudiante»: PDF, Word o imágenes. MemorIA resume cada
 //   uno (app/services/anexos.py) y el resumen va al análisis del acta.
+// En pregrado, una sola lista como antes: se leen los pantallazos y el
+// formato; los anexos solo se guardan.
 // Se pueden agregar, descargar y quitar los equivocados.
 
 import { useState } from "react";
@@ -39,6 +42,8 @@ export type Adjunto = {
 };
 
 export type Zona = "sia" | "anexos";
+// «todo»: la lista única de pregrado.
+type Vista = Zona | "todo";
 
 export const ACEPTA = ".pdf,.docx,image/jpeg,image/png,image/webp,application/pdf";
 export const ACEPTA_SIA = "image/jpeg,image/png,image/webp";
@@ -55,6 +60,13 @@ export const ZONAS: Record<Zona, { titulo: string; ayuda: string; acepta: string
     ayuda: "Certificados, cartas, formatos, soportes médicos o constancias, en PDF, Word o imagen. MemorIA resume cada uno para el acta.",
     acepta: ACEPTA,
   },
+};
+
+// Pregrado: una sola lista, como antes del lector de anexos.
+const TODO = {
+  titulo: "Adjuntos",
+  ayuda: "Se leen los pantallazos y el formato. Los anexos solo se guardan.",
+  acepta: ACEPTA,
 };
 
 type Respuesta = { aviso?: string | null };
@@ -136,9 +148,12 @@ export function Adjuntos<T extends Respuesta>({
   editable,
   token,
   onFicha,
+  zonas,
 }: {
   casoId: number;
   adjuntos: Adjunto[];
+  // Posgrado: dos zonas y resumen de los anexos. Pregrado: una sola lista.
+  zonas: boolean;
   // El caso ya se leyó con el modelo.
   leido: boolean;
   // Administrativa del área: agrega, clasifica, lee y quita.
@@ -146,7 +161,7 @@ export function Adjuntos<T extends Respuesta>({
   token: string | null;
   onFicha: (d: T) => void;
 }) {
-  const [archivos, setArchivos] = useState<Record<Zona, FileList | null>>({ sia: null, anexos: null });
+  const [archivos, setArchivos] = useState<Record<Vista, FileList | null>>({ sia: null, anexos: null, todo: null });
   const [confirmar, setConfirmar] = useState<number | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -170,16 +185,16 @@ export function Adjuntos<T extends Respuesta>({
     setOcupado(null);
   };
 
-  const agregar = (zona: Zona) => {
+  const agregar = (zona: Vista) => {
     const form = new FormData();
-    form.append("zona", zona);
+    if (zona !== "todo") form.append("zona", zona);
     for (const f of Array.from(archivos[zona] ?? [])) form.append("archivos", f);
     return ejecutar(`agregar-${zona}`, async () => {
       const d = await llamar<T>("actas", `${base}/archivos`, { token, form });
       setArchivos((a) => ({ ...a, [zona]: null }));
       setEntrada((n) => n + 1);
       return d;
-    }, "Agregados.", zona === "sia");
+    }, "Agregados.", zona !== "anexos");
   };
 
   const borrar = (a: Adjunto) =>
@@ -187,7 +202,7 @@ export function Adjuntos<T extends Respuesta>({
       const d = await llamar<T & { borrado_leido?: boolean }>("actas", `${base}/archivos/${a.id}`, { token, metodo: "DELETE" });
       setConfirmar(null);
       return d;
-    }, `Se borró «${a.nombre}».`, a.zona === "sia");
+    }, `Se borró «${a.nombre}».`, !zonas || a.zona === "sia");
 
   const clasificar = (a: Adjunto, es_formato: boolean) =>
     ejecutar(`clasificar-${a.id}`, () => llamar<T>("actas", `${base}/archivos/${a.id}/clasificar`, { token, json: { es_formato } }), "Listo.", es_formato);
@@ -211,8 +226,8 @@ export function Adjuntos<T extends Respuesta>({
         {a.nombre}
         <div>
           <small>
-            {[a.formato, tamano(a.bytes), a.zona === "anexos" ? a.tipo_texto : ""].filter(Boolean).join(" · ")}
-            {a.zona === "sia" && a.leido ? " · leído" : ""}
+            {[a.formato, tamano(a.bytes), !zonas || a.zona === "anexos" ? a.tipo_texto : ""].filter(Boolean).join(" · ")}
+            {(!zonas || a.zona === "sia") && a.leido ? " · leído" : ""}
           </small>
         </div>
         {a.resumen ? <Resumen r={a.resumen} /> : null}
@@ -227,7 +242,7 @@ export function Adjuntos<T extends Respuesta>({
           <div>
             <p>
               ¿Borrar «{a.nombre}»? No se puede recuperar.
-              {a.zona === "sia" && a.leido && leido ? " Ya se usó en la lectura." : ""}
+              {(!zonas || a.zona === "sia") && a.leido && leido ? " Ya se usó en la lectura." : ""}
               {a.resumen ? " Su resumen también sale del acta." : ""}
             </p>
             <div className="botones">
@@ -272,9 +287,9 @@ export function Adjuntos<T extends Respuesta>({
     </tr>
   );
 
-  const zona = (z: Zona) => {
-    const lista = adjuntos.filter((a) => a.zona === z);
-    const { titulo, ayuda, acepta } = ZONAS[z];
+  const zona = (z: Vista) => {
+    const lista = z === "todo" ? adjuntos : adjuntos.filter((a) => a.zona === z);
+    const { titulo, ayuda, acepta } = z === "todo" ? TODO : ZONAS[z];
     const campo = `adjuntos-${z}`;
     return (
       <section key={z} aria-labelledby={`titulo-${z}`}>
@@ -288,7 +303,7 @@ export function Adjuntos<T extends Respuesta>({
             <table>
               <thead>
                 <tr>
-                  <th>{z === "sia" ? "Pantallazo" : "Anexo y resumen"}</th>
+                  <th>{z === "sia" ? "Pantallazo" : z === "anexos" ? "Anexo y resumen" : "Archivo"}</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
@@ -299,7 +314,7 @@ export function Adjuntos<T extends Respuesta>({
         {editable ? (
           <>
             <label htmlFor={campo}>
-              {z === "sia" ? "Agregar pantallazos" : "Agregar anexos"}
+              {z === "sia" ? "Agregar pantallazos" : z === "anexos" ? "Agregar anexos" : "Agregar archivos"}
               <span className="ayuda">{z === "sia" ? "Imágenes. Hasta 10 MB cada una." : "PDF, Word o imágenes. Hasta 20 MB."}</span>
             </label>
             <input
@@ -340,11 +355,17 @@ export function Adjuntos<T extends Respuesta>({
           <small>No cambia la recomendación.</small>
         </div>
       ) : null}
-      {zona("sia")}
-      {zona("anexos")}
-      <p>
-        <small>MemorIA solo resume los anexos: no decide si son suficientes. Lo que no lee queda como «{VERIFICAR}».</small>
-      </p>
+      {zonas ? (
+        <>
+          {zona("sia")}
+          {zona("anexos")}
+          <p>
+            <small>MemorIA solo resume los anexos: no decide si son suficientes. Lo que no lee queda como «{VERIFICAR}».</small>
+          </p>
+        </>
+      ) : (
+        zona("todo")
+      )}
     </>
   );
 }

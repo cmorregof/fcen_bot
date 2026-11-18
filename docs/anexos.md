@@ -1,6 +1,12 @@
 # Anexos del estudiante
 
-Cada caso tiene dos zonas de adjuntos, en la ficha (pestaña **Anexos**) y en el paso 1 del
+Solo en posgrado. Un caso es de posgrado si su programa lo es; mientras no se conoce el
+programa, si todos los programas de su dirección lo son (`app/core/programas.py`,
+`es_posgrado`). En pregrado los adjuntos funcionan como antes de este lector: una sola
+lista, se leen los pantallazos y el formato, los anexos solo se guardan y el acta dice
+«Se anexa …» sin resumen.
+
+En posgrado cada caso tiene dos zonas de adjuntos, en la ficha (pestaña **Anexos**) y en el paso 1 del
 asistente para crear un caso (`/actas/nuevo`):
 
 | Zona | Qué va | Qué hace MemorIA |
