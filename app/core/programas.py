@@ -445,3 +445,19 @@ def programa_unico(direccion: str) -> Programa | None:
     """Si la dirección tiene un solo programa, no hay que preguntar cuál."""
     lista = programas_de(direccion)
     return lista[0] if len(lista) == 1 else None
+
+
+def direccion_de_posgrado(direccion: str | None) -> bool:
+    """Todos los programas de la dirección son de posgrado (p. ej., los
+    posgrados de Ciencias Exactas)."""
+    lista = programas_de(direccion) if direccion else []
+    return bool(lista) and all(p.nivel == "posgrado" for p in lista)
+
+
+def es_posgrado(programa: str | None, direccion: str | None) -> bool:
+    """El caso es de posgrado: por su programa si ya se conoce; si no, por su
+    dirección."""
+    conocido = PROGRAMAS.get(programa) if programa else None
+    if conocido is not None:
+        return conocido.nivel == "posgrado"
+    return direccion_de_posgrado(direccion)

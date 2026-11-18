@@ -22,6 +22,7 @@ from app.core.programas import (
     DIRECCIONES,
     PROGRAMAS,
     comite_de,
+    direccion_de_posgrado,
     integrantes_con_nombre,
     programas_de,
     programas_del_comite,
@@ -238,8 +239,11 @@ async def _ficha(db: Db, caso: Caso, usuario: Usuario) -> dict[str, object]:
     return {
         **_detalle(caso),
         **await _linea(db, caso, usuario.rol),
-        "adjuntos": await adjuntos.listar(db, caso.id),
+        "adjuntos": await adjuntos.listar(db, caso.id, posgrado=anexos.aplica(caso)),
         "tipos_adjuntos": adjuntos.TEXTO_PERMITIDOS,
+        # Posgrado: dos zonas y resumen de cada anexo. Pregrado: una sola zona,
+        # como antes del lector de anexos.
+        "lee_anexos": anexos.aplica(caso),
     }
 
 
@@ -368,13 +372,15 @@ async def crear(
 ) -> dict[str, object]:
     """Crea un caso con el texto del correo y sus adjuntos. `pantallazos`:
     imágenes del SIA. `anexos`: lo que manda el estudiante (PDF, Word o
-    imágenes). `archivos` e `imagenes` (sin zona) se clasifican solos."""
+    imágenes). `archivos` e `imagenes` (sin zona) se clasifican solos. En
+    pregrado las zonas no cuentan: todo se clasifica como antes."""
     direccion = _direccion(usuario)
+    con_zonas = direccion_de_posgrado(direccion)
     todos: list[tuple[UploadFile, str | None]] = [
         *((a, None) for a in (archivos or [])),
         *((a, None) for a in (imagenes or [])),
-        *((a, "sia") for a in (pantallazos or [])),
-        *((a, "anexos") for a in (anexos_estudiante or [])),
+        *((a, "sia" if con_zonas else None) for a in (pantallazos or [])),
+        *((a, "anexos" if con_zonas else None) for a in (anexos_estudiante or [])),
     ]
     if not texto.strip() and not todos:
         raise HTTPException(400, "Pegue el correo o adjunte al menos un archivo.")
@@ -410,9 +416,12 @@ async def adjuntar(
     zona: Annotated[str | None, Form()] = None,
 ) -> dict[str, object]:
     """Agrega adjuntos a un caso ya creado, en la zona «sia» (pantallazos) o
-    «anexos» (del estudiante). Los anexos nuevos se resumen enseguida."""
+    «anexos» (del estudiante). En posgrado los anexos nuevos se resumen
+    enseguida; en pregrado no hay zonas y nada se resume."""
     zona = _zona(zona)
     caso = await _caso_del_area(db, caso_id, usuario)
+    if not anexos.aplica(caso):
+        zona = None
     if caso.estado in (EstadoCaso.CERRADO, EstadoCaso.DECIDIDO_CONSEJO):
         raise HTTPException(
             409, "El caso ya pasó por el comité; no se le agregan adjuntos."
@@ -1033,7 +1042,10 @@ async def descargar_firmado(
 # ---------------------------------------------------------------------------
 
 
-def _acta_comite_json(a: actas_comite.ActaComite) -> dict[str, object]:
+def _acta_comite_json(
+    a: actas_comite.ActaComite,
+    casos: dict[int, actas_comite.CasoDelActa] | None = None,
+) -> dict[str, object]:
     programa = comite_de(a.programa)
     archivos: list[dict[str, str]] = []
     if a.docx_ruta is not None:
@@ -1045,7 +1057,29 @@ def _acta_comite_json(a: actas_comite.ActaComite) -> dict[str, object]:
                 "ruta": f"/actas/actas-comite/{a.id}/docx",
             }
         )
+    elif a.firma_id is None:
+        # Histórica: sin Word guardado; se arma de nuevo con sus casos.
+        archivos.append(
+            {
+                "documento": "acta",
+                "formato": "docx",
+                "nombre": _nombre_reconstruido(a),
+                "ruta": f"/actas/actas-comite/{a.id}/docx",
+            }
+        )
+    casos = casos or {}
     return {
+        "casos": [
+            {
+                "id": i,
+                "estudiante": casos[i].estudiante if i in casos else None,
+                "sentido_texto": ETIQUETA_SENTIDO[casos[i].sentido]
+                if i in casos
+                else None,
+            }
+            for i in a.caso_ids
+        ],
+        "reabrible": actas_comite.reabrible(a),
         "id": a.id,
         "programa": a.programa,
         "programa_nombre": programa.nombre if programa else a.programa,
@@ -1061,15 +1095,22 @@ def _acta_comite_json(a: actas_comite.ActaComite) -> dict[str, object]:
     }
 
 
+def _nombre_reconstruido(a: actas_comite.ActaComite) -> str:
+    numero = f"{a.numero_texto}_{a.anio}" if a.numero_texto else "historica"
+    return f"Acta_{numero}_{a.programa}_borrador.docx"
+
+
 @router.get("/actas-comite")
 async def actas_del_comite(usuario: _Firma, db: Db) -> dict[str, object]:
     """Actas cerradas de la dirección, por programa. Las firmadas se descargan
     con /firmas/{firma_id}/..., las cerradas sin firma, con su Word."""
     direccion = _direccion(usuario)
     firmas_por_id = {f.id: f for f in await firma.de_la_direccion(db, direccion, 500)}
+    actas = await actas_comite.de_la_direccion(db, direccion)
+    casos = await actas_comite.casos_de(db, actas)
     salida = []
-    for a in await actas_comite.de_la_direccion(db, direccion):
-        fila = _acta_comite_json(a)
+    for a in actas:
+        fila = _acta_comite_json(a, casos)
         hecha = firmas_por_id.get(a.firma_id) if a.firma_id else None
         if hecha is not None:
             fila["radicado"] = hecha.radicado
@@ -1160,24 +1201,59 @@ async def cerrar_acta(
     }
 
 
+class PedidoReabrir(BaseModel):
+    confirmo: bool = False
+
+
+@router.post("/actas-comite/{acta_id}/reabrir")
+async def reabrir_acta(
+    acta_id: int, cuerpo: PedidoReabrir, usuario: _Firma, db: Db
+) -> dict[str, object]:
+    """Reabre un acta cerrada sin firma por error: sus casos vuelven del
+    Consejo al borrador del comité y el número queda libre."""
+    if not cuerpo.confirmo:
+        raise HTTPException(400, "Falta confirmar que quiere reabrir el acta.")
+    try:
+        acta = await actas_comite.reabrir(
+            db,
+            acta_id=acta_id,
+            direccion=_direccion(usuario),
+            persona=_persona(usuario),
+            rol=usuario.rol,
+            canal="web",
+        )
+    except (actas_comite.ActaNoPermitida, flujo.TransicionNoPermitida) as exc:
+        raise HTTPException(409, str(exc)) from None
+    return _acta_comite_json(acta)
+
+
 @router.get("/actas-comite/{acta_id}/docx")
 async def descargar_acta_comite(acta_id: int, usuario: _Firma, db: Db) -> Response:
     acta = await actas_comite.obtener(db, acta_id)
     if acta is None or acta.direccion != _direccion(usuario):
         raise HTTPException(404, "No encontré esa acta en su dirección.")
     try:
-        contenido = actas_comite.leer_docx(acta)
+        try:
+            contenido = actas_comite.leer_docx(acta)
+            assert acta.docx_ruta is not None
+            nombre = acta.docx_ruta.name
+        except FileNotFoundError:
+            # Histórica, o el Word ya no está en el disco: se arma de nuevo
+            # con sus casos, como borrador.
+            if acta.firma_id is not None:
+                raise
+            contenido = await actas_comite.docx_reconstruido(
+                db, acta, firma.hoy_local()
+            )
+            nombre = _nombre_reconstruido(acta)
     except FileNotFoundError:
         raise HTTPException(404, "El Word de esa acta no está guardado.") from None
     except actas_comite.ActaNoPermitida as exc:
         raise HTTPException(409, str(exc)) from None
-    assert acta.docx_ruta is not None
     return Response(
         contenido,
         media_type=_MIME["docx"],
-        headers={
-            "Content-Disposition": f'attachment; filename="{acta.docx_ruta.name}"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
     )
 
 

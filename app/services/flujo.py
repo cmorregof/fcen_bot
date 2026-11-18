@@ -206,8 +206,9 @@ def transiciones(flujo: solicitudes.Flujo | None = None) -> dict[Accion, Transic
         Accion.ENVIAR_CONSEJO: Transicion(
             frozenset({Etapa.RECOMENDADA}), Etapa.EN_CONSEJO, acta
         ),
+        # Admin también: reabre un acta cerrada sin firma (actas_comite.reabrir).
         Accion.VOLVER_AL_COMITE: Transicion(
-            frozenset({Etapa.EN_CONSEJO}), Etapa.RECOMENDADA, adm
+            frozenset({Etapa.EN_CONSEJO}), Etapa.RECOMENDADA, acta
         ),
         # La decisión sale del acta del Consejo, que manda sobre la línea: se
         # registra aunque falten pasos previos en MemorIA (quedan a la vista).

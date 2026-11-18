@@ -13,10 +13,11 @@ nombre. Qué pasa con cada uno:
   aparte y deja un resumen que va al análisis del acta (app/services/anexos.py);
   la extracción del caso solo recibe su nombre.
 
-En la web hay dos zonas (`zona`): «sia», solo imágenes, que son pantallazos;
-y «anexos», lo que manda el estudiante: ahí una imagen o un PDF escaneado son
-anexos, y un PDF o Word con título «FORMATO DE …» sigue siendo el formato.
-Sin zona (Telegram), el tipo se decide como antes.
+En posgrado la web tiene dos zonas (`zona`): «sia», solo imágenes, que son
+pantallazos; y «anexos», lo que manda el estudiante: ahí una imagen o un PDF
+escaneado son anexos, y un PDF o Word con título «FORMATO DE …» sigue siendo
+el formato. En pregrado y en Telegram no hay zona: el tipo se decide como
+antes y al modelo solo le llega el nombre del anexo.
 
 Ninguno decide nada: el modelo solo extrae datos.
 
@@ -235,8 +236,11 @@ def _ext(archivo: repo.Archivo) -> str:
     return Path(archivo.ruta).suffix.lower() if archivo.ruta else ""
 
 
-def describir(archivo: repo.Archivo, n: int) -> dict[str, object]:
-    """Lo que la ficha muestra de un adjunto."""
+def describir(
+    archivo: repo.Archivo, n: int, *, posgrado: bool = True
+) -> dict[str, object]:
+    """Lo que la ficha muestra de un adjunto. En pregrado no hay resumen del
+    anexo (app/services/anexos.py, `aplica`)."""
     return {
         "id": archivo.id,
         "tipo": archivo.tipo,
@@ -253,14 +257,16 @@ def describir(archivo: repo.Archivo, n: int) -> dict[str, object]:
         # En qué zona de la ficha va: pantallazos del SIA u otros anexos.
         "zona": "sia" if archivo.tipo == "imagen" else "anexos",
         # Anexo del estudiante que el modelo resume (app/services/anexos.py).
-        "se_lee": anexos.se_lee(archivo),
-        "resumen": anexos.describir(archivo),
+        "se_lee": posgrado and anexos.se_lee(archivo),
+        "resumen": anexos.describir(archivo) if posgrado else None,
     }
 
 
-async def listar(db: Conexion, caso_id: int) -> list[dict[str, object]]:
+async def listar(
+    db: Conexion, caso_id: int, *, posgrado: bool = True
+) -> list[dict[str, object]]:
     archivos = await repo.archivos_de(db, caso_id, derivados=False)
-    return [describir(a, i) for i, a in enumerate(archivos, 1)]
+    return [describir(a, i, posgrado=posgrado) for i, a in enumerate(archivos, 1)]
 
 
 @dataclass(frozen=True)

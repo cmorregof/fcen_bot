@@ -90,6 +90,9 @@ export type Detalle = Resumen & {
   anexos: string[];
   adjuntos: Adjunto[];
   tipos_adjuntos: string;
+  // Posgrado: adjuntos en dos zonas y resumen de cada anexo para el acta.
+  // Pregrado: una sola lista, como antes del lector de anexos.
+  lee_anexos: boolean;
   // Hay decisión final del Consejo de Facultad: se puede bajar el borrador del oficio.
   oficio_consejo: boolean;
   etapa: string;
@@ -153,3 +156,8 @@ export const CANAL: Record<string, string> = {
   migracion: "dato anterior a la línea",
   practica: "práctica",
 };
+
+// Direcciones cuyos programas son todos de posgrado (app/core/programas.py,
+// `direccion_de_posgrado`). Al crear un caso en ellas, los adjuntos van en
+// dos zonas y los anexos se resumen.
+export const DIRECCIONES_POSGRADO = ["posgrados_matematicas"];
