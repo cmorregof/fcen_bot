@@ -30,6 +30,9 @@ const COLUMNAS: { clave: string; titulo: string }[] = [
   { clave: "dias_comite_p90", titulo: "Días a la recomendación (p90)" },
   { clave: "dias_consejo_mediana", titulo: "Días al Consejo (mediana)" },
   { clave: "dias_consejo_p90", titulo: "Días al Consejo (p90)" },
+  { clave: "dias_total_mediana", titulo: "Días de la solicitud a la decisión (mediana)" },
+  { clave: "dias_total_p90", titulo: "Días de la solicitud a la decisión (p90)" },
+  { clave: "improcedentes", titulo: "Improcedentes (prerrevisión)" },
   { clave: "sin_fecha_recomendacion", titulo: "Recomendados sin fecha" },
   { clave: "fechas_inconsistentes", titulo: "Fechas inconsistentes" },
   { clave: "fuera_plazo_comite", titulo: "Fuera de plazo (comité)" },
@@ -193,6 +196,12 @@ export default function PaginaIndicadores() {
             />
             <Tarjeta titulo="Pendientes de acta del Consejo" valor={cifra(v.pendientes_acta)} fuente={f.pendientes_acta} />
             <Tarjeta
+              titulo="Días de la solicitud a la decisión del Consejo"
+              valor={cifra(v.dias_total_mediana)}
+              detalle={`Mediana · percentil 90: ${cifra(v.dias_total_p90)} · ${cifra(v.dias_total_casos)} casos`}
+              fuente={f.dias_total_mediana}
+            />
+            <Tarjeta
               titulo="Días de la solicitud a la recomendación"
               valor={cifra(v.dias_comite_mediana)}
               detalle={`Mediana · percentil 90: ${cifra(v.dias_comite_p90)} · ${cifra(v.dias_comite_casos)} casos`}
@@ -204,6 +213,7 @@ export default function PaginaIndicadores() {
               detalle={`Mediana · percentil 90: ${cifra(v.dias_consejo_p90)} · ${cifra(v.dias_consejo_casos)} casos`}
               fuente={f.dias_consejo_mediana}
             />
+            <Tarjeta titulo="Improcedentes en la prerrevisión" valor={cifra(v.improcedentes)} fuente={f.improcedentes} />
             <Tarjeta
               titulo="Fuera de plazo"
               valor={`${cifra(v.fuera_plazo_comite)} / ${cifra(v.fuera_plazo_consejo)}`}

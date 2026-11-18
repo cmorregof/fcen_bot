@@ -37,6 +37,7 @@ from app.services import (
     oficio_consejo,
     suit,
 )
+from app.services.drive import cliente as drive
 
 router = APIRouter(prefix="/actas")
 
@@ -163,12 +164,12 @@ def _evento(e: flujo.Evento) -> dict[str, object]:
         "desde": e.desde.value if e.desde else None,
         "hacia": e.hacia.value,
         "hacia_texto": flujo.NOMBRE_ETAPA[e.hacia],
-        "fecha": e.fecha,
+        "fecha": flujo.hora_local(e.fecha),
         "rol": flujo.NOMBRE_ROL.get(e.rol, e.rol),
         "persona": e.persona,
         "canal": e.canal,
         "detalle": e.detalle,
-        "registrado": e.registrado,
+        "registrado": flujo.hora_local(e.registrado),
     }
 
 
@@ -182,6 +183,7 @@ async def _linea(db: Db, caso: Caso) -> dict[str, object]:
         leido=caso.extraccion is not None,
         tipos=caso.extraccion.tipos if caso.extraccion else [],
         instancia_decision=caso.consejo.instancia.value if caso.consejo else None,
+        archivo_drive=drive.configurado(),
     )
     extraccion = caso.extraccion.model_dump_json() if caso.extraccion else None
     return {

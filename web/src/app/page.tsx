@@ -65,7 +65,7 @@ export default function Inicio() {
         {decanatura ? (
           <Link href="/tablero" className="tarjeta">
             <strong>Tablero de la Facultad</strong>
-            Cifras de los tres servicios, solo lectura.
+            Cifras de los cuatro servicios, solo lectura.
           </Link>
         ) : null}
         {admin ? (
