@@ -105,6 +105,15 @@ class DatosSIA(BaseModel):
 class AsignaturaSolicitada(BaseModel):
     codigo: str | None = None
     nombre: str
+    grupo: str | None = Field(
+        default=None,
+        description="Grupo de la asignatura, tal como aparece en el SIA o la solicitud",
+    )
+    tipologia: str | None = Field(
+        default=None,
+        description="Tipología de la asignatura (p. ej. DISCIPLINAR OBLIGATORIA, "
+        "FUND. OPTATIVA, LIBRE ELECCIÓN), como aparece en el SIA",
+    )
     creditos: int | None = None
     accion: Literal["inscribir", "cancelar", "apertura"] = "inscribir"
 
