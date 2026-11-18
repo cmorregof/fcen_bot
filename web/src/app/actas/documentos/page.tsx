@@ -26,7 +26,7 @@ type ActaComite = {
   // Estudiante y recomendación de cada caso del acta.
   casos?: { id: number; estudiante: string | null; sentido_texto: string | null }[];
   cerrada_por?: string | null;
-  // Cerrada sin firma, con número: se puede reabrir si se cerró por error.
+  // Con número (no histórica): se puede reabrir si se cerró o firmó antes de tiempo.
   reabrible?: boolean;
   archivos: ArchivoActa[];
   acta_siguiente?: string;
@@ -120,8 +120,9 @@ function CerrarSinFirma({ token, clave, alCerrar, alTerminar }: { token: string 
   );
 }
 
-// Reabre un acta cerrada sin firma por error: los casos vuelven al acta en
-// curso y el número queda libre. Pide confirmación explícita.
+// Reabre un acta cerrada o firmada antes de tiempo: los casos vuelven al acta
+// en curso y el número queda libre. Si estaba firmada, se anula la firma y el
+// radicado del oficio también queda libre. Pide confirmación explícita.
 function Reabrir({ token, acta, alTerminar }: { token: string | null; acta: ActaComite; alTerminar: (texto: string) => void }) {
   const [abierto, setAbierto] = useState(false);
   const [confirmo, setConfirmo] = useState(false);
@@ -134,7 +135,11 @@ function Reabrir({ token, acta, alTerminar }: { token: string | null; acta: Acta
     setError(null);
     try {
       await llamar("actas", `/actas/actas-comite/${acta.id}/reabrir`, { token, json: { confirmo } });
-      alTerminar(`Se reabrió el acta ${nombre}. Sus casos volvieron al acta en curso y el número ${acta.numero} quedó libre.`);
+      alTerminar(
+        acta.estado === "firmada"
+          ? `Se reabrió el acta ${nombre} y se anuló su firma. Sus casos volvieron al acta en curso; el número ${acta.numero}${acta.radicado ? ` y el radicado ${acta.radicado}` : ""} quedaron libres.`
+          : `Se reabrió el acta ${nombre}. Sus casos volvieron al acta en curso y el número ${acta.numero} quedó libre.`,
+      );
     } catch (e) {
       setError((e as Error).message);
       setConfirmo(false);
@@ -152,11 +157,17 @@ function Reabrir({ token, acta, alTerminar }: { token: string | null; acta: Acta
   return (
     <div>
       <p>
-        <small>Úselo si cerró el acta por error. Los casos vuelven al acta en curso. No se puede si el Consejo ya decidió alguno.</small>
+        <small>Úselo si cerró o firmó el acta antes de tiempo. Los casos vuelven al acta en curso. No se puede si el Consejo ya decidió alguno.</small>
       </p>
+      {acta.estado === "firmada" ? (
+        <Mensaje tipo="info">
+          Se anula la firma: el acta firmada y el oficio{acta.radicado ? ` ${acta.radicado}` : ""} dejan de valer en MemorIA, y el número y el radicado quedan libres para volver a firmar.
+          Si ya envió el oficio al Consejo o subió el PDF a Drive, eso no se deshace aquí.
+        </Mensaje>
+      ) : null}
       <label className="opcion">
         <input type="checkbox" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} />
-        Reabrir el acta {nombre}
+        {acta.estado === "firmada" ? `Reabrir el acta ${nombre} y anular su firma` : `Reabrir el acta ${nombre}`}
       </label>
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
       <div className="botones">

@@ -1209,8 +1209,9 @@ class PedidoReabrir(BaseModel):
 async def reabrir_acta(
     acta_id: int, cuerpo: PedidoReabrir, usuario: _Firma, db: Db
 ) -> dict[str, object]:
-    """Reabre un acta cerrada sin firma por error: sus casos vuelven del
-    Consejo al borrador del comité y el número queda libre."""
+    """Reabre un acta cerrada o firmada antes de tiempo: sus casos vuelven
+    del Consejo al borrador del comité y el número queda libre. Si estaba
+    firmada, la firma se anula y el radicado también queda libre."""
     if not cuerpo.confirmo:
         raise HTTPException(400, "Falta confirmar que quiere reabrir el acta.")
     try:
