@@ -199,6 +199,9 @@ async def test_migracion_sin_inventar_numeros(db: aiosqlite.Connection) -> None:
     actas = {tuple(a.caso_ids): a for a in await actas_comite.de_la_direccion(db, DIR)}
     assert actas[(con_numero,)].numero == 19
     assert actas[(sin_numero,)].numero is None  # no se inventa
+    # Esa no se reabre: el aviso del radicado no sugiere reabrirla.
+    aviso = await firma.aviso_radicado_usado(db, "Mz.FCEN.1.065-002-26")
+    assert aviso and "acta extraordinaria" in aviso and "reabra" not in aviso
     historica = actas[(cerrado,)]
     assert historica.numero is None and historica.fecha_sesion is None
     assert historica.canal == "migracion"
@@ -340,8 +343,12 @@ async def test_reabrir_acta_firmada_anula_la_firma(db: aiosqlite.Connection) -> 
     assert firmada.firma_id == hecha.id and actas_comite.reabrible(firmada)
     rutas = [a.ruta for a in hecha.archivos]
     assert rutas and all(r.exists() for r in rutas)
+    # Quien intenta usar el radicado sabe qué acta lo tiene y cómo liberarlo.
+    aviso = await firma.aviso_radicado_usado(db, radicado)
+    assert aviso and "acta 039 de 2026" in aviso and "reabra el acta" in aviso
 
     await _reabrir(db, firmada.id)
+    assert await firma.aviso_radicado_usado(db, radicado) is None
     assert await actas_comite.de_la_direccion(db, DIR) == []
     assert await firma.obtener(db, hecha.id) is None
     assert not await firma.radicado_usado(db, radicado)
