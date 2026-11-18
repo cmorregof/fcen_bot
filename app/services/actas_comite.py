@@ -11,10 +11,12 @@ fila en `actas_comite` con su número, el año, la fecha de la sesión y los cas
 (`acta_comite_casos`); esos casos salen del borrador y los nuevos entran a la
 siguiente.
 
-Un acta cerrada sin firma se puede reabrir (`reabrir`) si se cerró por error y
+Un acta se puede reabrir (`reabrir`) si se cerró o se firmó antes de tiempo y
 el Consejo aún no decidió ninguno de sus casos: la fila se borra, el número
-queda libre, el Word se quita y los casos vuelven al borrador del comité.
-Las firmadas no se reabren: tienen radicado y PDF firmado.
+queda libre y los casos vuelven al borrador del comité. Si estaba firmada en
+MemorIA, la firma se anula: el radicado del oficio también queda libre y los
+archivos firmados pasan a `anulados/` (no se borran). El Word de un acta
+cerrada sin firma sí se borra: se genera otro al cerrarla de nuevo.
 
 El número siguiente es una propuesta (el último del comité en el año + 1, o
 el siguiente a `ultima_acta` si el comité numeró actas por fuera de MemorIA).
@@ -26,7 +28,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
+import shutil
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
@@ -40,6 +44,8 @@ from app.schemas.caso import Caso, EstadoCaso, Sentido
 from app.services import flujo
 from app.services.borrador import caso_documento
 from app.services.documento import DatosOficio, construir_acta, fecha_larga
+
+logger = logging.getLogger(__name__)
 
 FIRMADA = "firmada"  # cerrada con la firma en MemorIA (firma.firmar)
 CERRADA = "cerrada"  # cerrada sin firma en MemorIA (firmada por fuera)
@@ -330,16 +336,13 @@ async def reabrir(
     rol: str,
     canal: str,
 ) -> ActaComite:
-    """Deshace el cierre sin firma de un acta: los casos vuelven del Consejo
-    al borrador del comité y el número queda libre. Devuelve el acta como
-    estaba antes de reabrirla."""
+    """Deshace el cierre de un acta: los casos vuelven del Consejo al
+    borrador del comité y el número queda libre. Si estaba firmada, la firma
+    se anula y su radicado también queda libre. Devuelve el acta como estaba
+    antes de reabrirla."""
     acta = await obtener(db, acta_id)
     if acta is None or acta.direccion != direccion:
         raise ActaNoPermitida("No encontré esa acta en su dirección.")
-    if acta.estado != CERRADA:
-        raise ActaNoPermitida(
-            "Esa acta se firmó en MemorIA: tiene radicado y no se reabre."
-        )
     if acta.numero is None:
         raise ActaNoPermitida(
             "Esa acta es histórica, anterior al consecutivo: no se reabre."
@@ -355,6 +358,23 @@ async def reabrir(
             f"No puedo reabrir el {nombre}: estos casos ya no están en espera "
             f"del Consejo: {', '.join(f'#{i}' for i in decididos)}."
         )
+    radicado: str | None = None
+    firmados: list[Path] = []
+    if acta.firma_id is not None:
+        cur = await db.execute(
+            "SELECT radicado FROM firmas WHERE id = ?", (acta.firma_id,)
+        )
+        fila = await cur.fetchone()
+        radicado = str(fila["radicado"]) if fila else None
+        cur = await db.execute(
+            "SELECT ruta FROM firma_archivos WHERE firma_id = ?", (acta.firma_id,)
+        )
+        firmados = [Path(str(r["ruta"])) for r in await cur.fetchall()]
+    detalle = (
+        f"Se reabrió el {nombre}; se anuló la firma del oficio radicado {radicado}"
+        if radicado
+        else f"Se reabrió el {nombre}, cerrada sin firma"
+    )
     try:
         for caso_id in acta.caso_ids:
             await flujo.transicionar(
@@ -364,20 +384,40 @@ async def reabrir(
                 rol=flujo.ADMIN if rol == flujo.ADMIN else flujo.ADMINISTRATIVA,
                 persona=persona,
                 canal=canal,
-                detalle=f"Se reabrió el {nombre}, cerrada sin firma",
+                detalle=detalle,
                 commit=False,
             )
             await repo.reabrir_en_borrador(db, caso_id)
         await db.execute("DELETE FROM acta_comite_casos WHERE acta_id = ?", (acta.id,))
         await db.execute("DELETE FROM actas_comite WHERE id = ?", (acta.id,))
+        if acta.firma_id is not None:
+            # La firma se anula: el radicado queda libre para volver a firmar.
+            await db.execute(
+                "DELETE FROM firma_archivos WHERE firma_id = ?", (acta.firma_id,)
+            )
+            await db.execute("DELETE FROM firmas WHERE id = ?", (acta.firma_id,))
         await db.commit()
     except BaseException:
         await db.rollback()
         raise
-    # El Word ya no es el acta de nadie; si se cierra de nuevo con el mismo
-    # número, se genera otro.
+    # El Word sin firma ya no es el acta de nadie; si se cierra de nuevo con
+    # el mismo número, se genera otro.
     if acta.docx_ruta is not None:
         acta.docx_ruta.unlink(missing_ok=True)
+    # Los firmados no se borran: quedan aparte, por si hay que consultarlos.
+    if firmados:
+        destino = settings.output_dir / "anulados" / f"firma_{acta.firma_id}"
+        destino.mkdir(parents=True, exist_ok=True)
+        for ruta in firmados:
+            if ruta.exists():
+                shutil.move(str(ruta), destino / ruta.name)
+    logger.info(
+        "Acta %s reabierta por %s (%s); firma anulada: %s",
+        acta.id,
+        persona,
+        nombre,
+        radicado or "no tenía",
+    )
     return acta
 
 
@@ -476,9 +516,9 @@ async def casos_de(db: Conexion, actas: list[ActaComite]) -> dict[int, CasoDelAc
 
 
 def reabrible(acta: ActaComite) -> bool:
-    """Se puede intentar reabrir: cerrada sin firma y con número. Si el
+    """Se puede intentar reabrir: tiene número (no es histórica). Si el
     Consejo ya decidió alguno de sus casos, `reabrir` lo dice."""
-    return acta.estado == CERRADA and acta.numero is not None
+    return acta.numero is not None
 
 
 async def docx_reconstruido(db: Conexion, acta: ActaComite, hoy: date) -> bytes:

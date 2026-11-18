@@ -10,6 +10,7 @@ from datetime import date
 import aiosqlite
 import pytest
 
+from app.core.config import settings
 from app.db import repo
 from app.db.session import connect
 from app.schemas.caso import EstadoCaso, Sentido
@@ -327,17 +328,45 @@ async def test_reabrir_acta_cerrada_sin_firma(db: aiosqlite.Connection) -> None:
         await _reabrir(db, cerrada.id)
 
 
-async def test_no_se_reabre_firmada_historica_ni_decidida(
+async def test_reabrir_acta_firmada_anula_la_firma(db: aiosqlite.Connection) -> None:
+    """Se firmó antes de tiempo: el número del acta y el radicado del oficio
+    quedan libres y los archivos firmados pasan a anulados/."""
+    _con_imagen()
+    uno = await _caso(db)
+    dos = await _caso(db, Sentido.NO_APROBAR, nombre="Persona Ficticia Dos")
+    radicado = "Mz.FCEN.1.065-311-26"
+    hecha = await _firmar(db, "039", radicado)
+    [firmada] = await actas_comite.de_la_direccion(db, DIR)
+    assert firmada.firma_id == hecha.id and actas_comite.reabrible(firmada)
+    rutas = [a.ruta for a in hecha.archivos]
+    assert rutas and all(r.exists() for r in rutas)
+
+    await _reabrir(db, firmada.id)
+    assert await actas_comite.de_la_direccion(db, DIR) == []
+    assert await firma.obtener(db, hecha.id) is None
+    assert not await firma.radicado_usado(db, radicado)
+    cur = await db.execute("SELECT COUNT(*) AS n FROM firma_archivos")
+    assert (await cur.fetchone())["n"] == 0  # type: ignore[index]
+    # Los firmados no se borran: quedan en anulados/.
+    assert not any(r.exists() for r in rutas)
+    anulados = settings.output_dir / "anulados" / f"firma_{hecha.id}"
+    assert sorted(x.name for x in anulados.iterdir()) == sorted(r.name for r in rutas)
+    for caso_id in (uno, dos):
+        c = await repo.get_caso(db, caso_id)
+        assert c and c.estado == EstadoCaso.LISTO and c.etapa == Etapa.RECOMENDADA
+    [ultimo] = (await flujo.eventos(db, uno))[-1:]
+    assert ultimo.accion == flujo.Accion.VOLVER_AL_COMITE
+    assert ultimo.detalle and radicado in ultimo.detalle
+
+    # Se vuelve a firmar con el mismo número y el mismo radicado.
+    otra = await _firmar(db, "039", radicado)
+    assert sorted(otra.caso_ids) == sorted([uno, dos])
+    assert all(a.ruta.exists() for a in otra.archivos)
+
+
+async def test_no_se_reabre_historica_ni_decidida(
     db: aiosqlite.Connection,
 ) -> None:
-    _con_imagen()
-    await _caso(db)
-    hecha = await _firmar(db, "001", "Mz.FCEN.1.065-001-26")
-    [firmada] = await actas_comite.de_la_direccion(db, DIR)
-    assert firmada.firma_id == hecha.id and not actas_comite.reabrible(firmada)
-    with pytest.raises(actas_comite.ActaNoPermitida, match="radicado"):
-        await _reabrir(db, firmada.id)
-
     # El Consejo ya decidió uno de los casos: no se reabre.
     caso = await _caso(db, nombre="Persona Ficticia Dos")
     cerrada = await _cerrar(db, 2)
@@ -347,7 +376,7 @@ async def test_no_se_reabre_firmada_historica_ni_decidida(
     )
     with pytest.raises(actas_comite.ActaNoPermitida, match=f"#{caso}"):
         await _reabrir(db, cerrada.id)
-    assert len(await actas_comite.de_la_direccion(db, DIR)) == 2
+    assert len(await actas_comite.de_la_direccion(db, DIR)) == 1
 
     # Histórica (sin número): no se reabre.
     await db.execute(

@@ -108,7 +108,7 @@ stateDiagram-v2
 | `recomendar` | en_comite, recomendada (y llegada sin prerrevisión obligatoria) | recomendada | administrativa (registra lo que recomendó el comité) | ✅ / ❌ | Recomendar aprobar / no aprobar |
 | `quitar_recomendacion` | recomendada | en_comite | administrativa | ⏳ Pendiente | Pendiente |
 | `enviar_consejo` | recomendada | en_consejo | administrativa, admin (al firmar) | `/firmar` o Cerrar programa | Firmar… (Oficio y acta) o Enviar al Consejo |
-| `volver_al_comite` | en_consejo | recomendada | administrativa, admin | — | Volver al comité; también al reabrir un acta cerrada sin firma |
+| `volver_al_comite` | en_consejo | recomendada | administrativa, admin | — | Volver al comité; también al reabrir un acta cerrada o firmada (la firma se anula) |
 | `aplazar` | llegada … en_consejo | en_consejo | administrativa, admin | Acta del Consejo | Acta del Consejo |
 | `decidir` | llegada … en_consejo, decidida (reemplazo) | decidida | administrativa, admin | Acta del Consejo | Acta del Consejo |
 | `expedir` | decidida | expedida | secretaria, admin | — | Notificaciones (número y fecha de expedición) |
