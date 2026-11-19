@@ -231,6 +231,34 @@ async def radicado_usado(db: Conexion, radicado: str) -> bool:
     return await cur.fetchone() is not None
 
 
+async def aviso_radicado_usado(db: Conexion, radicado: str) -> str | None:
+    """Si el radicado ya está en una firma, el mensaje para la persona: qué
+    acta lo tiene y, si se puede reabrir, cómo liberarlo. None si está libre."""
+    cur = await db.execute(
+        "SELECT f.programa, f.numero_acta, a.numero, a.anio FROM firmas f "
+        "LEFT JOIN actas_comite a ON a.firma_id = f.id WHERE f.radicado = ?",
+        (radicado,),
+    )
+    fila = await cur.fetchone()
+    if fila is None:
+        return None
+    programa = comite_de(str(fila["programa"]))
+    de_programa = f" de {programa.nombre}" if programa else ""
+    if fila["numero"] is None:
+        # Sin acta con número (histórica): no se reabre desde la web.
+        return (
+            f"El radicado {radicado} ya se usó en la firma del acta "
+            f"{fila['numero_acta']}{de_programa}. Use otro radicado."
+        )
+    acta = f"{actas_comite.formato_numero(int(fila['numero']))} de {fila['anio']}"
+    return (
+        f"El radicado {radicado} ya se usó: lo tiene el acta {acta}"
+        f"{de_programa}, que está firmada. Si esa firma se hizo antes de "
+        "tiempo, reabra el acta en la web, en «Oficio y acta», para anular la "
+        "firma y liberar el radicado. Si no, use otro radicado."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Datos de la sesión
 # ---------------------------------------------------------------------------
@@ -419,8 +447,8 @@ async def firmar(
         radicado = normalizar_radicado(radicado, hoy)
     except ValueError as exc:
         raise FirmaNoPermitida(str(exc)) from None
-    if await radicado_usado(db, radicado):
-        raise FirmaNoPermitida(f"El radicado {radicado} ya se usó en otra firma.")
+    if aviso := await aviso_radicado_usado(db, radicado):
+        raise FirmaNoPermitida(aviso)
     try:
         numero_acta = actas_comite.leer_numero(sesion.numero_acta)
         await actas_comite.verificar_numero(

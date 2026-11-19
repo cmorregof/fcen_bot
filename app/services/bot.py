@@ -720,8 +720,8 @@ async def _datos_firma(
         if prep.bloqueos:
             raise firma.FirmaNoPermitida(prep.bloqueos[0])
         radicado = firma.normalizar_radicado(datos.get("radicado", ""))
-        if await firma.radicado_usado(db, radicado):
-            raise ValueError(f"El radicado {radicado} ya se usó en otra firma.")
+        if aviso := await firma.aviso_radicado_usado(db, radicado):
+            raise ValueError(aviso)
         sesion = firma.validar_sesion(
             numero_acta=datos.get("numero_acta", ""),
             fecha_sesion=datos.get("fecha_sesion", ""),
